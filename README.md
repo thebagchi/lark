@@ -48,11 +48,18 @@ make binaries
 | `concurrent.star` | `spawn` and `join` |
 | `failfast.star` | a failed `assert` stopping the whole run, and `join` giving up early |
 | `failkinds.star` | `assert` against `fail` — swap one line and time it |
-| `shared.star` | `state` passing data between threads, and `extract_json` reading it |
+| `state.star` | `state` passing data between threads |
+| `frozen_state.star` | why a stored value is frozen — fails on purpose |
+| `pointers.star` | RFC 6901: `extract_json`, `match_json`, `len_json`, `find_key` |
+| `patch.star` | RFC 6902: `patch_json`, and the input left unchanged |
+| `clock.star` | `time` — durations and instants |
+| `numbers.star` | `math`, and what it returns |
 | `cancel.star` | `cancel`, and what joining a cancelled handle gives |
 | `encode.star` | the `json` plugin |
 
-The last two exit non-zero on purpose: they demonstrate failures.
+Five exit non-zero on purpose — `cancel.star`, `failfast.star`,
+`failkinds.star`, `frozen_state.star` and `strings.star` — because what a
+failure looks like is part of the interface.
 
 ## Install
 
