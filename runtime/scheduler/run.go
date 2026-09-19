@@ -9,7 +9,7 @@ import (
 )
 
 // ErrNoRun is returned when a builtin is called on a thread no run set up.
-var ErrNoRun = errors.New("scheduler: no run on this thread")
+var ErrNoRun = errors.New("no run on this thread")
 
 const (
 	// RUN_KEY and THREAD_KEY name what a run leaves on an interpreter thread.

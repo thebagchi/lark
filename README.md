@@ -147,7 +147,7 @@ def broken():
 def main():
     h = spawn(broken)
     # ... other work happens here, unaffected ...
-    join(h)          # raises: "the reason": assertion failed
+    join(h)          # raises: broken: "the reason": assertion failed
 ```
 
 `join` waits for **every** handle before reading any result, and re-raises the
@@ -170,7 +170,7 @@ missing entry point is refused without a single top-level statement having run,
 and a cycle names the ring it found:
 
 ```
-a.star -> b.star -> a.star: cycle in the load graph
+cycle in the load graph: a.star -> b.star -> a.star
 ```
 
 Every module is fetched once per compile, however many scripts load it.

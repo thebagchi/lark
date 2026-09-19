@@ -10,7 +10,7 @@ import (
 // ErrAssert is what a script raises through assert, which is the only way it
 // can signal failure: raise is a reserved lexer keyword and a builtin of that
 // name will not parse as a call.
-var ErrAssert = errors.New("scheduler: assertion failed")
+var ErrAssert = errors.New("assertion failed")
 
 const ASSERT = "assert"
 

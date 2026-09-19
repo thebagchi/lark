@@ -73,12 +73,9 @@ func (d *_Dir) Resolve(from string, target string) (string, error) {
 // Revisions:
 //   - 2026-09-19 20:28: initial creation
 func (d *_Dir) Load(name string) ([]byte, error) {
-	src, err := os.ReadFile(name)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", name, err)
-	}
-
-	return src, nil
+	// Not wrapped: os.ReadFile's error already names the file it could not
+	// open, and the caller adds the spelling a script used.
+	return os.ReadFile(name)
 }
 
 // _Add compiles src as path, then walks whatever it loads, depth first.
@@ -103,7 +100,10 @@ func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 		env.Has,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("compile %s: %w", path, err)
+		// Not wrapped with the path: a parse or resolve error from the
+		// interpreter already opens with file:line:column, and repeating the
+		// file makes a reader scan past it twice to reach the position.
+		return nil, err
 	}
 
 	var encoded strings.Builder
@@ -172,14 +172,14 @@ func (g *_Graph) _Reach(from string, target string) (string, error) {
 
 	name, err := g.loader.Resolve(from, target)
 	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", target, err)
+		return "", fmt.Errorf("cannot resolve %q from %s: %w", target, from, err)
 	}
 
 	start := slices.Index(g.chain, name)
 	if start >= 0 {
 		ring := append(slices.Clone(g.chain[start:]), name)
 
-		return "", fmt.Errorf("%s: %w", strings.Join(ring, CHAIN_ARROW), ErrCycle)
+		return "", fmt.Errorf("%w: %s", ErrCycle, strings.Join(ring, CHAIN_ARROW))
 	}
 
 	_, done := g.units[name]
@@ -189,7 +189,10 @@ func (g *_Graph) _Reach(from string, target string) (string, error) {
 
 	src, err := g.loader.Load(name)
 	if err != nil {
-		return "", fmt.Errorf("load %s: %w", name, err)
+		// The spelling and the file that wrote it, because the loader's own
+		// error says what it tried to reach. Wrapping with the resolved name
+		// would print one path twice.
+		return "", fmt.Errorf("cannot load %q from %s: %w", target, from, err)
 	}
 
 	g.chain = append(g.chain, name)

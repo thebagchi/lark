@@ -9,7 +9,7 @@ import (
 
 // ErrNoMain is returned for a script with no entry point, or one a run cannot
 // call with no arguments.
-var ErrNoMain = errors.New("artifact: no entry point")
+var ErrNoMain = errors.New("no entry point")
 
 // ENTRY is the one top-level function a final compilation unit must define.
 const ENTRY = "main"

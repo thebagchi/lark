@@ -13,7 +13,7 @@ import (
 	"go.starlark.net/starlark"
 )
 
-var ErrConflict = errors.New("plugin: two plugins supply one name")
+var ErrConflict = errors.New("two plugins supply one name")
 
 // Plugin is a set of names a script is given.
 //

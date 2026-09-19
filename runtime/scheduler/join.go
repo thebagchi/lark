@@ -9,7 +9,7 @@ import (
 
 // ErrNotAHandle is returned when join or cancel is given something that is not
 // a handle, or any keyword argument.
-var ErrNotAHandle = errors.New("scheduler: join wants handles")
+var ErrNotAHandle = errors.New("join wants handles")
 
 const (
 	JOIN   = "join"
@@ -48,7 +48,7 @@ func _Join(
 
 	for _, handle := range handles {
 		if handle.err != nil {
-			return nil, fmt.Errorf("%s %s: %w", JOIN, handle.name, handle.err)
+			return nil, fmt.Errorf("%s: %w", handle.name, handle.err)
 		}
 
 		values = append(values, handle.value)

@@ -18,11 +18,11 @@ import (
 )
 
 var (
-	ErrCycle       = errors.New("artifact: cycle in the load graph")
-	ErrNoGlobal    = errors.New("artifact: no such global")
-	ErrNoLoader    = errors.New("artifact: no loader to reach a module with")
-	ErrNoUnit      = errors.New("artifact: no such unit")
-	ErrNotCallable = errors.New("artifact: global is not callable")
+	ErrCycle       = errors.New("cycle in the load graph")
+	ErrNoGlobal    = errors.New("no such global")
+	ErrNoLoader    = errors.New("no loader to reach a module with")
+	ErrNoUnit      = errors.New("no such unit")
+	ErrNotCallable = errors.New("global is not callable")
 )
 
 const CHAIN_ARROW = " -> "
@@ -179,7 +179,15 @@ func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("invoke %s: %w", fn, err)
+		// Wrapped with the function only when something above would otherwise
+		// not say which one ran. A Starlark error carries its own backtrace,
+		// and a re-raised join failure already names the thread that failed,
+		// so "invoke main:" in front of either is a clause that adds nothing.
+		if errors.Is(err, ErrNoGlobal) || errors.Is(err, ErrNotCallable) {
+			return nil, fmt.Errorf("%s: %w", fn, err)
+		}
+
+		return nil, err
 	}
 
 	return result, nil
@@ -200,7 +208,7 @@ func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error
 func (a *Artifact) Run(ctx context.Context) (starlark.Value, error) {
 	err := _RequireEntry(a.units[a.saved.GetEntry()].tree)
 	if err != nil {
-		return nil, fmt.Errorf("run %s: %w", a.saved.GetEntry(), err)
+		return nil, fmt.Errorf("%s: %w", a.saved.GetEntry(), err)
 	}
 
 	return a.Invoke(ctx, ENTRY)

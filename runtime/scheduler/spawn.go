@@ -13,11 +13,11 @@ import (
 var (
 	// ErrNotAName is every refusal spawn can make: the argument is missing,
 	// is not a function, is a lambda, or takes parameters nothing can supply.
-	ErrNotAName = errors.New("scheduler: spawn wants a named function")
+	ErrNotAName = errors.New("spawn wants a named function")
 
 	// ErrCancelled separates "the interpreter stopped you" from "your code was
 	// wrong", because a caller acts on them differently.
-	ErrCancelled = errors.New("scheduler: handle cancelled")
+	ErrCancelled = errors.New("handle cancelled")
 )
 
 const (
@@ -135,6 +135,9 @@ func (h *Handle) _Work(ctx context.Context, run *_Run, target *starlark.Function
 	)
 
 	if h.err != nil && ctx.Err() != nil {
-		h.err = fmt.Errorf("%w: %w", ErrCancelled, h.err)
+		// The interpreter's own message also says "cancelled", so it is
+		// replaced rather than wrapped: what a reader needs is which handle,
+		// and why the context ended.
+		h.err = fmt.Errorf("%w: %w", ErrCancelled, ctx.Err())
 	}
 }
