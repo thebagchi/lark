@@ -1,0 +1,24 @@
+# Compiled binaries always carry an extension, per CLAUDE.md's Build section:
+# .bin on Linux and macOS, .exe on Windows. Both are here because a
+# cross-compile follows the target rather than the host.
+*.bin
+*.exe
+
+# Anything fetched that the module system does not manage lands here, unpacked,
+# and is reproducible from the pins. See .guidelines/bootstrapping.md.
+thirdparty/
+
+# The working record: how this was planned, proved, reviewed and logged, and
+# the conventions it was written to. Kept on disk, out of the repository.
+.claude/
+.doc/
+.guidelines/
+.poc/
+CLAUDE.md
+plan.md
+review.md
+revision.md
+
+# A WSL utility for deleting Windows Zone.Identifier sidecars. It lives here
+# because that is where it is run from, not because it belongs to this project.
+purge_zone_identifier.py

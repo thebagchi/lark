@@ -1,0 +1,47 @@
+# Configuration for golangci-lint, pinned as a tool in go.mod.
+#
+# Only the settings this project's conventions actually require are here. Every
+# one of them is named in .guidelines/conventions/go.md; none is a preference
+# invented at this file.
+version: "2"
+
+linters:
+  default: standard
+
+  settings:
+    staticcheck:
+      # ST1000 (package comment) and ST1020 (doc comment opens with the
+      # identifier) are rules go.md states, and golangci-lint leaves them off by
+      # default - so they went unchecked until they were written down.
+      #
+      # ST1003 must stay off, and go.md records the measurement behind that: with
+      # it forced on it reports every CAPITAL_SNAKE constant this project has,
+      # and says nothing at all about the leading underscore it was suspected of
+      # objecting to.
+      checks:
+        - all
+        - -ST1003
+
+  exclusions:
+    # strict rather than lax: lax also treats a file as generated on looser
+    # hints, which lets a hand-written file leave the gate by mentioning the
+    # wrong phrase in a header comment - a check that stopped looking, arriving
+    # as a clean run.
+    generated: strict
+
+formatters:
+  enable:
+    - gofmt
+    - gci
+
+  settings:
+    gci:
+      # Three groups: standard library, external, this module. goimports
+      # produces only two; the third needs the local prefix naming this module.
+      sections:
+        - standard
+        - default
+        - prefix(github.com/thebagchi/lark)
+
+  exclusions:
+    generated: strict

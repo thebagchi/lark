@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package artifact;
+
+option go_package = "github.com/thebagchi/lark/proto/gen/artifact;artifact";
+
+// Unit is one compiled file: the name the artifact files it under, the
+// compiled code an evaluation runs, and what each load spelling inside it
+// resolved to.
+//
+// loads is carried rather than derived because deriving it is what a loader
+// does, and nothing reading this has one. The interpreter's load hook is handed
+// the spelling a script wrote, so without this map a unit cannot be wired to
+// its dependencies.
+//
+// The syntax tree is not carried. Compiled code does not include it, so a unit
+// restored from here has none, and the entry-point rule cannot be applied a
+// second time.
+message Unit {
+  string name              = 1;
+  bytes code               = 2;
+  map<string, string> loads = 3;
+}
+
+// Artifact is a script and every module it loads, compiled together. entry
+// names the unit a run starts in; units holds every unit, dependencies first.
+message Artifact {
+  string entry        = 1;
+  repeated Unit units = 2;
+}

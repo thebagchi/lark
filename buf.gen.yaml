@@ -1,0 +1,11 @@
+version: v2
+clean: true
+plugins:
+  # module= strips this prefix from each file's go_package and writes what is
+  # left under out. That is what lets every .proto sit directly in proto/ while
+  # its generated package still lands in its own directory - source-relative
+  # paths would put two different Go packages in one directory, which does not
+  # compile.
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: proto/gen
+    opt: module=github.com/thebagchi/lark/proto/gen

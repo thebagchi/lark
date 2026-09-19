@@ -1,0 +1,383 @@
+syntax = "proto3";
+
+package ast;
+
+option go_package = "github.com/thebagchi/lark/proto/gen/ast;ast";
+
+// Position is one point in a source file. Line and col are 1-based, and are 0
+// where the parser did not record them; file is empty for a position the parser
+// considers invalid.
+message Position {
+  string file = 1;
+  int32 line  = 2;
+  int32 col   = 3;
+}
+
+// Span is the extent of a node, from its first character to just past its last.
+//
+// The Go AST does not store a span. It stores the positions of individual
+// tokens - a def keyword, a left paren, an else - and computes the span from
+// them on demand. Carrying the span instead of those tokens is enough to point
+// a diagnostic at source and to link a graph node back to the line it came
+// from, and is not enough to reprint the source exactly. That trade is
+// deliberate: reprinting is a formatter's job and no formatter is planned.
+message Span {
+  Position start = 1;
+  Position end   = 2;
+}
+
+// Token names an operator or keyword a node carries in one of its fields.
+//
+// Only the tokens that can appear in an AST node are listed - the assignment
+// operators, the branch keywords, the literal kinds, and the unary and binary
+// operators. The scanner's own token set is larger, and the rest of it never
+// survives parsing: a left paren is structure, not data.
+enum Token {
+  TOKEN_UNSPECIFIED = 0;
+
+  // Assignment, as carried by AssignStmt.op, and the keyword argument marker
+  // carried by a call's or a parameter list's BinaryExpr.
+  TOKEN_EQ            = 1;
+  TOKEN_PLUS_EQ       = 2;
+  TOKEN_MINUS_EQ      = 3;
+  TOKEN_STAR_EQ       = 4;
+  TOKEN_SLASH_EQ      = 5;
+  TOKEN_SLASHSLASH_EQ = 6;
+  TOKEN_PERCENT_EQ    = 7;
+  TOKEN_AMP_EQ        = 8;
+  TOKEN_PIPE_EQ       = 9;
+  TOKEN_CIRCUMFLEX_EQ = 10;
+  TOKEN_LTLT_EQ       = 11;
+  TOKEN_GTGT_EQ       = 12;
+
+  // Branching, as carried by BranchStmt.token.
+  TOKEN_BREAK    = 13;
+  TOKEN_CONTINUE = 14;
+  TOKEN_PASS     = 15;
+
+  // Literal kinds, as carried by Literal.token.
+  TOKEN_STRING = 16;
+  TOKEN_BYTES  = 17;
+  TOKEN_INT    = 18;
+  TOKEN_FLOAT  = 19;
+
+  // Arithmetic and bitwise, shared by UnaryExpr.op and BinaryExpr.op.
+  TOKEN_PLUS       = 20;
+  TOKEN_MINUS      = 21;
+  TOKEN_STAR       = 22;
+  TOKEN_STARSTAR   = 23;
+  TOKEN_SLASH      = 24;
+  TOKEN_SLASHSLASH = 25;
+  TOKEN_PERCENT    = 26;
+  TOKEN_AMP        = 27;
+  TOKEN_PIPE       = 28;
+  TOKEN_CIRCUMFLEX = 29;
+  TOKEN_LTLT       = 30;
+  TOKEN_GTGT       = 31;
+  TOKEN_TILDE      = 32;
+
+  // Comparison and logic, carried by BinaryExpr.op, plus the not that
+  // UnaryExpr.op carries.
+  TOKEN_EQL    = 33;
+  TOKEN_NEQ    = 34;
+  TOKEN_LT     = 35;
+  TOKEN_GT     = 36;
+  TOKEN_LE     = 37;
+  TOKEN_GE     = 38;
+  TOKEN_IN     = 39;
+  TOKEN_NOT_IN = 40;
+  TOKEN_AND    = 41;
+  TOKEN_OR     = 42;
+  TOKEN_NOT    = 43;
+}
+
+// File is a parsed Starlark file: its path, and the statements at its top
+// level. The resolver's module, which the Go AST hangs here, is not carried -
+// it is the result of a later pass over this tree, not part of it.
+message File {
+  Span span         = 1;
+  string path       = 2;
+  repeated Stmt stmts = 3;
+}
+
+// Stmt is one statement. The set is closed - Starlark has exactly these nine -
+// so a oneof states that, and a reader who handles every case has handled every
+// statement the language can produce.
+message Stmt {
+  oneof kind {
+    AssignStmt assign = 1;
+    BranchStmt branch = 2;
+    DefStmt def       = 3;
+    ExprStmt expr     = 4;
+    ForStmt for       = 5;
+    WhileStmt while   = 6;
+    IfStmt if         = 7;
+    LoadStmt load     = 8;
+    ReturnStmt return = 9;
+  }
+}
+
+// AssignStmt is an assignment: x = 0, or x, y = y, x, or x += 1. op says which,
+// and is one of the TOKEN_*_EQ values or TOKEN_EQ.
+message AssignStmt {
+  Span span  = 1;
+  Token op   = 2;
+  Expr lhs   = 3;
+  Expr rhs   = 4;
+}
+
+// DefStmt is a function definition. Each param is an Expr rather than a shape
+// of its own, exactly as the Go AST holds it: a plain Ident, a BinaryExpr with
+// TOKEN_EQ for a default, or a UnaryExpr with TOKEN_STAR or TOKEN_STARSTAR.
+// The resolver's function, which the Go AST hangs here, is not carried.
+message DefStmt {
+  Span span            = 1;
+  Ident name           = 2;
+  repeated Expr params = 3;
+  repeated Stmt body   = 4;
+}
+
+// ExprStmt is an expression evaluated for its effect and not its value.
+message ExprStmt {
+  Span span = 1;
+  Expr x    = 2;
+}
+
+// IfStmt is a conditional. An elif chain is not a shape here: the parser
+// desugars it into a nested IfStmt inside the else branch, and this mirrors
+// that. else is empty when the source had none.
+message IfStmt {
+  Span span          = 1;
+  Expr cond          = 2;
+  repeated Stmt then = 3;
+  repeated Stmt else = 4;
+}
+
+// LoadStmt loads another module and binds names from it. from names the binding
+// made in the loading module and to the name taken from the loaded one, and the
+// two lists are the same length. The AST is deliberately unfaithful to the
+// source here, as the Go AST is: Starlark's load binds some names with an
+// identifier and some with only a string, and the parser invents an identifier
+// for every string so both sides are uniform.
+message LoadStmt {
+  Span span            = 1;
+  Literal module       = 2;
+  repeated Ident from  = 3;
+  repeated Ident to    = 4;
+}
+
+// BranchStmt changes the flow of control: token is TOKEN_BREAK,
+// TOKEN_CONTINUE or TOKEN_PASS.
+message BranchStmt {
+  Span span   = 1;
+  Token token = 2;
+}
+
+// ReturnStmt returns from a function. result is absent for a bare return.
+message ReturnStmt {
+  Span span   = 1;
+  Expr result = 2;
+}
+
+// ForStmt iterates over x, binding vars each time round. vars is a single name
+// or a tuple of them.
+message ForStmt {
+  Span span          = 1;
+  Expr vars          = 2;
+  Expr x             = 3;
+  repeated Stmt body = 4;
+}
+
+// WhileStmt repeats body while cond holds. It is only present in a dialect that
+// enables while loops, which is a file option rather than a property of the
+// grammar.
+message WhileStmt {
+  Span span          = 1;
+  Expr cond          = 2;
+  repeated Stmt body = 3;
+}
+
+// Expr is one expression. The set is closed - Starlark has exactly these
+// sixteen - so a oneof states that. DictEntry is an expression here because it
+// is one in the Go AST, although it appears only inside a DictExpr.
+message Expr {
+  oneof kind {
+    BinaryExpr binary       = 1;
+    CallExpr call           = 2;
+    Comprehension comp      = 3;
+    CondExpr cond           = 4;
+    DictEntry dict_entry    = 5;
+    DictExpr dict           = 6;
+    DotExpr dot             = 7;
+    Ident ident             = 8;
+    IndexExpr index         = 9;
+    LambdaExpr lambda       = 10;
+    ListExpr list           = 11;
+    Literal literal         = 12;
+    ParenExpr paren         = 13;
+    SliceExpr slice         = 14;
+    TupleExpr tuple         = 15;
+    UnaryExpr unary         = 16;
+  }
+}
+
+// Ident is an identifier. The resolver's binding, which the Go AST hangs here,
+// is not carried.
+message Ident {
+  Span span   = 1;
+  string name = 2;
+}
+
+// Literal is a string, bytes, int or float constant. raw is the source text as
+// written, uninterpreted, and value is what it denotes.
+//
+// value is a oneof rather than one field because an int that does not fit in
+// 64 bits is a big integer, and the only lossless way to carry one without
+// inventing an arbitrary-precision message is its decimal text. A consumer that
+// ignores big_int silently reads a subset of the language.
+message Literal {
+  Span span    = 1;
+  Token token  = 2;
+  string raw   = 3;
+  oneof value {
+    string text   = 4;
+    int64 int     = 5;
+    string big_int = 6;
+    double float  = 7;
+  }
+}
+
+// ParenExpr is a parenthesised expression. It is a node rather than being
+// dropped because the parentheses are visible in the source and a tool that
+// reports on source needs to see them.
+message ParenExpr {
+  Span span = 1;
+  Expr x    = 2;
+}
+
+// CallExpr is a call. Each arg is an Expr rather than a shape of its own,
+// exactly as the Go AST holds it: a plain expression, a BinaryExpr with
+// TOKEN_EQ for a keyword argument, or a UnaryExpr with TOKEN_STAR or
+// TOKEN_STARSTAR.
+message CallExpr {
+  Span span          = 1;
+  Expr fn            = 2;
+  repeated Expr args = 3;
+}
+
+// DotExpr is attribute access: x.name.
+message DotExpr {
+  Span span  = 1;
+  Expr x     = 2;
+  Ident name = 3;
+}
+
+// Comprehension is a list, set or dict comprehension. curly distinguishes
+// {x: y for ...} and {x for ...} from [x for ...]; body is the element, which
+// is a DictEntry for the dict form.
+message Comprehension {
+  Span span              = 1;
+  bool curly             = 2;
+  Expr body              = 3;
+  repeated Clause clauses = 4;
+}
+
+// Clause is one clause of a comprehension. The Go AST types this as a bare Node
+// holding either shape, which a reader has to know; the set is closed, so a
+// oneof says it instead.
+message Clause {
+  oneof kind {
+    ForClause for = 1;
+    IfClause if   = 2;
+  }
+}
+
+// ForClause is the for part of a comprehension: for vars in x.
+message ForClause {
+  Span span = 1;
+  Expr vars = 2;
+  Expr x    = 3;
+}
+
+// IfClause is the if part of a comprehension.
+message IfClause {
+  Span span = 1;
+  Expr cond = 2;
+}
+
+// DictExpr is a dictionary literal. Every entry is a DictEntry, and the field
+// is typed as Expr because that is how the Go AST types it.
+message DictExpr {
+  Span span          = 1;
+  repeated Expr list = 2;
+}
+
+// DictEntry is one key: value pair, used only inside a DictExpr.
+message DictEntry {
+  Span span  = 1;
+  Expr key   = 2;
+  Expr value = 3;
+}
+
+// LambdaExpr is an anonymous function, whose body is a single expression.
+// params take the same shapes as a def's. The resolver's function, which the Go
+// AST hangs here, is not carried.
+message LambdaExpr {
+  Span span            = 1;
+  repeated Expr params = 2;
+  Expr body            = 3;
+}
+
+// ListExpr is a list literal.
+message ListExpr {
+  Span span          = 1;
+  repeated Expr list = 2;
+}
+
+// CondExpr is the conditional expression: then if cond else else.
+message CondExpr {
+  Span span = 1;
+  Expr cond = 2;
+  Expr then = 3;
+  Expr else = 4;
+}
+
+// TupleExpr is a tuple. It has no parentheses of its own in source such as
+// x, y = 0, 1, and the span is then the extent of its elements.
+message TupleExpr {
+  Span span          = 1;
+  repeated Expr list = 2;
+}
+
+// UnaryExpr applies op to x. x is absent when op is TOKEN_STAR, which is how a
+// bare * in a parameter list is spelled.
+message UnaryExpr {
+  Span span = 1;
+  Token op  = 2;
+  Expr x    = 3;
+}
+
+// BinaryExpr applies op to x and y.
+message BinaryExpr {
+  Span span = 1;
+  Expr x    = 2;
+  Token op  = 3;
+  Expr y    = 4;
+}
+
+// SliceExpr is x[lo:hi:step]. All three bounds are optional and absent when the
+// source omitted them.
+message SliceExpr {
+  Span span = 1;
+  Expr x    = 2;
+  Expr lo   = 3;
+  Expr hi   = 4;
+  Expr step = 5;
+}
+
+// IndexExpr is x[y].
+message IndexExpr {
+  Span span = 1;
+  Expr x    = 2;
+  Expr y    = 3;
+}

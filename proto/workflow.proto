@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package workflow;
+
+option go_package = "github.com/thebagchi/lark/proto/gen/workflow;workflow";
+
+// Status is a function's execution state.
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_PENDING     = 1;
+  STATUS_RUNNING     = 2;
+  STATUS_SUCCEEDED   = 3;
+  STATUS_FAILED      = 4;
+}
+
+// Call runs function as this thread's next step.
+message Call {
+  string function = 1;
+}
+
+// Fork starts thread as a new, concurrent thread, without pausing the
+// thread that reports it.
+message Fork {
+  int32 thread = 1;
+}
+
+// Join waits for every listed thread to finish and folds them back into
+// the thread that reports it. More than one thread when several branches
+// converge on the same call.
+message Join {
+  repeated int32 threads = 1;
+}
+
+// Condition is a literal bool, or the name of a predicate function to
+// call and branch on. Its own message so steps other than If can reuse
+// it.
+message Condition {
+  oneof kind {
+    bool value      = 1;
+    string function = 2;
+  }
+}
+
+// If calls then or else, depending on condition.
+message If {
+  Condition condition = 1;
+  string then         = 2;
+  string else         = 3;
+}
+
+// Expression is a literal string, or the name of a function to call for
+// the value. Its own message, rather than a bare string, so a later
+// field does not reshape whatever step embeds it.
+message Expression {
+  oneof kind {
+    string value    = 1;
+    string function = 2;
+  }
+}
+
+// Case pairs one value with the function to call when an expression
+// equals it.
+message Case {
+  string value    = 1;
+  string function = 2;
+}
+
+// Match evaluates expression and calls whichever case matches its value,
+// or default if none do. The cases double as an elif chain, which is
+// what keeps If a plain binary then/else rather than a repeated shape.
+message Match {
+  Expression expression = 1;
+  repeated Case cases   = 2;
+  string default        = 3;
+}
+
+// Repeat calls function count times, pausing delay_ms milliseconds
+// between calls.
+message Repeat {
+  string function = 1;
+  int32 count     = 2;
+  int32 delay_ms  = 3;
+}
+
+// Retry calls function up to attempts times, stopping at the first
+// success, pausing delay_ms milliseconds between attempts.
+message Retry {
+  string function = 1;
+  int32 attempts  = 2;
+  int32 delay_ms  = 3;
+}
+
+// Sleep pauses this thread for duration_ms milliseconds.
+message Sleep {
+  int32 duration_ms = 1;
+}
+
+// Timeout calls function, failing it if it runs past timeout_ms
+// milliseconds.
+message Timeout {
+  string function  = 1;
+  int32 timeout_ms = 2;
+}
+
+// Step is one action a thread performs, in execution order. A plain
+// sequential step is a Call; a fan-out is a Fork on the spawning thread
+// and a Call on the branch it starts; a merge is a Join on the thread
+// the branches fold back into, followed by a Call.
+//
+// The set of actions is closed, so a oneof states that. It also lets
+// Join carry a list of threads without a separate flag saying which
+// action is set.
+message Step {
+  oneof action {
+    Call call       = 1;
+    Fork fork       = 2;
+    Join join       = 3;
+    If if           = 4;
+    Match match     = 5;
+    Repeat repeat   = 6;
+    Retry retry     = 7;
+    Sleep sleep     = 8;
+    Timeout timeout = 9;
+  }
+}
+
+// Function is one top-level script function. Its own message, rather
+// than a bare string, so a later field does not reshape Graph. Its
+// thread is not carried here: every function has a self-Call as some
+// thread's own step, which is where a caller finds it, and a function in
+// no thread's steps is code nothing reaches.
+message Function {
+  string name = 1;
+}
+
+// Thread is one thread's own state. steps are its actions in execution
+// order; nodes are its own functions' statuses, in the order it runs
+// them.
+//
+// The two lists differ in length and in order, because a Fork or Join
+// names another thread without being one of this thread's own functions.
+// One status per thread could not say which of its functions are done,
+// running or pending, since a thread runs more than one over its life.
+message Thread {
+  int32 index         = 1;
+  repeated Step steps = 2;
+  repeated Node nodes = 3;
+}
+
+// Node is one function's status within a thread's timeline.
+message Node {
+  string function = 1;
+  Status status   = 2;
+}
+
+// Graph is the static half of a script's workflow: one entry per
+// top-level function, grouped into the threads that run them. Only steps
+// are populated, since nothing has run.
+message Graph {
+  repeated Function functions = 1;
+  repeated Thread threads     = 2;
+}
+
+// Workflow is a snapshot of one run's live status. Its threads populate
+// nodes as well as steps.
+message Workflow {
+  Status status           = 1;
+  repeated Thread threads = 2;
+}

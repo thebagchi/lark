@@ -1,0 +1,280 @@
+package artifact
+
+import (
+	"fmt"
+	"os"
+	"path"
+	"slices"
+	"strings"
+
+	"go.starlark.net/starlark"
+
+	artifactpb "github.com/thebagchi/lark/proto/gen/artifact"
+	"github.com/thebagchi/lark/runtime/dialect"
+	"github.com/thebagchi/lark/runtime/guard"
+	"github.com/thebagchi/lark/runtime/plugin"
+)
+
+// Loader fetches the source of a module a script asked to load, and says what
+// that module is actually called.
+//
+// The interface is declared here rather than borrowed so that what this package
+// depends on is the single method it calls. A host serving scripts from a
+// directory, an archive, a database or a test map implements this without
+// having to be, or to own, a file system.
+//
+// Resolving is separate from fetching, and the split is what keeps two
+// properties the one-method shape gave up: a module reached by two routes is
+// fetched once, and a cycle is refused without fetching anything. Both need the
+// graph to know what a spelling means before it decides whether to ask for it.
+//
+// Resolve is given the module doing the loading and the spelling it used, and
+// returns the identity the artifact files that module under. Two spellings that
+// reach one module must resolve to one name, or it is built twice; one spelling
+// that reaches two modules must resolve to two, or the wrong one is reused. It
+// is expected to be cheap - a path join, a key normalisation - because it runs
+// for every load whether or not a fetch follows.
+type Loader interface {
+	Resolve(from string, path string) (string, error)
+	Load(name string) ([]byte, error)
+}
+
+// _Dir is the loader a Compiler uses when the host set none: a module is a file
+// beside the one that loaded it.
+//
+// Empty: it needs no state, because the file doing the loading is an argument.
+type _Dir struct{}
+
+// _Graph collects the compiled units of one artifact, in an order that puts a
+// dependency before whatever loads it.
+type _Graph struct {
+	loader Loader
+	units  map[string]*_Unit
+	order  []string
+	chain  []string
+}
+
+// Resolve reads target as a file beside from.
+//
+// A relative spelling resolves against the directory of the file that wrote it,
+// so a module that moves takes its neighbours' references with it. The cleaned
+// join is the name, which is what stops two spellings of one file from becoming
+// two units, and one spelling in two directories from becoming one.
+//
+// Revisions:
+//   - 2026-09-19 20:14: initial creation
+//   - 2026-09-19 20:28: resolves only; fetching moved to Load
+func (d *_Dir) Resolve(from string, target string) (string, error) {
+	return path.Join(path.Dir(from), target), nil
+}
+
+// Load reads the file at name.
+//
+// Revisions:
+//   - 2026-09-19 20:28: initial creation
+func (d *_Dir) Load(name string) ([]byte, error) {
+	src, err := os.ReadFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", name, err)
+	}
+
+	return src, nil
+}
+
+// _Add compiles src as path, then walks whatever it loads, depth first.
+//
+// A compiled program lists its loads without having been run, which is what
+// lets the whole graph be built, and a cycle be refused, before any top-level
+// statement executes. The order is built on the way out of the recursion, so a
+// dependency always precedes whatever loaded it.
+//
+// Revisions:
+//   - 2026-09-19 18:30: initial creation
+func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
+	env, err := plugin.Environment()
+	if err != nil {
+		return nil, fmt.Errorf("compile %s: %w", path, err)
+	}
+
+	tree, code, err := starlark.SourceProgramOptions(
+		dialect.OPTIONS,
+		path,
+		src,
+		env.Has,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("compile %s: %w", path, err)
+	}
+
+	var encoded strings.Builder
+
+	err = code.Write(&encoded)
+	if err != nil {
+		return nil, fmt.Errorf("encode %s: %w", path, err)
+	}
+
+	unit := &_Unit{
+		saved: &artifactpb.Unit{
+			Name:  path,
+			Code:  []byte(encoded.String()),
+			Loads: map[string]string{},
+		},
+		tree: tree,
+		code: code,
+	}
+
+	g.units[path] = unit
+
+	for index := range code.NumLoads() {
+		module, _ := code.Load(index)
+
+		name, err := g._Reach(path, module)
+		if err != nil {
+			return nil, err
+		}
+
+		unit.saved.Loads[module] = name
+	}
+
+	g.order = append(g.order, path)
+
+	return unit, nil
+}
+
+// _Reach brings the module target, as spelled by from, into the graph if it is
+// not there already.
+//
+// The loader is asked to resolve first, because until it says what target is
+// called there is nothing to compare: one spelling can reach two modules and
+// two spellings can reach one, and only the loader knows which. Everything
+// after that is keyed on the name it returned, and the fetch happens last, so
+// a module already built and a module that closes a cycle both cost nothing to
+// read.
+//
+// The chain is then checked before the map of units, and that order is the
+// rule: _Add registers a unit as soon as it compiles and before walking its own
+// loads, so everything on the chain is already in that map. Asking the map
+// first answers "seen it" for a unit that is still being built, which is
+// exactly the case a cycle is.
+//
+// Revisions:
+//   - 2026-09-19 18:32: initial creation
+//   - 2026-09-19 18:57: checks the chain before the map, so a cycle through the
+//     entry is refused rather than reported as a missing unit at link time
+//   - 2026-09-19 20:18: resolves through the loader before either check, so a
+//     module is identified by what it is rather than by how it was spelled
+//   - 2026-09-19 20:28: fetches only after both checks, restoring one fetch per
+//     module and none at all for a cycle
+func (g *_Graph) _Reach(from string, target string) (string, error) {
+	if g.loader == nil {
+		return "", fmt.Errorf("load %s: %w", target, ErrNoLoader)
+	}
+
+	name, err := g.loader.Resolve(from, target)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", target, err)
+	}
+
+	start := slices.Index(g.chain, name)
+	if start >= 0 {
+		ring := append(slices.Clone(g.chain[start:]), name)
+
+		return "", fmt.Errorf("%s: %w", strings.Join(ring, CHAIN_ARROW), ErrCycle)
+	}
+
+	_, done := g.units[name]
+	if done {
+		return name, nil
+	}
+
+	src, err := g.loader.Load(name)
+	if err != nil {
+		return "", fmt.Errorf("load %s: %w", name, err)
+	}
+
+	g.chain = append(g.chain, name)
+
+	defer func() {
+		g.chain = g.chain[:len(g.chain)-1]
+	}()
+
+	_, err = g._Add(name, src)
+
+	return name, err
+}
+
+// _Link initialises every unit in order and freezes what each produced.
+//
+// Dependencies come first, so the load hook only ever has to hand back globals
+// that are already built and frozen - there is nothing left to fetch by the
+// time anything runs.
+//
+// Initialising is guarded, because a module's top level runs arbitrary script
+// and a script must not be able to take the host down with it. It resolves
+// against the plugin environment, the same set the source was compiled
+// against. A script resolved against one environment and
+// initialised against another is a script whose names exist at compile time and
+// not at run time.
+//
+// Revisions:
+//   - 2026-09-19 18:36: initial creation
+func _Link(entry string, units map[string]*_Unit, order []string) (*Artifact, error) {
+	env, err := plugin.Environment()
+	if err != nil {
+		return nil, fmt.Errorf("link %s: %w", entry, err)
+	}
+
+	built := map[string]starlark.StringDict{}
+
+	for _, path := range order {
+		unit := units[path]
+
+		load := func(thread *starlark.Thread, spelling string) (starlark.StringDict, error) {
+			globals, found := built[unit.saved.GetLoads()[spelling]]
+			if !found {
+				return nil, fmt.Errorf("%s: %w", spelling, ErrNoUnit)
+			}
+
+			return globals, nil
+		}
+
+		thread := &starlark.Thread{
+			Name: path,
+			Load: load,
+		}
+
+		var globals starlark.StringDict
+
+		guard.WithRecover(
+			&globals,
+			&err,
+			func() (starlark.StringDict, error) {
+				return unit.code.Init(thread, env)
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("initialise %s: %w", path, err)
+		}
+
+		globals.Freeze()
+
+		built[path] = globals
+	}
+
+	message := &artifactpb.Artifact{
+		Entry: entry,
+		Units: make([]*artifactpb.Unit, 0, len(order)),
+	}
+
+	for _, name := range order {
+		message.Units = append(message.Units, units[name].saved)
+	}
+
+	result := &Artifact{
+		saved:   message,
+		units:   units,
+		globals: built[entry],
+	}
+
+	return result, nil
+}
