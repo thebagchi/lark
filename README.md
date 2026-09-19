@@ -48,6 +48,7 @@ make binaries
 | `concurrent.star` | `spawn` and `join` |
 | `failfast.star` | a failed `assert` stopping the whole run, and `join` giving up early |
 | `failkinds.star` | `assert` against `fail` — swap one line and time it |
+| `shared.star` | `state` passing data between threads, and `extract_json` reading it |
 | `cancel.star` | `cancel`, and what joining a cancelled handle gives |
 | `encode.star` | the `json` plugin |
 
@@ -128,10 +129,54 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `fail(msg, …)` | Starlark's own. Aborts the **calling thread**. |
 | `load(path, name)` | Binds a name from another script. |
 | `json` | `json.encode`, `json.decode`, and the rest of the module go.starlark.net ships. |
+| `state` | `state.set(name, value)` / `state.get(name)` — see below. |
+| `time`, `math` | go.starlark.net's own modules. |
+| `jsonpath` | `patch_json`, `extract_json`, `match_json`, `len_json`, `find_key`. |
 
 `spawn` takes a **named function that takes no arguments** — not a lambda, not a
 call. A closure over what it needs is how a script passes data in. The rule
 exists so every thread has a name to report.
+
+### Sharing data between threads
+
+Module scope is frozen before anything concurrent runs, so a script cannot share
+data by assigning to a global. `state` is how threads pass anything to each
+other:
+
+```python
+def writer():
+    state.set("message", "written by one thread")
+
+def reader():
+    return state.get("message")
+
+def main():
+    join(spawn(writer))
+    return join(spawn(reader))[0]
+```
+
+**A store belongs to one execution.** Two runs of the same artifact get two
+stores, and every thread inside a run gets the same one. Reading a name nothing
+has written gives `None`, because that is the ordinary case in a store threads
+share.
+
+**Values are frozen on the way in.** A store exists so threads can reach it at
+once, and handing a mutable value to two of them is the race it is meant to
+avoid — so appending to a list you got back from `state.get` fails loudly rather
+than corrupting it.
+
+Each of these is a plugin, and a host enables it by importing it:
+
+```go
+import (
+    _ "github.com/thebagchi/lark/runtime/plugin/state"
+    _ "github.com/thebagchi/lark/runtime/plugin/jsonpath"
+    _ "github.com/thebagchi/lark/runtime/plugin/time"
+    _ "github.com/thebagchi/lark/runtime/plugin/math"
+)
+```
+
+`cmd/lark` imports all of them, so every sample can use them.
 
 ### `assert` or `fail`?
 

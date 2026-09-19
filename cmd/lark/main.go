@@ -19,6 +19,10 @@ import (
 
 	"github.com/thebagchi/lark/runtime"
 	_ "github.com/thebagchi/lark/runtime/plugin/json"
+	_ "github.com/thebagchi/lark/runtime/plugin/jsonpath"
+	_ "github.com/thebagchi/lark/runtime/plugin/math"
+	_ "github.com/thebagchi/lark/runtime/plugin/state"
+	_ "github.com/thebagchi/lark/runtime/plugin/time"
 )
 
 const (
