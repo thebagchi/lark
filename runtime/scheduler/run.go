@@ -3,13 +3,20 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"go.starlark.net/starlark"
 )
 
-// ErrNoRun is returned when a builtin is called on a thread no run set up.
-var ErrNoRun = errors.New("no run on this thread")
+var (
+	// ErrNoRun is returned when a builtin is called on a thread no run set up.
+	ErrNoRun = errors.New("no run on this thread")
+
+	// ErrNotLocal is returned when two plugins claim one key for values of
+	// different types.
+	ErrNotLocal = errors.New("a run local holds another type")
+)
 
 const (
 	// RUN_KEY and THREAD_KEY name what a run leaves on an interpreter thread.
@@ -40,6 +47,7 @@ type _Run struct {
 	live    []*Handle
 	next    int32
 	outcome error
+	locals  map[string]any
 }
 
 // _Abandon cancels every handle still running.
@@ -190,4 +198,55 @@ func Outcome(thread *starlark.Thread) error {
 	}
 
 	return run._Outcome()
+}
+
+// Local returns this run's value for key, building it the first time it is
+// asked for.
+//
+// It is how a plugin holds something that belongs to one execution rather than
+// to the process or to a compile - a store two spawned threads share, say. Two
+// runs of one artifact get two values; the threads within a run get the same
+// one, because they carry the same run.
+//
+// build is called at most once per run per key, under the lock, so two threads
+// racing to be first still see one value.
+//
+// The map is keyed to any because what a plugin stores is its own business and
+// no two plugins store the same shape. The type parameter is what keeps that
+// contained: a caller names the type it expects and never sees the assertion.
+//
+// Returns ErrNoRun when the thread has no run, and ErrNotLocal when key already
+// holds something of another type - which means two plugins chose one key.
+//
+// Revisions:
+//   - 2026-09-20 00:31: initial creation
+func Local[T any](thread *starlark.Thread, key string, build func() T) (T, error) {
+	var empty T
+
+	run, err := _Of(thread)
+	if err != nil {
+		return empty, err
+	}
+
+	run.mutex.Lock()
+	defer run.mutex.Unlock()
+
+	if run.locals == nil {
+		run.locals = map[string]any{}
+	}
+
+	held, found := run.locals[key]
+	if !found {
+		made := build()
+		run.locals[key] = made
+
+		return made, nil
+	}
+
+	value, ok := held.(T)
+	if !ok {
+		return empty, fmt.Errorf("%s holds a %T: %w", key, held, ErrNotLocal)
+	}
+
+	return value, nil
 }

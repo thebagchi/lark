@@ -12,7 +12,6 @@ import (
 	artifactpb "github.com/thebagchi/lark/proto/gen/artifact"
 	"github.com/thebagchi/lark/runtime/dialect"
 	"github.com/thebagchi/lark/runtime/guard"
-	"github.com/thebagchi/lark/runtime/plugin"
 )
 
 // Loader fetches the source of a module a script asked to load, and says what
@@ -49,6 +48,7 @@ type _Dir struct{}
 // dependency before whatever loads it.
 type _Graph struct {
 	loader Loader
+	env    starlark.StringDict
 	units  map[string]*_Unit
 	order  []string
 	chain  []string
@@ -88,16 +88,11 @@ func (d *_Dir) Load(name string) ([]byte, error) {
 // Revisions:
 //   - 2026-09-19 18:30: initial creation
 func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
-	env, err := plugin.Environment()
-	if err != nil {
-		return nil, fmt.Errorf("compile %s: %w", path, err)
-	}
-
 	tree, code, err := starlark.SourceProgramOptions(
 		dialect.OPTIONS,
 		path,
 		src,
-		env.Has,
+		g.env.Has,
 	)
 	if err != nil {
 		// Not wrapped with the path: a parse or resolve error from the
@@ -213,21 +208,21 @@ func (g *_Graph) _Reach(from string, target string) (string, error) {
 // time anything runs.
 //
 // Initialising is guarded, because a module's top level runs arbitrary script
-// and a script must not be able to take the host down with it. It resolves
-// against the plugin environment, the same set the source was compiled
-// against. A script resolved against one environment and
+// and a script must not be able to take the host down with it.
+//
+// env is the one the source was compiled against, passed in rather than rebuilt
+// here. A script resolved against one environment and initialised against
+// another is a script whose names exist at compile time and not at run time -
+// and a plugin holding state would hand out a different store to each. A script resolved against one environment and
 // initialised against another is a script whose names exist at compile time and
 // not at run time.
 //
 // Revisions:
 //   - 2026-09-19 18:36: initial creation
-func _Link(entry string, units map[string]*_Unit, order []string) (*Artifact, error) {
-	env, err := plugin.Environment()
-	if err != nil {
-		return nil, fmt.Errorf("link %s: %w", entry, err)
-	}
-
+func _Link(entry string, env starlark.StringDict, units map[string]*_Unit, order []string) (*Artifact, error) {
 	built := map[string]starlark.StringDict{}
+
+	var err error
 
 	for _, path := range order {
 		unit := units[path]

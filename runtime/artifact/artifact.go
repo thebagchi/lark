@@ -14,6 +14,7 @@ import (
 
 	artifactpb "github.com/thebagchi/lark/proto/gen/artifact"
 	"github.com/thebagchi/lark/runtime/guard"
+	"github.com/thebagchi/lark/runtime/plugin"
 	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
@@ -117,18 +118,28 @@ func WithLoader(loader Loader) Option {
 //   - 2026-09-19 20:16: a method on Compiler, which holds the loader, so a host
 //     configures reaching modules once rather than at every call
 func (c *Compiler) Compile(name string, src []byte) (*Artifact, error) {
+	// Built once, here, and used for every unit and for linking. Rebuilding it
+	// per unit would let a plugin hand each unit a different value under one
+	// name, and would resolve a script against one environment while
+	// initialising it against another.
+	env, err := plugin.Environment()
+	if err != nil {
+		return nil, fmt.Errorf("compile %s: %w", name, err)
+	}
+
 	graph := &_Graph{
 		loader: c.loader,
+		env:    env,
 		units:  map[string]*_Unit{},
 		chain:  []string{name},
 	}
 
-	_, err := graph._Add(name, src)
+	_, err = graph._Add(name, src)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Link(name, graph.units, graph.order)
+	return _Link(name, env, graph.units, graph.order)
 }
 
 // Invoke calls the global named fn on an interpreter thread of its own and
