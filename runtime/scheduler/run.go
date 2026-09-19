@@ -130,6 +130,7 @@ func Begin(ctx context.Context, thread *starlark.Thread) func() {
 
 	thread.SetLocal(RUN_KEY, run)
 	thread.SetLocal(THREAD_KEY, int32(SPINE))
+	thread.SetLocal(CONTEXT_KEY, inner)
 
 	watching := _CancelOn(inner, thread)
 
@@ -249,4 +250,21 @@ func Local[T any](thread *starlark.Thread, key string, build func() T) (T, error
 	}
 
 	return value, nil
+}
+
+// End records outcome as why the run on thread ended, and stops it.
+//
+// It is how something that catches assertions gives up: retry catches each
+// attempt so that one failure is not the end of everything, and then has to end
+// the run itself when no attempt succeeded.
+//
+// Revisions:
+//   - 2026-09-20 01:20: initial creation
+func End(thread *starlark.Thread, outcome error) {
+	run, err := _Of(thread)
+	if err != nil {
+		return
+	}
+
+	run._End(outcome)
 }

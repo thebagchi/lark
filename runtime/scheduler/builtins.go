@@ -24,7 +24,7 @@ func (b *Builtins) Name() string {
 	return BUILTINS
 }
 
-// Values returns the four names the runtime itself supplies.
+// Values returns the five names the runtime itself supplies.
 //
 // A fresh map on every call, because a package-level variable would be one map
 // shared by every host, and a host that added a name to it would be adding it
@@ -38,5 +38,6 @@ func (b *Builtins) Values() starlark.StringDict {
 		JOIN:   starlark.NewBuiltin(JOIN, _Join),
 		CANCEL: starlark.NewBuiltin(CANCEL, _Cancel),
 		ASSERT: starlark.NewBuiltin(ASSERT, _Assert),
+		SLEEP:  starlark.NewBuiltin(SLEEP, _Sleep),
 	}
 }

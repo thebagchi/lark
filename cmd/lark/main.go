@@ -18,6 +18,7 @@ import (
 	"os"
 
 	"github.com/thebagchi/lark/runtime"
+	_ "github.com/thebagchi/lark/runtime/plugin/flow"
 	_ "github.com/thebagchi/lark/runtime/plugin/json"
 	_ "github.com/thebagchi/lark/runtime/plugin/jsonpath"
 	_ "github.com/thebagchi/lark/runtime/plugin/math"

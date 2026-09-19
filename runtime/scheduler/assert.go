@@ -105,7 +105,12 @@ func _Assert(
 }
 
 // _Stop ends the run this thread belongs to, recording cause as its outcome,
-// and returns cause unchanged.
+// and returns cause unchanged - unless something is catching assertions, in
+// which case it returns the cause and stops nothing.
+//
+// An unhandled failure ends the run; a handled one ends an attempt. retry is
+// the only thing that catches, and it is what makes an assertion retryable
+// without a script gaining try or except.
 //
 // A failed assertion stops everything, not only the thread it ran on: the
 // spine, every spawned thread, and anything they spawned. That is what a test
@@ -121,6 +126,10 @@ func _Assert(
 // Revisions:
 //   - 2026-09-20 00:09: initial creation
 func _Stop(thread *starlark.Thread, cause error) error {
+	if Catching(thread) {
+		return cause
+	}
+
 	run, err := _Of(thread)
 	if err != nil {
 		return cause

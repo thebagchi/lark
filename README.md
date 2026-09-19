@@ -50,6 +50,7 @@ make binaries
 | `failkinds.star` | `assert` against `fail` — swap one line and time it |
 | `state.star` | `state` passing data between threads |
 | `rcu.star` | read-copy-update: read a copy, change it, publish it |
+| `flow.star` | `repeat`, `retry`, `timeout` and `n()` |
 | `pointers.star` | RFC 6901: `extract_json`, `match_json`, `len_json`, `find_key` |
 | `patch.star` | RFC 6902: `patch_json`, and the input left unchanged |
 | `clock.star` | `time` — durations and instants |
@@ -134,6 +135,11 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `cancel(h, …)` | Stops each handle. Does not wait. |
 | `assert(cond, msg)` | Stops the **whole run** when `cond` is false. `assert(msg = "...")` always stops it. |
 | `fail(msg, …)` | Starlark's own. Aborts the **calling thread**. |
+| `sleep(seconds)` | Pauses this evaluation. A cancel cuts it short. |
+| `repeat(fn, n)` | Returns a callable that calls `fn` exactly `n` times. |
+| `retry(fn, n)` | Returns a callable that calls `fn` until one attempt succeeds. Retries **only** assertions. |
+| `timeout(fn, seconds)` | Returns a callable that gives `fn` a limited time. |
+| `n()` | The 1-based attempt number, inside `repeat` or `retry`. |
 | `load(path, name)` | Binds a name from another script. |
 | `json` | `json.encode`, `json.decode`, and the rest of the module go.starlark.net ships. |
 | `state` | `state.set`, `state.get`, `state.update` — see below. |
@@ -218,6 +224,43 @@ import (
 ```
 
 `cmd/lark` imports all of them, so every sample can use them.
+
+### Repeating, retrying and bounding
+
+Each is a **factory**: it takes a function and returns a callable, and nothing
+happens until that callable is called.
+
+```python
+three_times = repeat(step, 3)      # builds it
+three_times()                      # runs it
+```
+
+| | |
+| --- | --- |
+| `repeat(fn, n)` | exactly `n` calls, stopping at the first error, returning the last success |
+| `retry(fn, n)` | up to `n` calls, returning the first success |
+| `timeout(fn, seconds)` | one call, failing if it runs past the limit |
+
+**`retry` retries only assertions.** A `fail()`, a cancelled handle or a refused
+builtin propagates at once. That is what the two failure kinds are for: `assert`
+says a check did not hold, which may be timing; `fail` says this cannot work.
+
+An assertion normally ends the whole run — inside a `retry` it ends only that
+attempt, because the thread the attempt runs on is marked as catching. When
+every attempt has failed, the last assertion propagates and ends the run exactly
+as a bare assertion would.
+
+**`n()` is a call, not a variable.** A predeclared name is one value shared by
+every thread and resolved when the script is compiled, so it cannot know which
+attempt is asking. A function can, because it is handed the calling thread.
+Outside a `repeat` or `retry` it is an error rather than a guess.
+
+**Each attempt runs on its own goroutine and interpreter thread**, so two
+wrappers running in parallel never share an attempt count, and `timeout` can
+stop waiting for one.
+
+A lambda is refused by all three — they name the function they wrap, in an error
+and in whatever a graph records — and `n` must be at least 1.
 
 ### `assert` or `fail`?
 

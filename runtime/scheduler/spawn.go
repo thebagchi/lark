@@ -18,6 +18,9 @@ var (
 	// ErrCancelled separates "the interpreter stopped you" from "your code was
 	// wrong", because a caller acts on them differently.
 	ErrCancelled = errors.New("handle cancelled")
+
+	// ErrDuration is returned for a duration that is not one.
+	ErrDuration = errors.New("not a duration")
 )
 
 const (
@@ -122,6 +125,7 @@ func (h *Handle) _Work(ctx context.Context, run *_Run, target *starlark.Function
 	thread := &starlark.Thread{Name: h.name}
 	thread.SetLocal(RUN_KEY, run)
 	thread.SetLocal(THREAD_KEY, h.thread)
+	thread.SetLocal(CONTEXT_KEY, ctx)
 
 	stop := _CancelOn(ctx, thread)
 	defer stop()
