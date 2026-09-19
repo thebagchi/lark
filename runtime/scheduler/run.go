@@ -39,7 +39,7 @@ type _Run struct {
 	mutex   sync.Mutex
 	live    []*Handle
 	next    int32
-	failure error
+	outcome error
 }
 
 // _Abandon cancels every handle still running.
@@ -133,21 +133,28 @@ func Begin(ctx context.Context, thread *starlark.Thread) func() {
 	}
 }
 
-// _Fail records why a run is being stopped and stops it.
+// _End records the run's outcome and stops everything it started.
 //
-// The cause is kept because cancelling races the error that caused it: an
-// assertion returns an error which then unwinds the thread, while this cancel
-// reaches the same thread and may replace that error with "cancelled". A caller
-// asking what went wrong wants the assertion, not the consequence, so the first
-// cause recorded wins and _Cause hands it back.
+// A run has one outcome, and it is whatever was recorded first. Everything that
+// happens afterwards - a spinning sibling cancelled, a thread told to stop
+// between instructions, an evaluation unwinding - is the shutdown, not the
+// reason for it.
+//
+// Separating the two is what removes the need to reconstruct a reason from the
+// errors cancellation produces. Nothing has to decide whether an error means
+// "this failed" or "this was stopped because something else failed": the
+// outcome already says which failure mattered, and the rest may report
+// cancellation freely.
 //
 // Revisions:
-//   - 2026-09-20 00:07: initial creation
-func (r *_Run) _Fail(cause error) {
+//   - 2026-09-20 00:07: initial creation, as _Fail
+//   - 2026-09-20 00:12: named for what it records rather than what it does, and
+//     documented as the run's one authoritative answer
+func (r *_Run) _End(outcome error) {
 	r.mutex.Lock()
 
-	if r.failure == nil {
-		r.failure = cause
+	if r.outcome == nil {
+		r.outcome = outcome
 	}
 
 	r.mutex.Unlock()
@@ -155,30 +162,32 @@ func (r *_Run) _Fail(cause error) {
 	r.stop()
 }
 
-// _Cause returns what stopped this run, or nil if nothing did.
+// _Outcome returns what ended this run, or nil if nothing did.
 //
 // Revisions:
-//   - 2026-09-20 00:07: initial creation
-func (r *_Run) _Cause() error {
+//   - 2026-09-20 00:12: initial creation
+func (r *_Run) _Outcome() error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	return r.failure
+	return r.outcome
 }
 
-// Cause returns what stopped the run on thread, or nil.
+// Outcome returns what ended the run on thread, or nil if nothing did.
 //
-// A caller that evaluated on a thread Begin set up asks this before reporting
-// its own error: a run stopped by an assertion reports the assertion, not the
-// cancellation that followed from it.
+// A caller asks this **after** ending the run, never before: ending waits for
+// every thread the run started, and a thread still running is a thread that can
+// still fail. Asked too early, this reports nothing and a run that had already
+// been stopped looks like a success.
 //
 // Revisions:
-//   - 2026-09-20 00:08: initial creation
-func Cause(thread *starlark.Thread) error {
+//   - 2026-09-20 00:08: initial creation, as Cause
+//   - 2026-09-20 00:12: renamed, and documented as something to ask last
+func Outcome(thread *starlark.Thread) error {
 	run, err := _Of(thread)
 	if err != nil {
 		return nil
 	}
 
-	return run._Cause()
+	return run._Outcome()
 }

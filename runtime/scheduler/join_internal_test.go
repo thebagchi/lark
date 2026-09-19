@@ -151,13 +151,21 @@ func TestJoin_FirstFailureInArgumentOrderWins(t *testing.T) {
 	}
 }
 
-// TestJoin_WaitsForEveryHandleBeforeReadingAny proves a failure in the last
-// handle does not leave the earlier ones unjoined: every done channel is
-// received from before any result is read.
+// TestJoin_AbandonsNothingWhenItGivesUp proves the half of fail-fast that is
+// easy to leave out: when a handle fails, the ones join has not reached are
+// cancelled *and waited for*, so no evaluation is still unwinding after join
+// returns.
+//
+// It was called TestJoin_WaitsForEveryHandleBeforeReadingAny and asserted that
+// every handle finished before any result was read - which is exactly what
+// fail-fast removed on 2026-09-20 00:10. It kept passing, because cancelling
+// and waiting also leaves every channel closed, so its name and its comment
+// described a property the code no longer had.
 //
 // Revisions:
 //   - 2026-09-19 22:14: initial creation
-func TestJoin_WaitsForEveryHandleBeforeReadingAny(t *testing.T) {
+//   - 2026-09-20 00:15: renamed and re-documented for what it actually proves
+func TestJoin_AbandonsNothingWhenItGivesUp(t *testing.T) {
 	globals := _Globals(t)
 	run := _Started(t.Context())
 

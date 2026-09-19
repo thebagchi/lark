@@ -162,13 +162,22 @@ def main():
 
 **`join` is fail-fast.** It waits on handles in argument order, and the first
 failure cancels the ones it has not reached — then waits for them, so no
-evaluation is abandoned mid-flight. The failure it raises is the first **in
-argument order**, not the first to happen, so the same script reports the same
-failure every run.
+evaluation is abandoned mid-flight.
 
-A cancelled thread, a Starlark error and a panicking builtin all still end only
-the thread they happened on, and surface where something joins them. `assert` is
-the one that stops everything.
+There are two failure kinds, and they differ in exactly one way:
+
+| | Ends | Reported |
+| --- | --- | --- |
+| `assert` | the whole run | the assertion, wherever it happened, joined or not |
+| everything else — `fail()`, a cancelled handle, a panicking builtin | the thread it happened on | the first **in argument order** at the join |
+
+So for ordinary failures the same script reports the same failure every run,
+whichever thread lost the race. An assertion supersedes that: it stops the run,
+and a run has one outcome — the first assertion recorded. A sibling that would
+have failed later is cancelled before it can.
+
+An assertion in a thread **nobody joins** still fails the run. A run does not
+report success while it is being torn down.
 
 ## The Go surface
 

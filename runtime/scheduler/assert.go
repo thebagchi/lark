@@ -45,6 +45,11 @@ const ASSERT = "assert"
 // Returns ErrAssert when the condition is false or the keyword form was used,
 // and ErrNotACondition when the only argument is a string.
 //
+// A refused call does **not** stop the run. It is a malformed call rather than
+// an assertion - the script says nothing about whether anything is wrong, only
+// that it was written wrongly - so it ends the calling thread like any other
+// error and surfaces where something joins it.
+//
 // Revisions:
 //   - 2026-09-19 20:46: initial creation
 //   - 2026-09-19 23:58: takes msg as a keyword for an unconditional failure,
@@ -89,15 +94,19 @@ func _Assert(
 	return nil, _Stop(thread, _Failure(msg))
 }
 
-// _Stop ends the run this thread belongs to, and returns cause unchanged.
+// _Stop ends the run this thread belongs to, recording cause as its outcome,
+// and returns cause unchanged.
 //
 // A failed assertion stops everything, not only the thread it ran on: the
 // spine, every spawned thread, and anything they spawned. That is what a test
 // runner does - the first assertion ends the test - and it is why assert is
 // not simply an error a script could have returned.
 //
-// The cause is recorded before the cancel, because the cancel reaches this
-// thread too and would otherwise replace this error with "cancelled".
+// The outcome is recorded before anything is cancelled, so the run's answer is
+// already fixed by the time the shutdown starts producing errors of its own.
+// This thread's handle will report cancellation like any other, and that is
+// correct: what happened to the thread and why the run ended are two
+// questions.
 //
 // Revisions:
 //   - 2026-09-20 00:09: initial creation
@@ -107,7 +116,7 @@ func _Stop(thread *starlark.Thread, cause error) error {
 		return cause
 	}
 
-	run._Fail(cause)
+	run._End(cause)
 
 	return cause
 }

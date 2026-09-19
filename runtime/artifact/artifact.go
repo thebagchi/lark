@@ -164,7 +164,6 @@ func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error
 	thread := &starlark.Thread{Name: fn}
 
 	finish := scheduler.Begin(ctx, thread)
-	defer finish()
 
 	var (
 		result starlark.Value
@@ -178,16 +177,24 @@ func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error
 			return starlark.Call(thread, target, nil, nil)
 		},
 	)
-	if err != nil {
-		// An assertion stops the whole run, and that cancellation reaches this
-		// thread too - often before the assertion's own error has finished
-		// unwinding. What a caller wants is the assertion, not the consequence,
-		// so a recorded cause takes precedence over whatever came back here.
-		cause := scheduler.Cause(thread)
-		if cause != nil {
-			return nil, cause
-		}
 
+	// Ended before the cause is read, not deferred. Ending a run waits for
+	// every thread it started, and a thread still running is a thread that can
+	// still assert. Reading the cause first let a run that had been stopped
+	// report success, because the spine happened to return before the
+	// assertion landed.
+	finish()
+
+	// The run's outcome is the answer when there is one, whatever this call
+	// returned. A script that asserted in a thread nobody joined still failed;
+	// a spine that returned a value while the run was being torn down did not
+	// succeed.
+	outcome := scheduler.Outcome(thread)
+	if outcome != nil {
+		return nil, outcome
+	}
+
+	if err != nil {
 		// Wrapped with the function only when something above would otherwise
 		// not say which one ran. A Starlark error carries its own backtrace,
 		// and a re-raised join failure already names the thread that failed,

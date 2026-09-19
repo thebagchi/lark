@@ -212,16 +212,16 @@ def survivor():
 
 	<-failing.done
 
-	if !errors.Is(failing.err, ErrAssert) {
-		t.Fatalf("the assertion gave %v, want ErrAssert", failing.err)
+	// The run's outcome, not the handle's error. The asserting thread is
+	// cancelled by its own assertion, so its handle reports cancellation like
+	// any other - which is why the outcome is kept somewhere a shutdown cannot
+	// overwrite.
+	if run._Outcome() == nil {
+		t.Fatal("the run does not know why it ended")
 	}
 
-	if run._Cause() == nil {
-		t.Fatal("the run does not know why it was stopped")
-	}
-
-	if !errors.Is(run._Cause(), ErrAssert) {
-		t.Fatalf("the run was stopped by %v, want ErrAssert", run._Cause())
+	if !errors.Is(run._Outcome(), ErrAssert) {
+		t.Fatalf("the run ended with %v, want ErrAssert", run._Outcome())
 	}
 
 	// The sibling counts to a hundred million. Waiting for it is the whole
@@ -237,7 +237,7 @@ def survivor():
 		t.Fatalf("the sibling ended with %v, want ErrCancelled", spinner.err)
 	}
 
-	t.Logf("cause kept: %v / sibling: %v", run._Cause(), spinner.err)
+	t.Logf("outcome: %v / sibling: %v", run._Outcome(), spinner.err)
 }
 
 // TestBuiltins_SuppliesTheFourNames proves what a host gets, and that each call
