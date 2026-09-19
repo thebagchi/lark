@@ -123,7 +123,7 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `spawn(fn)` | Runs `fn` on a goroutine and an interpreter thread of its own. Returns a handle. |
 | `join(h, …)` | Waits for each handle and returns what each produced, in the order given. |
 | `cancel(h, …)` | Stops each handle. Does not wait. |
-| `assert(cond, msg)` | Fails the calling thread when `cond` is false. |
+| `assert(cond, msg)` | Fails the calling thread when `cond` is false. `assert(msg = "...")` always fails. |
 | `load(path, name)` | Binds a name from another script. |
 | `json` | `json.encode`, `json.decode`, and the rest of the module go.starlark.net ships. |
 
@@ -133,6 +133,16 @@ exists so every thread has a name to report.
 
 `assert` is how a script fails on purpose. Starlark reserves `raise` as a
 keyword, so a builtin of that name cannot parse as a call.
+
+```python
+assert(x == 1)                  # fails when x is not 1
+assert(x == 1, "x was wrong")   # the same, with a message
+assert(msg = "unreachable")     # always fails
+```
+
+`assert("some text")` is **refused**, not run. It reads like the third form and
+would behave like the first — a non-empty string is true, so it would pass
+silently.
 
 ### Failure
 
@@ -187,6 +197,7 @@ Each is reachable with `errors.Is`, through whatever wrapping carried it.
 | `runtime.ErrNoGlobal` | `Invoke` names something that is not there |
 | `runtime.ErrNotCallable` | `Invoke` names something that is not a function |
 | `runtime.ErrAssert` | A script asserted false |
+| `runtime.ErrNotACondition` | `assert` was given only a message |
 | `runtime.ErrCancelled` | A joined handle was cancelled |
 | `runtime.ErrNotAName` | `spawn` got something other than a named zero-argument function |
 | `runtime.ErrConflict` | Two plugins supply one name |

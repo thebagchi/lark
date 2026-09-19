@@ -32,18 +32,19 @@ type (
 // errors.Is matches whether a host names it through this package or through
 // the one that raised it.
 var (
-	ErrCycle       = artifact.ErrCycle
-	ErrNoGlobal    = artifact.ErrNoGlobal
-	ErrNoLoader    = artifact.ErrNoLoader
-	ErrNoMain      = artifact.ErrNoMain
-	ErrNoUnit      = artifact.ErrNoUnit
-	ErrNotCallable = artifact.ErrNotCallable
-	ErrAssert      = scheduler.ErrAssert
-	ErrCancelled   = scheduler.ErrCancelled
-	ErrNotAHandle  = scheduler.ErrNotAHandle
-	ErrNotAName    = scheduler.ErrNotAName
-	ErrNoRun       = scheduler.ErrNoRun
-	ErrConflict    = plugin.ErrConflict
+	ErrCycle         = artifact.ErrCycle
+	ErrNoGlobal      = artifact.ErrNoGlobal
+	ErrNoLoader      = artifact.ErrNoLoader
+	ErrNoMain        = artifact.ErrNoMain
+	ErrNoUnit        = artifact.ErrNoUnit
+	ErrNotCallable   = artifact.ErrNotCallable
+	ErrAssert        = scheduler.ErrAssert
+	ErrNotACondition = scheduler.ErrNotACondition
+	ErrCancelled     = scheduler.ErrCancelled
+	ErrNotAHandle    = scheduler.ErrNotAHandle
+	ErrNotAName      = scheduler.ErrNotAName
+	ErrNoRun         = scheduler.ErrNoRun
+	ErrConflict      = plugin.ErrConflict
 )
 
 // ENTRY is the one top-level function a script a host runs must define.

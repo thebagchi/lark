@@ -70,12 +70,16 @@ func TestAssert_FailsWhenItDoesNot(t *testing.T) {
 // TestAssert_UsesStarlarkTruthiness proves the condition is judged the way the
 // language's own `if` judges it, rather than by a rule of this package's.
 //
+// A lone string is not in this table: it is refused outright, because it reads
+// like a message and would otherwise be judged as a condition. That is its own
+// test below.
+//
 // Revisions:
 //   - 2026-09-19 22:21: initial creation
+//   - 2026-09-20 00:01: a lone string is no longer a condition
 func TestAssert_UsesStarlarkTruthiness(t *testing.T) {
 	falsey := []starlark.Value{
 		starlark.MakeInt(0),
-		starlark.String(""),
 		starlark.NewList(nil),
 		starlark.None,
 	}
@@ -91,6 +95,54 @@ func TestAssert_UsesStarlarkTruthiness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assert(1) failed: %v", err)
 	}
+}
+
+// TestAssert_RefusesALoneString proves the trap is closed: assert("text") reads
+// like an unconditional failure and used to behave like a passing test, because
+// a non-empty string is true.
+//
+// Revisions:
+//   - 2026-09-20 00:02: initial creation
+func TestAssert_RefusesALoneString(t *testing.T) {
+	for _, text := range []string{"this should never happen", ""} {
+		_, err := _Call(starlark.String(text))
+		if !errors.Is(err, ErrNotACondition) {
+			t.Fatalf("assert(%q) gave %v, want ErrNotACondition", text, err)
+		}
+	}
+
+	// Two arguments is the ordinary shape, so the refusal does not apply: the
+	// first is a condition, and a non-empty string is a true one.
+	_, err := _Call(starlark.String("a truthy condition"), starlark.String(WHY))
+	if err != nil {
+		t.Fatalf("a string condition with a message gave %v, want it to pass", err)
+	}
+
+	_, err = _Call(starlark.String(""), starlark.String(WHY))
+	if !errors.Is(err, ErrAssert) {
+		t.Fatalf("an empty string condition gave %v, want ErrAssert", err)
+	}
+}
+
+// TestAssert_KeywordMessageAlwaysFails proves the shape plan.md asks for:
+// assert(msg = "...") with no condition is an unconditional failure, and a
+// keyword cannot be mistaken for something to test.
+//
+// Revisions:
+//   - 2026-09-20 00:03: initial creation
+func TestAssert_KeywordMessageAlwaysFails(t *testing.T) {
+	kwargs := []starlark.Tuple{{starlark.String("msg"), starlark.String(WHY)}}
+
+	_, err := _Assert(&starlark.Thread{Name: ASSERT_SCRIPT}, nil, starlark.Tuple{}, kwargs)
+	if !errors.Is(err, ErrAssert) {
+		t.Fatalf("got %v, want ErrAssert", err)
+	}
+
+	if !strings.Contains(err.Error(), WHY) {
+		t.Fatalf("the failure does not carry the message: %v", err)
+	}
+
+	t.Logf("unconditional: %v", err)
 }
 
 // TestAssert_MessageIsOptional proves a bare assertion is legal and reaches the
