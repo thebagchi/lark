@@ -194,10 +194,25 @@ func _Set(
 	return starlark.None, nil
 }
 
-// _Get returns what was last stored under name, or None if nothing was.
+// _Get returns a copy of what was last stored under name, or None if nothing
+// was.
 //
-// None rather than an error, because a script reading a key another thread has
-// not written yet is the ordinary case in a store threads share.
+// A copy, not the value itself. What is stored is frozen so that threads
+// reading one name at once cannot be handed something another can change
+// underneath them - and a script that cannot change what it read back cannot
+// build the next value from it. So the store keeps the frozen original and
+// hands out something the caller owns.
+//
+// This is read-copy-update: read the published version, change your own copy,
+// publish the result with set or update. Nothing a script does to a copy is
+// visible anywhere until it is stored.
+//
+// The copy costs time proportional to the size of the value, on every read. A
+// script walking a large structure should read it once rather than in a loop.
+//
+// None rather than an error for a name nothing has written, because a script
+// reading a key another thread has not written yet is the ordinary case in a
+// store threads share.
 //
 // Revisions:
 //   - 2026-09-20 00:26: initial creation
@@ -220,14 +235,19 @@ func _Get(
 	}
 
 	store.guard.RLock()
-	defer store.guard.RUnlock()
-
 	value, found := store.values[name]
+	store.guard.RUnlock()
+
 	if !found {
 		return starlark.None, nil
 	}
 
-	return value, nil
+	copied, err := _Copy(value)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+	}
+
+	return copied, nil
 }
 
 // _Update applies fn to what is stored under name and stores what it returns.
@@ -298,6 +318,11 @@ func _Update(
 // around the call: holding it while script code runs would block every other
 // name as well as this one.
 //
+// change is handed a copy, for the same reason get hands one out: it has to be
+// able to build the next value from the current one. The name's lock is held
+// throughout, so nothing else publishes between the copy and the store - which
+// is the whole difference between this and a get followed by a set.
+//
 // Revisions:
 //   - 2026-09-20 00:43: initial creation
 func (s *_Store) _Apply(
@@ -311,6 +336,11 @@ func (s *_Store) _Apply(
 
 	if !found {
 		current = starlark.None
+	}
+
+	current, err := _Copy(current)
+	if err != nil {
+		return nil, err
 	}
 
 	updated, err := starlark.Call(thread, change, starlark.Tuple{current}, nil)

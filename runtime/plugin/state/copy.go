@@ -1,0 +1,179 @@
+package state
+
+import (
+	"fmt"
+
+	"go.starlark.net/starlark"
+)
+
+// _Copy returns a deep, unfrozen copy of value.
+//
+// What is stored is frozen, so that several threads reading one name at once
+// cannot be handed something one of them can change underneath the others. That
+// is what makes the store safe, and it is also what would make it useless: a
+// script that cannot change what it read back cannot build the next value from
+// it.
+//
+// So the store keeps the frozen original and hands out copies. A script mutates
+// its own copy freely, and nothing it does is visible to another thread until
+// it stores the result.
+//
+// The cost is a copy per read, proportional to the size of the value. A script
+// reading a large structure in a loop pays for it each time, and should read
+// once outside the loop.
+//
+// Scalars are returned as they are: an int, a string, a bool, a float, bytes
+// and None cannot be mutated, so a copy would be an allocation that changes
+// nothing. Functions and builtins are returned as they are for the same reason
+// - they hold no mutable state a script can reach.
+//
+// Revisions:
+//   - 2026-09-20 00:42: initial creation
+func _Copy(value starlark.Value) (starlark.Value, error) {
+	return _CopyInto(value, map[starlark.Value]starlark.Value{})
+}
+
+// _CopyInto copies value, reusing whatever has already been copied.
+//
+// The seen map is what makes a self-referential value safe. Starlark allows
+// one - x = [1]; x.append(x) is legal - and a copy that did not remember what
+// it had already made would follow that reference until the stack ran out.
+//
+// It also preserves sharing: a value reachable twice is copied once, so a
+// script that reads back a structure with two paths to one list still has two
+// paths to one list.
+//
+// Revisions:
+//   - 2026-09-20 00:43: initial creation
+func _CopyInto(
+	value starlark.Value,
+	seen map[starlark.Value]starlark.Value,
+) (starlark.Value, error) {
+	made, found := seen[value]
+	if found {
+		return made, nil
+	}
+
+	switch original := value.(type) {
+	case *starlark.List:
+		return _CopyList(original, seen)
+
+	case *starlark.Dict:
+		return _CopyDict(original, seen)
+
+	case starlark.Tuple:
+		return _CopyTuple(original, seen)
+
+	case *starlark.Set:
+		return _CopySet(original, seen)
+
+	default:
+		return value, nil
+	}
+}
+
+// _CopyList copies a list, registering the copy before filling it so a list
+// that contains itself terminates.
+//
+// Revisions:
+//   - 2026-09-20 00:44: initial creation
+func _CopyList(original *starlark.List, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+	made := starlark.NewList(make([]starlark.Value, 0, original.Len()))
+
+	seen[original] = made
+
+	for index := range original.Len() {
+		element, err := _CopyInto(original.Index(index), seen)
+		if err != nil {
+			return nil, err
+		}
+
+		err = made.Append(element)
+		if err != nil {
+			return nil, fmt.Errorf("copy element %d: %w", index, err)
+		}
+	}
+
+	return made, nil
+}
+
+// _CopyDict copies a dict, registering the copy before filling it.
+//
+// Keys are copied too, because a tuple key may hold a mutable value.
+//
+// Revisions:
+//   - 2026-09-20 00:45: initial creation
+func _CopyDict(original *starlark.Dict, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+	made := starlark.NewDict(original.Len())
+
+	seen[original] = made
+
+	for _, item := range original.Items() {
+		key, err := _CopyInto(item[0], seen)
+		if err != nil {
+			return nil, err
+		}
+
+		held, err := _CopyInto(item[1], seen)
+		if err != nil {
+			return nil, err
+		}
+
+		err = made.SetKey(key, held)
+		if err != nil {
+			return nil, fmt.Errorf("copy key %s: %w", item[0].String(), err)
+		}
+	}
+
+	return made, nil
+}
+
+// _CopyTuple copies a tuple.
+//
+// A tuple cannot be changed, but what it holds can, so its elements are copied
+// and the tuple itself is rebuilt. It is not registered in seen beforehand: a
+// tuple cannot contain itself, because it is built complete.
+//
+// Revisions:
+//   - 2026-09-20 00:46: initial creation
+func _CopyTuple(original starlark.Tuple, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+	made := make(starlark.Tuple, 0, len(original))
+
+	for _, element := range original {
+		copied, err := _CopyInto(element, seen)
+		if err != nil {
+			return nil, err
+		}
+
+		made = append(made, copied)
+	}
+
+	return made, nil
+}
+
+// _CopySet copies a set.
+//
+// A set holds only hashable values, and nothing hashable is mutable, so the
+// members are taken as they are and only the set itself is new.
+//
+// Revisions:
+//   - 2026-09-20 00:47: initial creation
+func _CopySet(original *starlark.Set, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+	made := starlark.NewSet(original.Len())
+
+	seen[original] = made
+
+	iterator := original.Iterate()
+	defer iterator.Done()
+
+	var member starlark.Value
+
+	for iterator.Next(&member) {
+		err := made.Insert(member)
+		if err != nil {
+			return nil, fmt.Errorf("copy member %s: %w", member.String(), err)
+		}
+	}
+
+	return made, nil
+}

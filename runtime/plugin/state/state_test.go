@@ -14,17 +14,19 @@ import (
 )
 
 const (
-	FIXTURE_DIR    = "testdata"
-	SHARE_SCRIPT   = "share.star"
-	COUNT_SCRIPT   = "count.star"
-	EXPECTED       = "written by one thread, read by another"
-	MUTATE_SCRIPT  = "mutate.star"
-	ATOMIC_SCRIPT  = "atomic.star"
-	NESTED_SCRIPT  = "nested.star"
-	SAMEKEY_SCRIPT = "samekey.star"
-	MISSING_SCRIPT = "missing.star"
-	EXPECTED_TOTAL = "800"
-	FIRST_RUN      = "1"
+	FIXTURE_DIR        = "testdata"
+	SHARE_SCRIPT       = "share.star"
+	COUNT_SCRIPT       = "count.star"
+	EXPECTED           = "written by one thread, read by another"
+	MUTATE_SCRIPT      = "mutate.star"
+	ATOMIC_SCRIPT      = "atomic.star"
+	NESTED_SCRIPT      = "nested.star"
+	SAMEKEY_SCRIPT     = "samekey.star"
+	UNPUBLISHED_SCRIPT = "unpublished.star"
+	CYCLIC_SCRIPT      = "cyclic.star"
+	MISSING_SCRIPT     = "missing.star"
+	EXPECTED_TOTAL     = "800"
+	FIRST_RUN          = "1"
 )
 
 // _Disk is a Loader over testdata.
@@ -129,23 +131,27 @@ func TestState_MissingKeyIsNone(t *testing.T) {
 	}
 }
 
-// TestState_FreezesWhatItStores proves a stored value cannot be mutated by the
-// thread that reads it.
+// TestState_ReadsAreCopies proves read-copy-update: a script owns what it read,
+// changes it freely, and nothing it does is visible until it publishes.
 //
-// A store exists so threads can reach it at once, and handing a mutable value
-// to two of them is the race the store is meant to avoid. Freezing turns a
-// later mutation into a loud failure instead of corruption - which is what
-// Starlark does to module scope, for the same reason.
+// Until 2026-09-20 00:42 this asserted the opposite - that mutating what was
+// read failed loudly, because the frozen value itself was handed out. Freezing
+// is still what makes concurrent reads safe; the copy is what makes the store
+// usable, since a script that cannot change what it read cannot build the next
+// value from it.
 //
 // Revisions:
-//   - 2026-09-20 00:42: initial creation
-func TestState_FreezesWhatItStores(t *testing.T) {
-	_, err := _Built(t, MUTATE_SCRIPT).Run(t.Context())
-	if err == nil {
-		t.Fatal("a stored value was mutated by the thread that read it")
+//   - 2026-09-20 00:42: initial creation, as TestState_FreezesWhatItStores
+//   - 2026-09-20 00:50: reversed, for the copy that replaced the refusal
+func TestState_ReadsAreCopies(t *testing.T) {
+	value, err := _Built(t, MUTATE_SCRIPT).Run(t.Context())
+	if err != nil {
+		t.Fatalf("run: %v", err)
 	}
 
-	t.Logf("refused: %v", err)
+	if value.String() != `["one", "two", "three"]` {
+		t.Fatalf("got %s", value.String())
+	}
 }
 
 // TestUpdate_IsAtomic proves what update exists for: four threads incrementing
@@ -215,5 +221,44 @@ func TestUpdate_RefusesToNest(t *testing.T) {
 
 			t.Logf("refused: %v", err)
 		})
+	}
+}
+
+// TestState_AChangeIsInvisibleUntilPublished proves the middle of
+// read-copy-update: the store still holds the old value while a script works on
+// its copy.
+//
+// Revisions:
+//   - 2026-09-20 00:51: initial creation
+func TestState_AChangeIsInvisibleUntilPublished(t *testing.T) {
+	value, err := _Built(t, UNPUBLISHED_SCRIPT).Run(t.Context())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if value.String() != `[["one"], ["one", "two"]]` {
+		t.Fatalf("got %s, want the store unchanged beside the changed copy", value.String())
+	}
+}
+
+// TestState_CopiesSurviveCyclesAndSharing proves two things a deep copy gets
+// wrong if it is written the obvious way.
+//
+// Starlark allows a list that contains itself, and a copy that did not remember
+// what it had already made would follow that reference until the stack ran out.
+// And a value reachable by two paths must stay one value: copying it twice
+// would silently turn one list into two, so a script appending through one path
+// would no longer see it through the other.
+//
+// Revisions:
+//   - 2026-09-20 00:52: initial creation
+func TestState_CopiesSurviveCyclesAndSharing(t *testing.T) {
+	value, err := _Built(t, CYCLIC_SCRIPT).Run(t.Context())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if value.String() != `[3, [9, 8]]` {
+		t.Fatalf("got %s, want [3, [9, 8]]", value.String())
 	}
 }

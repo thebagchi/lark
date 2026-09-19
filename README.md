@@ -49,7 +49,7 @@ make binaries
 | `failfast.star` | a failed `assert` stopping the whole run, and `join` giving up early |
 | `failkinds.star` | `assert` against `fail` — swap one line and time it |
 | `state.star` | `state` passing data between threads |
-| `frozen_state.star` | why a stored value is frozen — fails on purpose |
+| `rcu.star` | read-copy-update: read a copy, change it, publish it |
 | `pointers.star` | RFC 6901: `extract_json`, `match_json`, `len_json`, `find_key` |
 | `patch.star` | RFC 6902: `patch_json`, and the input left unchanged |
 | `clock.star` | `time` — durations and instants |
@@ -57,9 +57,9 @@ make binaries
 | `cancel.star` | `cancel`, and what joining a cancelled handle gives |
 | `encode.star` | the `json` plugin |
 
-Five exit non-zero on purpose — `cancel.star`, `failfast.star`,
-`failkinds.star`, `frozen_state.star` and `strings.star` — because what a
-failure looks like is part of the interface.
+Four exit non-zero on purpose — `cancel.star`, `failfast.star`,
+`failkinds.star` and `strings.star` — because what a failure looks like is part
+of the interface.
 
 ## Install
 
@@ -167,14 +167,23 @@ stores, and every thread inside a run gets the same one. Reading a name nothing
 has written gives `None`, because that is the ordinary case in a store threads
 share.
 
-**Values are frozen on the way in.** A store exists so threads can reach it at
-once, and handing a mutable value to two of them is the race it is meant to
-avoid — so appending to a list you got back from `state.get` fails loudly rather
-than corrupting it. To change something, store a new value:
+**The store works like read-copy-update.** What is stored is frozen, so threads
+reading one name at once can never be handed something another can change
+underneath them. `state.get` therefore returns a **copy**: a script owns what it
+read, changes it freely, and nothing it does is visible anywhere until it
+publishes the result.
 
 ```python
-state.set("tags", state.get("tags") + ["b"])   # a new list, not append
+mine = state.get("findings")   # read — a copy of the published value
+mine.append("two")             # copy — nobody else can see this yet
+state.set("findings", mine)    # update — now they can
 ```
+
+A copy costs time proportional to the size of the value, on every read, so a
+script walking a large structure should read it once rather than in a loop.
+
+Copies preserve sharing and survive cycles: a list reachable by two paths stays
+one list, and a list that contains itself copies without looping.
 
 **Use `state.update` when other threads write the same name.** A `get` followed
 by a `set` is two operations, and another thread writing between them loses one

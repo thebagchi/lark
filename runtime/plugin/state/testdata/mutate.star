@@ -1,16 +1,15 @@
 def writer():
-    state.set("list", [1, 2])
+    state.set("findings", ["one", "two"])
 
-def mutator():
-    got = state.get("list")
+def reader():
+    # A copy, so this is the reader's own list.
+    found = state.get("findings")
 
-    # The store froze this on the way in, so appending fails loudly rather
-    # than racing the thread that wrote it.
-    got.append(3)
+    found.append("three")
 
-    return got
+    return found
 
 def main():
     join(spawn(writer))
 
-    return join(spawn(mutator))[0]
+    return join(spawn(reader))[0]
