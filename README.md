@@ -169,6 +169,7 @@ There are two failure kinds, and they differ in exactly one way:
 | | Ends | Reported |
 | --- | --- | --- |
 | `assert` | the whole run | the assertion, wherever it happened, joined or not |
+| a refused `assert("text")` | the whole run | the refusal — a mistyped assertion is still an assertion |
 | everything else — `fail()`, a cancelled handle, a panicking builtin | the thread it happened on | the first **in argument order** at the join |
 
 So for ordinary failures the same script reports the same failure every run,

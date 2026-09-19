@@ -45,16 +45,22 @@ const ASSERT = "assert"
 // Returns ErrAssert when the condition is false or the keyword form was used,
 // and ErrNotACondition when the only argument is a string.
 //
-// A refused call does **not** stop the run. It is a malformed call rather than
-// an assertion - the script says nothing about whether anything is wrong, only
-// that it was written wrongly - so it ends the calling thread like any other
-// error and surfaces where something joins it.
+// A refused call stops the run, exactly as a failed one does. The author wrote
+// an assertion, and whatever they got wrong, they meant "fail here". Letting a
+// mistyped assertion end one thread where a correct one ends the run would make
+// a typo quietly weaken the guarantee - which is the same failure the refusal
+// exists to prevent, arriving by a different route.
+//
+// The sentinel still differs, so a host can tell a malformed script from a
+// failing one.
 //
 // Revisions:
 //   - 2026-09-19 20:46: initial creation
 //   - 2026-09-19 23:58: takes msg as a keyword for an unconditional failure,
 //     and refuses a lone string, which used to pass silently
 //   - 2026-09-20 00:09: stops the run rather than only the calling thread
+//   - 2026-09-20 00:14: a refused call stops the run too, because a mistyped
+//     assertion is still an assertion
 func _Assert(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -77,14 +83,14 @@ func _Assert(
 
 	text, bare := cond.(starlark.String)
 	if bare && len(args) == 1 {
-		return nil, fmt.Errorf(
+		return nil, _Stop(thread, fmt.Errorf(
 			"%s got only the message %s: write %s(False, msg) to fail, or %s(msg = ...): %w",
 			ASSERT,
 			text.String(),
 			ASSERT,
 			ASSERT,
 			ErrNotACondition,
-		)
+		))
 	}
 
 	if cond.Truth() {

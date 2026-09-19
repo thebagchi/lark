@@ -112,6 +112,24 @@ func TestAssert_RefusesALoneString(t *testing.T) {
 		}
 	}
 
+	// A refused call ends the run, like a failed one. A mistyped assertion is
+	// still an assertion, and a typo must not quietly reduce it to a
+	// thread-local error.
+	run := _Started(t.Context())
+
+	thread := _Thread(run)
+
+	refused := starlark.Tuple{starlark.String("mistyped")}
+
+	_, stopped := _Assert(thread, nil, refused, nil)
+	if !errors.Is(stopped, ErrNotACondition) {
+		t.Fatalf("got %v, want ErrNotACondition", stopped)
+	}
+
+	if !errors.Is(run._Outcome(), ErrNotACondition) {
+		t.Fatalf("the run ended with %v, want the refusal", run._Outcome())
+	}
+
 	// Two arguments is the ordinary shape, so the refusal does not apply: the
 	// first is a condition, and a non-empty string is a true one.
 	_, err := _Call(starlark.String("a truthy condition"), starlark.String(WHY))
