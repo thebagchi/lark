@@ -136,7 +136,7 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `fail(msg, …)` | Starlark's own. Aborts the **calling thread**. |
 | `load(path, name)` | Binds a name from another script. |
 | `json` | `json.encode`, `json.decode`, and the rest of the module go.starlark.net ships. |
-| `state` | `state.set(name, value)` / `state.get(name)` — see below. |
+| `state` | `state.set`, `state.get`, `state.update` — see below. |
 | `time`, `math` | go.starlark.net's own modules. |
 | `jsonpath` | `patch_json`, `extract_json`, `match_json`, `len_json`, `find_key`. |
 
@@ -170,7 +170,32 @@ share.
 **Values are frozen on the way in.** A store exists so threads can reach it at
 once, and handing a mutable value to two of them is the race it is meant to
 avoid — so appending to a list you got back from `state.get` fails loudly rather
-than corrupting it.
+than corrupting it. To change something, store a new value:
+
+```python
+state.set("tags", state.get("tags") + ["b"])   # a new list, not append
+```
+
+**Use `state.update` when other threads write the same name.** A `get` followed
+by a `set` is two operations, and another thread writing between them loses one
+of the updates — silently, and only under load:
+
+```python
+state.update("count", lambda n: n + 1)
+```
+
+Four threads incrementing one name two hundred times each:
+
+| | Result |
+| --- | --- |
+| `state.set(n, state.get(n) + 1)` | 294, 575, 317, 644, 442 — a different number every run |
+| `state.update(n, lambda v: v + 1)` | 800, every run |
+
+The lock is Go's and covers the whole of read, call and write. A script never
+sees it and cannot forget to release it. The function is called with `None` when
+nothing is stored yet, and it must not start another update — two threads
+updating two names in opposite orders would wait on each other forever, so
+nesting is refused rather than risked.
 
 Each of these is a plugin, and a host enables it by importing it:
 

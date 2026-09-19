@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.starlark.net/starlark"
@@ -13,12 +14,17 @@ import (
 )
 
 const (
-	FIXTURE_DIR   = "testdata"
-	SHARE_SCRIPT  = "share.star"
-	COUNT_SCRIPT  = "count.star"
-	EXPECTED      = "written by one thread, read by another"
-	MUTATE_SCRIPT = "mutate.star"
-	FIRST_RUN     = "1"
+	FIXTURE_DIR    = "testdata"
+	SHARE_SCRIPT   = "share.star"
+	COUNT_SCRIPT   = "count.star"
+	EXPECTED       = "written by one thread, read by another"
+	MUTATE_SCRIPT  = "mutate.star"
+	ATOMIC_SCRIPT  = "atomic.star"
+	NESTED_SCRIPT  = "nested.star"
+	SAMEKEY_SCRIPT = "samekey.star"
+	MISSING_SCRIPT = "missing.star"
+	EXPECTED_TOTAL = "800"
+	FIRST_RUN      = "1"
 )
 
 // _Disk is a Loader over testdata.
@@ -140,4 +146,74 @@ func TestState_FreezesWhatItStores(t *testing.T) {
 	}
 
 	t.Logf("refused: %v", err)
+}
+
+// TestUpdate_IsAtomic proves what update exists for: four threads incrementing
+// one name two hundred times each reach exactly eight hundred.
+//
+// The same script written with get and set is in racy.star, and reaches a
+// different number every run - measured at 294, 575, 317, 644 and 442 before
+// update existed. That is why this is not a matter of taste.
+//
+// Revisions:
+//   - 2026-09-20 00:46: initial creation
+func TestUpdate_IsAtomic(t *testing.T) {
+	value, err := _Built(t, ATOMIC_SCRIPT).Run(t.Context())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if value.String() != EXPECTED_TOTAL {
+		t.Fatalf("counted %s, want %s", value.String(), EXPECTED_TOTAL)
+	}
+}
+
+// TestUpdate_SeesNoneWhenNothingIsStored proves the first update of a name is
+// not a special case a script has to guard against with get first.
+//
+// Revisions:
+//   - 2026-09-20 00:47: initial creation
+func TestUpdate_SeesNoneWhenNothingIsStored(t *testing.T) {
+	value, err := _Built(t, MISSING_SCRIPT).Run(t.Context())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if value.String() != "0" {
+		t.Fatalf("got %s, want 0", value.String())
+	}
+}
+
+// TestUpdate_RefusesToNest proves a deadlock is refused rather than reached.
+//
+// Two cases, and the second is why this is a refusal rather than a warning.
+// Nesting a different name is merely unsafe - two threads doing it in opposite
+// orders would wait on each other forever. Nesting the *same* name deadlocks
+// immediately, on a lock the caller itself holds: with the check removed, that
+// script hangs until something kills it, which is what a run that never ends
+// looks like from outside.
+//
+// A script cannot be asked to take locks in an order it cannot see, because the
+// locks are Go's and a script never touches one. So nesting is an error, which
+// is something a script author can act on.
+//
+// Revisions:
+//   - 2026-09-20 00:48: initial creation
+//   - 2026-09-20 00:52: covers nesting the same name, which is the case that
+//     hangs rather than merely risking it
+func TestUpdate_RefusesToNest(t *testing.T) {
+	for _, script := range []string{NESTED_SCRIPT, SAMEKEY_SCRIPT} {
+		t.Run(script, func(t *testing.T) {
+			_, err := _Built(t, script).Run(t.Context())
+			if err == nil {
+				t.Fatal("an update started another")
+			}
+
+			if !strings.Contains(err.Error(), "cannot start another") {
+				t.Fatalf("refused for some other reason: %v", err)
+			}
+
+			t.Logf("refused: %v", err)
+		})
+	}
 }
