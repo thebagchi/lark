@@ -47,6 +47,7 @@ make binaries
 | `modules.star` | `load`, resolving beside the loading file |
 | `concurrent.star` | `spawn` and `join` |
 | `failfast.star` | a failed `assert` stopping the whole run, and `join` giving up early |
+| `failkinds.star` | `assert` against `fail` — swap one line and time it |
 | `cancel.star` | `cancel`, and what joining a cancelled handle gives |
 | `encode.star` | the `json` plugin |
 
@@ -123,7 +124,8 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `spawn(fn)` | Runs `fn` on a goroutine and an interpreter thread of its own. Returns a handle. |
 | `join(h, …)` | Waits for each handle and returns what each produced, in the order given. |
 | `cancel(h, …)` | Stops each handle. Does not wait. |
-| `assert(cond, msg)` | Fails the calling thread when `cond` is false. `assert(msg = "...")` always fails. |
+| `assert(cond, msg)` | Stops the **whole run** when `cond` is false. `assert(msg = "...")` always stops it. |
+| `fail(msg, …)` | Starlark's own. Aborts the **calling thread**. |
 | `load(path, name)` | Binds a name from another script. |
 | `json` | `json.encode`, `json.decode`, and the rest of the module go.starlark.net ships. |
 
@@ -131,18 +133,67 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 call. A closure over what it needs is how a script passes data in. The rule
 exists so every thread has a name to report.
 
-`assert` is how a script fails on purpose. Starlark reserves `raise` as a
-keyword, so a builtin of that name cannot parse as a call.
+### `assert` or `fail`?
+
+Both end an evaluation and neither can be caught — Starlark has no `try`, and
+reserves `raise` as a keyword without implementing it. They differ in **how far
+the failure reaches**, and that is the whole of the choice:
+
+| | `assert(cond, msg)` | `fail(msg, …)` |
+| --- | --- | --- |
+| Supplied by | this runtime | Starlark itself |
+| Takes a condition | yes | no — it always aborts |
+| Ends | **the whole run**: spine, every spawned thread, anything they spawned | **the calling thread** |
+| Siblings | cancelled where they stand, always | cancelled only if `join` reaches the failure first |
+| At a `join` | supersedes the join — the run has one outcome | reported first **in argument order** |
+| Joined or not | fails the run either way | only surfaces if something joins it |
+| Retried by `retry` *(when it exists)* | yes | no |
+
+Put plainly: **`assert` means this run is over. `fail` means this operation
+cannot continue.**
+
+The sibling row has a wrinkle worth knowing. `join` is fail-fast, so it cancels
+whatever it has not reached once something fails — which means a `fail` *also*
+stops siblings when the failing handle comes first in the join. Where they truly
+differ is when it comes last:
 
 ```python
-assert(x == 1)                  # fails when x is not 1
-assert(x == 1, "x was wrong")   # the same, with a message
-assert(msg = "unreachable")     # always fails
+join(slow, dies)   # fail:   waits the slow one out, then reports
+                   # assert: cancels it immediately
 ```
 
-`assert("some text")` is **refused**, not run. It reads like the third form and
-would behave like the first — a non-empty string is true, so it would pass
-silently.
+`samples/failkinds.star` is that script, and the two spellings differ by about
+three orders of magnitude in wall time.
+
+```python
+def check(value):
+    if value < 0:
+        fail("negative value:", value)   # this call is wrong; siblings carry on
+    return value
+
+def main():
+    assert(ready(), "the fixture never came up")   # nothing can be salvaged
+```
+
+`fail` takes any number of values and joins them with spaces, so
+`fail("code", 42)` reads `fail: code 42`.
+
+The last row matters even though `retry` is not built yet: `plan.md` §9.1
+reserves the distinction, so a step meant to be retried should `assert`, and one
+that must abort regardless should `fail`.
+
+### The three shapes of `assert`
+
+```python
+assert(x == 1)                  # stops the run when x is not 1
+assert(x == 1, "x was wrong")   # the same, with a message
+assert(msg = "unreachable")     # always stops it
+```
+
+`assert("some text")` is **refused**, not run — and the refusal stops the run
+too. It reads like the third form and would behave like the first, since a
+non-empty string is true, so it would otherwise pass silently. A mistyped
+assertion is still an assertion; a typo must not quietly reduce it to nothing.
 
 ### Failure
 

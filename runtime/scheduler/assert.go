@@ -35,9 +35,13 @@ const ASSERT = "assert"
 // spelling of a message and quietly wrong for another.
 //
 // A script cannot raise: raise is a reserved lexer keyword, so a builtin of
-// that name will not parse as a call. Returning an error from here is how a
-// script signals failure, and a Starlark error unwinds the thread it was raised
-// on and no other.
+// that name will not parse as a call.
+//
+// Starlark's own fail() is the other way a script stops, and the two are not
+// interchangeable: fail ends the thread it ran on, this ends the run. A step
+// that could be retried should assert; one that must abort whatever else is
+// happening should fail. plan.md §9.1 reserves that distinction for retry,
+// which is not built.
 //
 // A failed assertion stops the whole run, not only the thread it ran on. See
 // _Stop.
