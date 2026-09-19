@@ -27,6 +27,31 @@ def main():
 "HELLO WORLD"
 ```
 
+## Try it
+
+```
+make binaries
+./bin/lark.bin -s samples/concurrent.star
+```
+
+```
+"HELLO WORLD"
+```
+
+`samples/` has one script per idea, each with a comment saying what it is for:
+
+| Script | Shows |
+| --- | --- |
+| `hello.star` | the smallest script this will run |
+| `strings.star` | a library, with no `main` of its own |
+| `modules.star` | `load`, resolving beside the loading file |
+| `concurrent.star` | `spawn` and `join` |
+| `isolated.star` | a failed `assert` ending one thread and not its sibling |
+| `cancel.star` | `cancel`, and what joining a cancelled handle gives |
+| `encode.star` | the `json` plugin |
+
+The last two exit non-zero on purpose: they demonstrate failures.
+
 ## Install
 
 ```

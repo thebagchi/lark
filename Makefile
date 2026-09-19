@@ -5,7 +5,7 @@
 # owns is unactionable. .poc/go is a module of its own and is handled beside it.
 GO_FILES := $(shell find . -name '*.go' -not -path './proto/gen/*' -not -path './.poc/*' -print)
 
-.PHONY: all bootstrap generate tidy check lint lint-go lint-proto fmt build vet test poc clean
+.PHONY: all bootstrap generate tidy check lint lint-go lint-proto fmt build binaries vet test poc clean
 
 all: generate build check test
 
@@ -47,6 +47,15 @@ tidy:
 build:
 	go build ./...
 
+# Every binary is a Makefile target and always carries an extension: .bin here,
+# .exe on Windows. Adding a cmd/ means adding its target in the same change.
+#
+# Binaries land in bin/. tools/bin/ is for code generators, and there are none.
+binaries: bin/lark.bin
+
+bin/lark.bin:
+	go build -o $@ ./cmd/lark
+
 vet:
 	go vet ./...
 
@@ -59,4 +68,4 @@ poc:
 	cd .poc/go && go test ./... -race
 
 clean:
-	rm -rf proto/gen
+	rm -rf proto/gen bin
