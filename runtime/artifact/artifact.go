@@ -179,6 +179,15 @@ func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error
 		},
 	)
 	if err != nil {
+		// An assertion stops the whole run, and that cancellation reaches this
+		// thread too - often before the assertion's own error has finished
+		// unwinding. What a caller wants is the assertion, not the consequence,
+		// so a recorded cause takes precedence over whatever came back here.
+		cause := scheduler.Cause(thread)
+		if cause != nil {
+			return nil, cause
+		}
+
 		// Wrapped with the function only when something above would otherwise
 		// not say which one ran. A Starlark error carries its own backtrace,
 		// and a re-raised join failure already names the thread that failed,

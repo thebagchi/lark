@@ -33,11 +33,13 @@ const (
 // created by a call into an artifact and discarded when that call returns, so
 // it does not.
 type _Run struct {
-	ctx   context.Context
-	group sync.WaitGroup
-	mutex sync.Mutex
-	live  []*Handle
-	next  int32
+	ctx     context.Context
+	stop    context.CancelFunc
+	group   sync.WaitGroup
+	mutex   sync.Mutex
+	live    []*Handle
+	next    int32
+	failure error
 }
 
 // _Abandon cancels every handle still running.
@@ -110,19 +112,73 @@ func _Of(thread *starlark.Thread) (*_Run, error) {
 // Revisions:
 //   - 2026-09-19 22:39: initial creation
 func Begin(ctx context.Context, thread *starlark.Thread) func() {
+	inner, stop := context.WithCancel(ctx)
+
 	run := &_Run{
-		ctx:  ctx,
+		ctx:  inner,
+		stop: stop,
 		next: FIRST_SPAWN,
 	}
 
 	thread.SetLocal(RUN_KEY, run)
 	thread.SetLocal(THREAD_KEY, int32(SPINE))
 
-	stop := _CancelOn(ctx, thread)
+	watching := _CancelOn(inner, thread)
 
 	return func() {
-		stop()
+		watching()
 		run._Abandon()
 		run.group.Wait()
+		stop()
 	}
+}
+
+// _Fail records why a run is being stopped and stops it.
+//
+// The cause is kept because cancelling races the error that caused it: an
+// assertion returns an error which then unwinds the thread, while this cancel
+// reaches the same thread and may replace that error with "cancelled". A caller
+// asking what went wrong wants the assertion, not the consequence, so the first
+// cause recorded wins and _Cause hands it back.
+//
+// Revisions:
+//   - 2026-09-20 00:07: initial creation
+func (r *_Run) _Fail(cause error) {
+	r.mutex.Lock()
+
+	if r.failure == nil {
+		r.failure = cause
+	}
+
+	r.mutex.Unlock()
+
+	r.stop()
+}
+
+// _Cause returns what stopped this run, or nil if nothing did.
+//
+// Revisions:
+//   - 2026-09-20 00:07: initial creation
+func (r *_Run) _Cause() error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	return r.failure
+}
+
+// Cause returns what stopped the run on thread, or nil.
+//
+// A caller that evaluated on a thread Begin set up asks this before reporting
+// its own error: a run stopped by an assertion reports the assertion, not the
+// cancellation that followed from it.
+//
+// Revisions:
+//   - 2026-09-20 00:08: initial creation
+func Cause(thread *starlark.Thread) error {
+	run, err := _Of(thread)
+	if err != nil {
+		return nil
+	}
+
+	return run._Cause()
 }

@@ -29,6 +29,8 @@ const (
 //
 // Revisions:
 //   - 2026-09-19 20:42: initial creation
+//   - 2026-09-20 00:10: cancels the handles it has not reached when one fails,
+//     and waits for them, rather than waiting for every handle first
 func _Join(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -40,14 +42,14 @@ func _Join(
 		return nil, err
 	}
 
-	for _, handle := range handles {
-		<-handle.done
-	}
-
 	values := make([]starlark.Value, 0, len(handles))
 
-	for _, handle := range handles {
+	for index, handle := range handles {
+		<-handle.done
+
 		if handle.err != nil {
+			_Abort(handles[index+1:])
+
 			return nil, fmt.Errorf("%s: %w", handle.name, handle.err)
 		}
 
@@ -104,4 +106,22 @@ func _Handles(name string, args starlark.Tuple, kwargs []starlark.Tuple) ([]*Han
 	}
 
 	return handles, nil
+}
+
+// _Abort cancels every handle given and waits for each to stop.
+//
+// Waiting is the half that is easy to leave out. Cancelling alone would let a
+// join return while the evaluations it gave up on were still unwinding, which
+// is how a run ends with goroutines still touching its state.
+//
+// Revisions:
+//   - 2026-09-20 00:11: initial creation
+func _Abort(handles []*Handle) {
+	for _, handle := range handles {
+		handle.stop()
+	}
+
+	for _, handle := range handles {
+		<-handle.done
+	}
 }

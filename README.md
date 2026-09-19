@@ -46,7 +46,7 @@ make binaries
 | `strings.star` | a library, with no `main` of its own |
 | `modules.star` | `load`, resolving beside the loading file |
 | `concurrent.star` | `spawn` and `join` |
-| `isolated.star` | a failed `assert` ending one thread and not its sibling |
+| `failfast.star` | a failed `assert` stopping the whole run, and `join` giving up early |
 | `cancel.star` | `cancel`, and what joining a cancelled handle gives |
 | `encode.star` | the `json` plugin |
 
@@ -146,23 +146,29 @@ silently.
 
 ### Failure
 
-A Starlark error unwinds the thread it was raised on and no other. A spawned
-function that fails leaves its siblings running, and the failure surfaces
-wherever something joins it:
+**A failed assertion stops the whole run** — the spine, every spawned thread,
+and anything they spawned, whether or not anyone joins the failed handle. The
+first assertion ends the script, as it would in a test runner.
 
 ```python
 def broken():
     assert(False, "the reason")
 
 def main():
-    h = spawn(broken)
-    # ... other work happens here, unaffected ...
-    join(h)          # raises: broken: "the reason": assertion failed
+    slow = spawn(counts_a_long_way)
+    join(spawn(broken), slow)   # raises: "the reason": assertion failed
+                                # and slow is cancelled, not waited for
 ```
 
-`join` waits for **every** handle before reading any result, and re-raises the
-first failure **in argument order** — not the first to happen. The same script
-reports the same failure every run.
+**`join` is fail-fast.** It waits on handles in argument order, and the first
+failure cancels the ones it has not reached — then waits for them, so no
+evaluation is abandoned mid-flight. The failure it raises is the first **in
+argument order**, not the first to happen, so the same script reports the same
+failure every run.
+
+A cancelled thread, a Starlark error and a panicking builtin all still end only
+the thread they happened on, and surface where something joins them. `assert` is
+the one that stops everything.
 
 ## The Go surface
 

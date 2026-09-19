@@ -10,6 +10,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"go.starlark.net/starlark"
 
@@ -157,24 +158,31 @@ func TestAssert_MessageIsOptional(t *testing.T) {
 	}
 }
 
-// TestAssert_EndsOnlyTheThreadItRanOn proves the rule that makes an isolated
-// failure possible: a Starlark error unwinds the thread it was raised on and no
-// other, so a failed assertion in a spawned function leaves its siblings alone
-// and surfaces where somebody joins it.
+// TestAssert_StopsTheWholeRun proves a failed assertion is not local to the
+// thread that made it: the spine and every spawned thread stop, whether or not
+// anyone joins the failed handle.
 //
-// This is the first test that puts assert, spawn and join together, and it is
-// the reason assert is a builtin at all rather than a Go-side check.
+// This reverses what this package did until 2026-09-20 00:09, when a failed
+// assertion ended one thread and its siblings ran on. The earlier behaviour is
+// what a library wants; this is what a test runner wants, and this runtime
+// runs tests.
+//
+// The sibling here counts to a hundred million. If the assertion did not reach
+// it, this test would take seconds rather than milliseconds.
 //
 // Revisions:
-//   - 2026-09-19 22:22: initial creation
-func TestAssert_EndsOnlyTheThreadItRanOn(t *testing.T) {
+//   - 2026-09-20 00:14: initial creation, replacing TestAssert_EndsOnlyTheThreadItRanOn
+func TestAssert_StopsTheWholeRun(t *testing.T) {
 	const source = `
 def isolated():
     assert(False, "two and two")
     return 1
 
 def survivor():
-    return 7
+    total = 0
+    for i in range(100000000):
+        total += i
+    return total
 `
 
 	globals, err := starlark.ExecFileOptions(
@@ -192,28 +200,44 @@ def survivor():
 
 	run := _Started(t.Context())
 
+	spinner, err := _Spawned(t, run, globals[SURVIVOR])
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
 	failing, err := _Spawned(t, run, globals[ISOLATED])
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 
-	fine, err := _Spawned(t, run, globals[SURVIVOR])
-	if err != nil {
-		t.Fatalf("spawn: %v", err)
+	<-failing.done
+
+	if !errors.Is(failing.err, ErrAssert) {
+		t.Fatalf("the assertion gave %v, want ErrAssert", failing.err)
 	}
 
-	<-fine.done
-
-	if fine.err != nil {
-		t.Fatalf("a sibling thread was ended by another's assertion: %v", fine.err)
+	if run._Cause() == nil {
+		t.Fatal("the run does not know why it was stopped")
 	}
 
-	_, err = _Joined(run, failing)
-	if !errors.Is(err, ErrAssert) {
-		t.Fatalf("joining the failed thread gave %v, want ErrAssert", err)
+	if !errors.Is(run._Cause(), ErrAssert) {
+		t.Fatalf("the run was stopped by %v, want ErrAssert", run._Cause())
 	}
 
-	t.Logf("one thread failed, the other did not: %v", err)
+	// The sibling counts to a hundred million. Waiting for it is the whole
+	// check: if the assertion did not reach it, this blocks for seconds and
+	// the budget below fails the test.
+	select {
+	case <-spinner.done:
+	case <-time.After(JOIN_LIMIT):
+		t.Fatal("a sibling thread ran on after the assertion")
+	}
+
+	if !errors.Is(spinner.err, ErrCancelled) {
+		t.Fatalf("the sibling ended with %v, want ErrCancelled", spinner.err)
+	}
+
+	t.Logf("cause kept: %v / sibling: %v", run._Cause(), spinner.err)
 }
 
 // TestBuiltins_SuppliesTheFourNames proves what a host gets, and that each call

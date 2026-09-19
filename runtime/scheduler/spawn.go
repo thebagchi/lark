@@ -134,10 +134,16 @@ func (h *Handle) _Work(ctx context.Context, run *_Run, target *starlark.Function
 		},
 	)
 
-	if h.err != nil && ctx.Err() != nil {
+	if h.err != nil && ctx.Err() != nil && !errors.Is(h.err, ErrAssert) {
 		// The interpreter's own message also says "cancelled", so it is
 		// replaced rather than wrapped: what a reader needs is which handle,
 		// and why the context ended.
+		//
+		// An assertion is exempt because it is the one error that *causes* the
+		// cancellation it would otherwise be relabelled by. This thread
+		// asserted, the run stopped, and this context is done as a consequence
+		// - reporting "cancelled" here would hide the reason behind its own
+		// effect.
 		h.err = fmt.Errorf("%w: %w", ErrCancelled, ctx.Err())
 	}
 }

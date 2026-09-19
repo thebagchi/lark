@@ -22,13 +22,17 @@ const (
 	RACING_COUNT = 64
 )
 
-// _Started returns a run as a call into an artifact would leave one.
+// _Started returns a run as a call into an artifact would leave one, including
+// a context it can cancel itself - which is what a failed assertion uses.
 //
 // Revisions:
 //   - 2026-09-19 21:57: initial creation
 func _Started(ctx context.Context) *_Run {
+	inner, stop := context.WithCancel(ctx)
+
 	return &_Run{
-		ctx:  ctx,
+		ctx:  inner,
+		stop: stop,
 		next: FIRST_SPAWN,
 	}
 }

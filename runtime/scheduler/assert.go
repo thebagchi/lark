@@ -39,6 +39,9 @@ const ASSERT = "assert"
 // script signals failure, and a Starlark error unwinds the thread it was raised
 // on and no other.
 //
+// A failed assertion stops the whole run, not only the thread it ran on. See
+// _Stop.
+//
 // Returns ErrAssert when the condition is false or the keyword form was used,
 // and ErrNotACondition when the only argument is a string.
 //
@@ -46,6 +49,7 @@ const ASSERT = "assert"
 //   - 2026-09-19 20:46: initial creation
 //   - 2026-09-19 23:58: takes msg as a keyword for an unconditional failure,
 //     and refuses a lone string, which used to pass silently
+//   - 2026-09-20 00:09: stops the run rather than only the calling thread
 func _Assert(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -63,7 +67,7 @@ func _Assert(
 	}
 
 	if cond == nil {
-		return nil, _Failure(msg)
+		return nil, _Stop(thread, _Failure(msg))
 	}
 
 	text, bare := cond.(starlark.String)
@@ -82,7 +86,30 @@ func _Assert(
 		return starlark.None, nil
 	}
 
-	return nil, _Failure(msg)
+	return nil, _Stop(thread, _Failure(msg))
+}
+
+// _Stop ends the run this thread belongs to, and returns cause unchanged.
+//
+// A failed assertion stops everything, not only the thread it ran on: the
+// spine, every spawned thread, and anything they spawned. That is what a test
+// runner does - the first assertion ends the test - and it is why assert is
+// not simply an error a script could have returned.
+//
+// The cause is recorded before the cancel, because the cancel reaches this
+// thread too and would otherwise replace this error with "cancelled".
+//
+// Revisions:
+//   - 2026-09-20 00:09: initial creation
+func _Stop(thread *starlark.Thread, cause error) error {
+	run, err := _Of(thread)
+	if err != nil {
+		return cause
+	}
+
+	run._Fail(cause)
+
+	return cause
 }
 
 // _Failure is the error a failed assertion raises, with the message a script
