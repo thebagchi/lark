@@ -6,13 +6,11 @@
 # first time a result is compared or used as an index.
 
 def main():
-    return {
-        "sqrt(2)": math.sqrt(2),
-        "floor(-1.5) is an int": math.floor(-1.5),
-        "ceil(-1.5) is an int": math.ceil(-1.5),
-        "round(2.5) is a float": math.round(2.5),
-        "pow(2, 10)": math.pow(2, 10),
-        "hypot(3, 4)": math.hypot(3, 4),
-        "degrees(pi)": math.degrees(math.pi),
-        "log(e)": math.log(math.e),
-    }
+    print("sqrt(2)", math.sqrt(2))
+    print("floor(-1.5) is an int", math.floor(-1.5))
+    print("ceil(-1.5) is an int", math.ceil(-1.5))
+    print("round(2.5) is a float", math.round(2.5))
+    print("pow(2, 10)", math.pow(2, 10))
+    print("hypot(3, 4)", math.hypot(3, 4))
+    print("degrees(pi)", math.degrees(math.pi))
+    print("log(e)", math.log(math.e))

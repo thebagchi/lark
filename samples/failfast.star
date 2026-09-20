@@ -22,4 +22,4 @@ def main():
     slow = spawn(counts_a_long_way)
     doomed = spawn(gives_up)
 
-    return join(doomed, slow)
+    join(doomed, slow)

@@ -4,4 +4,4 @@
 load("strings.star", "shout", "join_with")
 
 def main():
-    return join_with(" ", [shout("loaded"), shout("from"), shout("a module")])
+    print(join_with(" ", [shout("loaded"), shout("from"), shout("a module")]))

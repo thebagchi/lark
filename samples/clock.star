@@ -12,10 +12,8 @@ def main():
 
     deadline = started + budget
 
-    return {
-        "budget in seconds": budget.seconds,
-        "how long until the deadline": str(deadline - started),
-        "a minute is": str(time.minute),
-        "an hour holds": (time.hour).seconds / (time.minute).seconds,
-        "now is an instant": type(time.now()) == "time.time",
-    }
+    print("budget in seconds", budget.seconds)
+    print("how long until the deadline", str(deadline - started))
+    print("a minute is", str(time.minute))
+    print("an hour holds", (time.hour).seconds / (time.minute).seconds)
+    print("now is an instant", type(time.now()) == "time.time")

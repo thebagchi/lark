@@ -12,4 +12,4 @@ def second():
 def main():
     parts = join(spawn(first), spawn(second))
 
-    return " ".join(parts)
+    print(" ".join(parts))

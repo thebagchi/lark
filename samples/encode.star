@@ -2,4 +2,4 @@
 # script did not have to ask.
 
 def main():
-    return json.encode({"runtime": "lark", "threads": [0, 1, 2]})
+    print(json.encode({"runtime": "lark", "threads": [0, 1, 2]}))

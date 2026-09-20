@@ -16,12 +16,10 @@ REPORT = {
 }
 
 def main():
-    return {
-        "id": extract_json(REPORT, "/session/id"),
-        "second step": extract_json(REPORT, "/steps/1/name"),
-        "escaped slash": extract_json(REPORT, "/a~1b"),
-        "how many steps": len_json(REPORT, "/steps"),
-        "absent": extract_json(REPORT, "/session/nothing"),
-        "retries are zero": match_json(REPORT, "/session/retries", 0),
-        "found by name": find_key(REPORT, "id"),
-    }
+    print("id", extract_json(REPORT, "/session/id"))
+    print("second step", extract_json(REPORT, "/steps/1/name"))
+    print("escaped slash", extract_json(REPORT, "/a~1b"))
+    print("how many steps", len_json(REPORT, "/steps"))
+    print("absent", extract_json(REPORT, "/session/nothing"))
+    print("retries are zero", match_json(REPORT, "/session/retries", 0))
+    print("found by name", find_key(REPORT, "id"))

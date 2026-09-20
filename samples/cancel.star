@@ -15,4 +15,4 @@ def main():
 
     cancel(h)
 
-    return join(h)
+    join(h)

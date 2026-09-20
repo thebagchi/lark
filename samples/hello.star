@@ -2,4 +2,4 @@
 # arguments. Everything else is optional.
 
 def main():
-    return "hello from starlark"
+    print("hello from starlark")

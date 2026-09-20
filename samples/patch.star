@@ -13,4 +13,5 @@ def main():
         {"op": "test", "path": "/retries", "value": 3},
     ])
 
-    return {"before": BEFORE, "after": after}
+    print("before", BEFORE)
+    print("after", after)

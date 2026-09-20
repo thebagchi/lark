@@ -26,4 +26,4 @@ def main():
     slow = spawn(counts_a_long_way)
     dies = spawn(doomed)
 
-    return join(slow, dies)
+    join(slow, dies)

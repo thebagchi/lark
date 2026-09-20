@@ -42,7 +42,7 @@ const (
 // ErrNoScript is returned when no script was named.
 var ErrNoScript = errors.New("lark: no script given")
 
-// main runs the script named by -s and prints what its entry point returned.
+// main runs the script named by -s.
 //
 // Exits 0 on success, 1 when the script failed, 2 when no script was named and
 // 3 when the file could not be read. The last two are this command's problem
@@ -50,13 +50,19 @@ var ErrNoScript = errors.New("lark: no script given")
 // failed:". A sample that demonstrates a failure therefore exits 1 and says so
 // in its own words, without this command knowing anything about samples.
 //
-// Everything goes to standard error except the value the script returned, so
-// stdout can be piped.
+// A script's output is what it prints, which goes to standard output so it can
+// be piped. Everything this command says goes to standard error.
+//
+// What the entry point returned is not printed. A script does its job and
+// exits; its results are the lines it printed, which is what a host collects as
+// the run's log. Printing the value too would put a trailing None under every
+// script that correctly returns nothing.
 //
 // Revisions:
 //   - 2026-09-19 23:40: initial creation
 //   - 2026-09-19 23:47: tells a failed script apart from a command that could
 //     not run one, by exit code and by the word the message opens with
+//   - 2026-09-21 00:26: no longer prints what the entry point returned
 func main() {
 	script := flag.String(SCRIPT_FLAG, "", SCRIPT_USAGE)
 
@@ -74,13 +80,11 @@ func main() {
 		os.Exit(UNREADAB)
 	}
 
-	value, err := _Run(context.Background(), *script, src)
+	err = _Run(context.Background(), *script, src)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "script failed: %v\n", err)
 		os.Exit(FAILED)
 	}
-
-	fmt.Println(value)
 }
 
 // _Run compiles src as the script at path and calls its entry point.
@@ -93,16 +97,18 @@ func main() {
 //   - 2026-09-19 23:41: initial creation
 //   - 2026-09-19 23:47: takes the source, so reading the file is the caller's
 //     problem and can be reported as one
-func _Run(ctx context.Context, path string, src []byte) (string, error) {
+//   - 2026-09-21 00:26: reports only whether the run failed, since the value is
+//     no longer printed
+func _Run(ctx context.Context, path string, src []byte) error {
 	artifact, err := runtime.NewCompiler().Compile(path, src)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	value, err := artifact.Run(ctx)
+	_, err = artifact.Run(ctx)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	return value.String(), nil
+	return nil
 }

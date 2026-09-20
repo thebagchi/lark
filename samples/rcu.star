@@ -19,8 +19,6 @@ def main():
     # Publishing is what makes it visible.
     state.set("findings", mine)
 
-    return {
-        "my copy": mine,
-        "the store, before I published": unpublished,
-        "the store, after": state.get("findings"),
-    }
+    print("my copy", mine)
+    print("the store, before I published", unpublished)
+    print("the store, after", state.get("findings"))

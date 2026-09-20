@@ -18,6 +18,15 @@ def counted():
     for i in range(50):
         state.update("writes", lambda n: 1 if n == None else n + 1)
 
+def report():
+    print("alpha", state.get("alpha"))
+    print("beta", state.get("beta"))
+    print("writes", state.get("writes"))
+
+    # A name nothing has written reads as None rather than failing - the
+    # ordinary case in a store several threads write to.
+    print("gamma, which nothing wrote", state.get("gamma"))
+
 def main():
     # These two write their own names, so a plain set is enough.
     join(spawn(gather_alpha), spawn(gather_beta))
@@ -25,8 +34,4 @@ def main():
     # These four all write "writes", so they update instead.
     join(spawn(counted), spawn(counted), spawn(counted), spawn(counted))
 
-    # A name nothing has written reads as None rather than failing - the
-    # ordinary case in a store several threads write to.
-    missing = state.get("gamma")
-
-    return [state.get("alpha"), state.get("beta"), state.get("writes"), missing]
+    report()
