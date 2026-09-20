@@ -51,6 +51,7 @@ make binaries
 | `state.star` | `state` passing data between threads |
 | `rcu.star` | read-copy-update: read a copy, change it, publish it |
 | `flow.star` | `repeat`, `retry`, `timeout` and `n()` |
+| `graph.star` | a `workflow.Graph` as JSON, and the Starlark generated from it |
 | `pointers.star` | RFC 6901: `extract_json`, `match_json`, `len_json`, `find_key` |
 | `patch.star` | RFC 6902: `patch_json`, and the input left unchanged |
 | `clock.star` | `time` — durations and instants |
