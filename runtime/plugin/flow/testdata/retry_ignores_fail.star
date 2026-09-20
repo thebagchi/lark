@@ -3,4 +3,4 @@ def broken():
     fail("not an assertion")
 
 def main():
-    return retry(broken, 5)()
+    return retry(5, broken)

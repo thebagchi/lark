@@ -143,15 +143,21 @@ func TestSpawn_RunsOnItsOwnThread(t *testing.T) {
 	}
 }
 
-// TestSpawn_RefusesWhatCannotBeNamedOrCalled proves each of the five refusals,
-// and that all five reach one sentinel a host can act on.
+// TestSpawn_RefusesWhatCannotBeCalled proves each of the four refusals, and
+// that all four reach one sentinel a host can act on.
 //
-// The lambda case is the one with a reason beyond arity: a lambda has no name,
-// so a snapshot or a graph would show an anonymous thread.
+// A lambda was a fifth, on the reasoning that it has no name and a snapshot
+// would show an anonymous thread. It is accepted now, and the reasoning was
+// answered rather than dropped: a compiler emits a lambda wherever a call
+// passes arguments, because spawn takes none to pass on, and what reports the
+// thread is the graph - a fork names a lane, and that lane declares what runs
+// there. The anonymous thread is real and the name comes from elsewhere.
 //
 // Revisions:
 //   - 2026-09-19 22:06: initial creation
-func TestSpawn_RefusesWhatCannotBeNamedOrCalled(t *testing.T) {
+//   - 2026-09-20 20:53: a lambda is no longer refused; the case is inverted
+//     into TestSpawn_TakesALambda
+func TestSpawn_RefusesWhatCannotBeCalled(t *testing.T) {
 	globals := _Globals(t)
 	run := _Started(t.Context())
 
@@ -163,7 +169,6 @@ func TestSpawn_RefusesWhatCannotBeNamedOrCalled(t *testing.T) {
 		{name: "two functions", args: starlark.Tuple{globals[WORKER], globals[WORKER]}},
 		{name: "not a function", args: starlark.Tuple{globals[NOT_A_FUNC]}},
 		{name: "takes arguments", args: starlark.Tuple{globals[TAKES_ARGS]}},
-		{name: "a lambda", args: starlark.Tuple{globals[ANON_FUNC]}},
 	}
 
 	for _, item := range cases {
@@ -295,5 +300,32 @@ func TestSpawn_ConcurrentSpawnsDoNotShareAThread(t *testing.T) {
 		}
 
 		seen[handle.Thread()] = true
+	}
+}
+
+// TestSpawn_TakesALambda is the refusal that went, inverted.
+//
+// A compiler emits spawn(lambda: greet("alice")) for a call that passes
+// arguments. The handle it makes has no name of its own, which is what the old
+// refusal was protecting against and is now answered by the graph instead.
+//
+// Revisions:
+//   - 2026-09-20 20:53: initial creation
+func TestSpawn_TakesALambda(t *testing.T) {
+	globals := _Globals(t)
+	run := _Started(t.Context())
+
+	value, err := _Spawn(_Thread(run), nil, starlark.Tuple{globals[ANON_FUNC]}, nil)
+	if err != nil {
+		t.Fatalf("want a lambda spawned, got %v", err)
+	}
+
+	handle, ok := value.(*Handle)
+	if !ok {
+		t.Fatalf("want a handle, got %T", value)
+	}
+
+	if handle.Name() != LAMBDA {
+		t.Fatalf("want the interpreter's own word for it, got %q", handle.Name())
 	}
 }

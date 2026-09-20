@@ -3,4 +3,4 @@ def step():
     fail("stopping on attempt " + str(n()))
 
 def main():
-    return repeat(step, 5)()
+    return repeat(5, step)

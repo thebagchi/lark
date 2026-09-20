@@ -136,9 +136,9 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `assert(cond, msg)` | Stops the **whole run** when `cond` is false. `assert(msg = "...")` always stops it. |
 | `fail(msg, …)` | Starlark's own. Aborts the **calling thread**. |
 | `sleep(seconds)` | Pauses this evaluation. A cancel cuts it short. |
-| `repeat(fn, n)` | Returns a callable that calls `fn` exactly `n` times. |
-| `retry(fn, n)` | Returns a callable that calls `fn` until one attempt succeeds. Retries **only** assertions. |
-| `timeout(fn, seconds)` | Returns a callable that gives `fn` a limited time. |
+| `repeat(n, fn)` | Calls `fn` exactly `n` times and returns the last result. |
+| `retry(n, fn)` | Calls `fn` until one attempt succeeds. Retries **only** assertions. |
+| `timeout(seconds, fn)` | Calls `fn` with a limited time, and fails if it runs past it. |
 | `n()` | The 1-based attempt number, inside `repeat` or `retry`. |
 | `load(path, name)` | Binds a name from another script. |
 | `json` | `json.encode`, `json.decode`, and the rest of the module go.starlark.net ships. |
@@ -227,19 +227,20 @@ import (
 
 ### Repeating, retrying and bounding
 
-Each is a **factory**: it takes a function and returns a callable, and nothing
-happens until that callable is called.
+Each calls straight away and gives back what the call produced.
 
 ```python
-three_times = repeat(step, 3)      # builds it
-three_times()                      # runs it
+last = repeat(3, step)             # calls step three times
 ```
 
 | | |
 | --- | --- |
-| `repeat(fn, n)` | exactly `n` calls, stopping at the first error, returning the last success |
-| `retry(fn, n)` | up to `n` calls, returning the first success |
-| `timeout(fn, seconds)` | one call, failing if it runs past the limit |
+| `repeat(n, fn)` | exactly `n` calls, stopping at the first error, returning the last success |
+| `retry(n, fn)` | up to `n` calls, returning the first success |
+| `timeout(seconds, fn)` | one call, failing if it runs past the limit |
+
+They do not compose: `retry(3, timeout(5, fn))` is refused, because a wrapper
+takes a function and gives back a result, not another function.
 
 **`retry` retries only assertions.** A `fail()`, a cancelled handle or a refused
 builtin propagates at once. That is what the two failure kinds are for: `assert`
@@ -262,8 +263,13 @@ a `repeat` or `retry` it is an error rather than a guess.
 wrappers running in parallel never share an attempt count, and `timeout` can
 stop waiting for one.
 
-A lambda is refused by all three — they name the function they wrap, in an error
-and in whatever a graph records — and `n` must be at least 1.
+The count comes first and the function last, because the function is the subject
+and a lambda is the argument most likely to grow. `n` must be at least 1.
+
+**A lambda is accepted**, and it is what you write when a call needs arguments:
+`repeat(3, lambda: greet("alice"))`. A named function reports its own name;
+an anonymous one has none, so a status shows the thread with no function
+against it rather than a name that is not true.
 
 ### `assert` or `fail`?
 
@@ -398,7 +404,7 @@ Each is reachable with `errors.Is`, through whatever wrapping carried it.
 | `runtime.ErrAssert` | A script asserted false |
 | `runtime.ErrNotACondition` | `assert` was given only a message |
 | `runtime.ErrCancelled` | A joined handle was cancelled |
-| `runtime.ErrNotAName` | `spawn` got something other than a named zero-argument function |
+| `runtime.ErrNotAName` | `spawn` got something other than a zero-argument function |
 | `runtime.ErrConflict` | Two plugins supply one name |
 | `runtime.ErrUnknown` | No run answers to that id |
 

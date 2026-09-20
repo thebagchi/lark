@@ -23,21 +23,15 @@ def pauses_briefly():
     return "finished inside its budget"
 
 def main():
-    three = repeat(counted, 3)
-    last = three()
+    last = repeat(3, counted)
 
-    eventually = retry(settles_on_the_third_try, 5)
-
-    # A bounded call. Note the parentheses: the factory gives back a callable,
-    # and nothing happens until it is called.
-    bounded = timeout(pauses_briefly, 5)
-
-    # Had pauses_briefly slept for thirty seconds instead, this would fail in
+    # Each wrapper calls straight away and gives back what the call produced.
+    # Had pauses_briefly slept for thirty seconds, the timeout would fail in
     # about 5 seconds rather than waiting it out: the sleep inside it watches
     # the same cancel the timeout fires.
     return {
         "repeat ran": state.get("calls"),
         "last attempt": last,
-        "retry": eventually(),
-        "timeout": bounded(),
+        "retry": retry(5, settles_on_the_third_try),
+        "timeout": timeout(5, pauses_briefly),
     }

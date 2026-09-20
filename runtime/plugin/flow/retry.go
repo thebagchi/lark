@@ -43,41 +43,34 @@ func _Retry(
 		return nil, err
 	}
 
-	name := fmt.Sprintf("%s(%s, %d)", RETRY, target.Name(), attempts)
+	name := fmt.Sprintf("%s(%d, %s)", RETRY, attempts, target.Name())
 
-	return starlark.NewBuiltin(name, func(
-		inner *starlark.Thread,
-		self *starlark.Builtin,
-		passed starlark.Tuple,
-		named []starlark.Tuple,
-	) (starlark.Value, error) {
-		var last error
+	var last error
 
-		for attempt := ONCE; attempt <= attempts; attempt++ {
-			value, err := _Await(inner, target, attempt, true, passed, named)
-			if err == nil {
-				_Finished(inner, target.Name(), nil)
+	for attempt := ONCE; attempt <= attempts; attempt++ {
+		value, err := _Await(thread, target, attempt, true, nil, nil)
+		if err == nil {
+			_Finished(thread, target.Name(), nil)
 
-				return value, nil
-			}
-
-			if !errors.Is(err, scheduler.ErrAssert) {
-				failed := fmt.Errorf("%s attempt %d: %w", self.Name(), attempt, err)
-
-				_Finished(inner, target.Name(), failed)
-
-				return nil, failed
-			}
-
-			last = err
+			return value, nil
 		}
 
-		exhausted := _Exhausted(inner, self, attempts, last)
+		if !errors.Is(err, scheduler.ErrAssert) {
+			failed := fmt.Errorf("%s attempt %d: %w", name, attempt, err)
 
-		_Finished(inner, target.Name(), exhausted)
+			_Finished(thread, target.Name(), failed)
 
-		return nil, exhausted
-	}), nil
+			return nil, failed
+		}
+
+		last = err
+	}
+
+	exhausted := _Exhausted(thread, name, attempts, last)
+
+	_Finished(thread, target.Name(), exhausted)
+
+	return nil, exhausted
 }
 
 // _Exhausted reports the last assertion after every attempt has failed, and
@@ -91,11 +84,11 @@ func _Retry(
 //   - 2026-09-20 01:19: initial creation
 func _Exhausted(
 	thread *starlark.Thread,
-	self *starlark.Builtin,
+	who string,
 	attempts int,
 	last error,
 ) error {
-	failure := fmt.Errorf("%s gave up after %d attempts: %w", self.Name(), attempts, last)
+	failure := fmt.Errorf("%s gave up after %d attempts: %w", who, attempts, last)
 
 	scheduler.End(thread, failure)
 
@@ -124,11 +117,11 @@ func _Timeout(
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
 	var (
-		target *starlark.Function
 		given  starlark.Value
+		target *starlark.Function
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &target, &given)
+	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &given, &target)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
 	}
@@ -139,24 +132,13 @@ func _Timeout(
 		return nil, fmt.Errorf("%s got %s: %w", fn.Name(), given.Type(), ErrCount)
 	}
 
-	if target.Name() == LAMBDA {
-		return nil, fmt.Errorf("%s got a lambda: %w", fn.Name(), ErrNotAName)
-	}
-
 	if seconds <= 0 {
 		return nil, fmt.Errorf("%s got %g seconds: %w", fn.Name(), seconds, ErrCount)
 	}
 
-	name := fmt.Sprintf("%s(%s, %g)", TIMEOUT, target.Name(), seconds)
+	name := fmt.Sprintf("%s(%g, %s)", TIMEOUT, seconds, target.Name())
 
-	return starlark.NewBuiltin(name, func(
-		inner *starlark.Thread,
-		self *starlark.Builtin,
-		passed starlark.Tuple,
-		named []starlark.Tuple,
-	) (starlark.Value, error) {
-		return _Bounded(inner, self, target, seconds, passed, named)
-	}), nil
+	return _Bounded(thread, name, target, seconds, nil, nil)
 }
 
 // _Bounded runs target beside the caller and gives it seconds to finish.
@@ -167,7 +149,7 @@ func _Timeout(
 //     this only in having no deadline to wait against
 func _Bounded(
 	thread *starlark.Thread,
-	self *starlark.Builtin,
+	who string,
 	target *starlark.Function,
 	seconds float64,
 	args starlark.Tuple,
@@ -179,7 +161,7 @@ func _Bounded(
 	// wrapping is the caller's business, not the function's.
 	done, stop, err := _Aside(thread, target, UNCOUNTED, false, args, kwargs)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", self.Name(), err)
+		return nil, fmt.Errorf("%s: %w", who, err)
 	}
 
 	defer stop()
@@ -190,7 +172,7 @@ func _Bounded(
 	select {
 	case got := <-done:
 		if got.err != nil {
-			failed := fmt.Errorf("%s: %w", self.Name(), got.err)
+			failed := fmt.Errorf("%s: %w", who, got.err)
 
 			_Finished(thread, target.Name(), failed)
 
@@ -208,7 +190,7 @@ func _Bounded(
 		// instruction could otherwise still write state after this returned.
 		<-done
 
-		expired := fmt.Errorf("%s: %w", self.Name(), ErrTimeout)
+		expired := fmt.Errorf("%s: %w", who, ErrTimeout)
 
 		_Finished(thread, target.Name(), expired)
 

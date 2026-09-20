@@ -20,6 +20,12 @@ import (
 const (
 	FIXTURE_DIR = "testdata"
 	BUDGET      = 5 * time.Second
+
+	// ZERO asks a wrapper for no calls at all, and LAMBDAS wraps an anonymous
+	// function, which is what a compiler emits for a site that passes
+	// arguments.
+	ZERO    = "zero.star"
+	LAMBDAS = "lambdas.star"
 )
 
 // _Disk is a Loader over testdata.
@@ -179,14 +185,19 @@ func TestTimeout_LetsAQuickCallThrough(t *testing.T) {
 	}
 }
 
-// TestFactories_RefuseWhatTheyCannotName covers the two refusals every wrapper
-// shares: a lambda has no name to report, and a count below one asks for
-// nothing to happen.
+// TestFactories_RefuseACountBelowOne covers the refusal every wrapper shares: a
+// count below one asks for nothing to happen.
+//
+// A lambda used to be refused here too. It is accepted now: a compiler emits
+// one wherever a call passes arguments, since a wrapper takes none to pass on.
+// What it costs is the name, and lambdas.star is inverted into a check that it
+// runs rather than a check that it is turned away.
 //
 // Revisions:
 //   - 2026-09-20 01:44: initial creation
-func TestFactories_RefuseWhatTheyCannotName(t *testing.T) {
-	for _, name := range []string{"lambdas.star", "zero.star"} {
+//   - 2026-09-20 20:53: lambdas are accepted; only a bad count is refused
+func TestFactories_RefuseACountBelowOne(t *testing.T) {
+	for _, name := range []string{ZERO} {
 		t.Run(name, func(t *testing.T) {
 			_, err := _Run(t, name)
 			if err == nil {
@@ -211,5 +222,24 @@ func TestAttempt_RefusesOutsideAWrapper(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "only meaningful inside") {
 		t.Fatalf("refused for some other reason: %v", err)
+	}
+}
+
+// TestFactories_TakeALambda is the other half of the refusal that went.
+//
+// A compiler emits a lambda wherever a call passes arguments, because a wrapper
+// takes none to pass on: repeat(3, lambda: greet("alice")). What that costs is
+// the name, and the name is not the wrapper's to supply.
+//
+// Revisions:
+//   - 2026-09-20 20:53: initial creation
+func TestFactories_TakeALambda(t *testing.T) {
+	value, err := _Run(t, LAMBDAS)
+	if err != nil {
+		t.Fatalf("want a wrapped lambda to run, got %v", err)
+	}
+
+	if value.String() != "1" {
+		t.Fatalf("want the lambda's own result, got %s", value)
 	}
 }

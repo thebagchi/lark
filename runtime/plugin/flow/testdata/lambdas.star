@@ -1,2 +1,2 @@
 def main():
-    return repeat(lambda: 1, 2)
+    return repeat(2, lambda: 1)

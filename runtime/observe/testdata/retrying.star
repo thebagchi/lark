@@ -3,4 +3,4 @@ def flaky():
     return "ready"
 
 def main():
-    return retry(flaky, 3)()
+    return retry(3, flaky)

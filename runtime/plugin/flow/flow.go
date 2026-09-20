@@ -88,17 +88,13 @@ func _Named(
 	kwargs []starlark.Tuple,
 ) (*starlark.Function, int, error) {
 	var (
-		target *starlark.Function
 		count  int
+		target *starlark.Function
 	)
 
-	err := starlark.UnpackPositionalArgs(who, args, kwargs, 2, &target, &count)
+	err := starlark.UnpackPositionalArgs(who, args, kwargs, 2, &count, &target)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s: %w", who, err)
-	}
-
-	if target.Name() == LAMBDA {
-		return nil, 0, fmt.Errorf("%s got a lambda: %w", who, ErrNotAName)
 	}
 
 	if count < ONCE {
@@ -157,29 +153,22 @@ func _Repeat(
 		return nil, err
 	}
 
-	name := fmt.Sprintf("%s(%s, %d)", REPEAT, target.Name(), count)
+	name := fmt.Sprintf("%s(%d, %s)", REPEAT, count, target.Name())
 
-	return starlark.NewBuiltin(name, func(
-		inner *starlark.Thread,
-		self *starlark.Builtin,
-		passed starlark.Tuple,
-		named []starlark.Tuple,
-	) (starlark.Value, error) {
-		var last starlark.Value = starlark.None
+	var last starlark.Value = starlark.None
 
-		for attempt := ONCE; attempt <= count; attempt++ {
-			last, err = _Await(inner, target, attempt, false, passed, named)
-			if err != nil {
-				failed := fmt.Errorf("%s attempt %d: %w", self.Name(), attempt, err)
+	for attempt := ONCE; attempt <= count; attempt++ {
+		last, err = _Await(thread, target, attempt, false, nil, nil)
+		if err != nil {
+			failed := fmt.Errorf("%s attempt %d: %w", name, attempt, err)
 
-				_Finished(inner, target.Name(), failed)
+			_Finished(thread, target.Name(), failed)
 
-				return nil, failed
-			}
+			return nil, failed
 		}
+	}
 
-		_Finished(inner, target.Name(), nil)
+	_Finished(thread, target.Name(), nil)
 
-		return last, nil
-	}), nil
+	return last, nil
 }

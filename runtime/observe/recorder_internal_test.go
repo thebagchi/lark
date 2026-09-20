@@ -15,6 +15,9 @@ const (
 	LANE  = 1
 	OTHER = 2
 	BROKE = "it broke"
+
+	// ANON is what the interpreter calls an anonymous function.
+	ANON = "lambda"
 )
 
 // TestBlame_IgnoresACancellationHoweverEarly is a property the end-to-end tests
@@ -97,5 +100,45 @@ func TestBecause_StandsInWhenNothingWasBlamed(t *testing.T) {
 
 	if into._Because(workflowpb.Status_STATUS_CANCELLED, "") != nil {
 		t.Fatal("want no cause for a cancelled run")
+	}
+}
+
+// TestResolve_NamesALambdaOnlyWhenALaneIsUnambiguous is the rule the naming
+// design rests on, and the end-to-end tests cannot reach it.
+//
+// A fork names a lane and that lane declares one function, so a spawned lambda
+// resolves. A wrapper runs on the lane that called it, and a lane may hold
+// several — then there is nothing to choose between them, and choosing would be
+// right sometimes and silently wrong the rest.
+//
+// Planting the guard away left every graph test passing, because none of them
+// puts two functions on a lane and then reports a lambda there.
+//
+// Revisions:
+//   - 2026-09-20 20:53: initial creation
+func TestResolve_NamesALambdaOnlyWhenALaneIsUnambiguous(t *testing.T) {
+	into := _NewRecorder()
+
+	into._At(LANE, "greet")
+
+	if into._Resolve(LANE, ANON) != "greet" {
+		t.Fatalf("want one candidate resolved, got %q", into._Resolve(LANE, ANON))
+	}
+
+	// A second function on the same lane, which is what a wrapper does.
+	into._At(LANE, "farewell")
+
+	if into._Resolve(LANE, ANON) != "" {
+		t.Fatalf("want two candidates left unnamed, got %q", into._Resolve(LANE, ANON))
+	}
+
+	// A lane with nothing placed cannot name anything either.
+	if into._Resolve(OTHER, ANON) != "" {
+		t.Fatalf("want an empty lane to name nothing, got %q", into._Resolve(OTHER, ANON))
+	}
+
+	// A real name is never replaced, however many candidates share its lane.
+	if into._Resolve(LANE, "greet") != "greet" {
+		t.Fatal("want a named function left alone")
 	}
 }

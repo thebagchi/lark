@@ -55,6 +55,43 @@ func _NewRecorder() *_Recorder {
 	}
 }
 
+// _Resolve is the name to report for a function on a thread.
+//
+// An anonymous function has none of its own, and this is where the graph
+// supplies one - but only where the graph can. A fork names a lane and that
+// lane declares what runs there, so a spawned lambda has exactly one candidate.
+// A wrapped one runs on the lane that called it, and a lane may hold several
+// functions, so there is nothing to choose between them and nothing is chosen.
+//
+// Empty rather than "lambda", which reads like a function of that name. A
+// reader sees a status with no name, which is what is true.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-09-20 20:53: initial creation
+func (r *_Recorder) _Resolve(thread int32, name string) string {
+	if name != scheduler.LAMBDA {
+		return name
+	}
+
+	var found string
+
+	for where := range r.nodes {
+		if where.thread != thread || where.name == "" {
+			continue
+		}
+
+		if found != "" {
+			return ""
+		}
+
+		found = where.name
+	}
+
+	return found
+}
+
 // Started records that a function has begun on a thread, on the attempt given.
 //
 // A function reported again is the same node on a later attempt, not a second
@@ -62,11 +99,12 @@ func _NewRecorder() *_Recorder {
 //
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
+//   - 2026-09-20 20:53: resolves an anonymous function against the graph
 func (r *_Recorder) Started(thread int32, name string, attempt int32) {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	node := r._At(thread, name)
+	node := r._At(thread, r._Resolve(thread, name))
 
 	node.status = workflowpb.Status_STATUS_RUNNING
 	node.attempt = attempt
@@ -91,7 +129,7 @@ func (r *_Recorder) Ended(thread int32, name string, err error) {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	node := r._At(thread, name)
+	node := r._At(thread, r._Resolve(thread, name))
 
 	node.status = _Became(err)
 	node.failure = _Why(err)
@@ -262,6 +300,9 @@ func (r *_Recorder) _Placed(name string) bool {
 // fetch, and a graph that placed the call but not the repeat would put the same
 // function in two places depending on how it was written.
 //
+// Every one of them carries a Call, so this reads one field through a different
+// wrapper rather than four fields that spell the same thing four ways.
+//
 // Revisions:
 //   - 2026-09-20 11:55: initial creation
 func _Names(step *workflowpb.Step) string {
@@ -269,11 +310,11 @@ func _Names(step *workflowpb.Step) string {
 	case step.GetCall() != nil:
 		return step.GetCall().GetFunction()
 	case step.GetRepeat() != nil:
-		return step.GetRepeat().GetFunction()
+		return step.GetRepeat().GetCall().GetFunction()
 	case step.GetRetry() != nil:
-		return step.GetRetry().GetFunction()
+		return step.GetRetry().GetCall().GetFunction()
 	case step.GetTimeout() != nil:
-		return step.GetTimeout().GetFunction()
+		return step.GetTimeout().GetCall().GetFunction()
 	}
 
 	return ""

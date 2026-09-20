@@ -2,4 +2,4 @@ def swift():
     return "done"
 
 def main():
-    return timeout(swift, 5)()
+    return timeout(5, swift)

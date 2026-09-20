@@ -21,7 +21,7 @@ enum Status {
   STATUS_CANCELLED   = 5;
 }
 
-// Call runs function as this thread's next step. args are the values at
+// Call runs function, with args as the values at
 // this site, in order; two Calls of one function may differ here.
 message Call {
   string function = 1;
@@ -46,16 +46,16 @@ message Join {
 // it.
 message Condition {
   oneof kind {
-    bool value      = 1;
-    string function = 2;
+    bool value = 1;
+    Call call  = 2;
   }
 }
 
 // If calls then or else, depending on condition.
 message If {
   Condition condition = 1;
-  string then         = 2;
-  string else         = 3;
+  Call then           = 2;
+  Call else           = 3;
 }
 
 // Expression is a literal string, or the name of a function to call for
@@ -63,16 +63,16 @@ message If {
 // field does not reshape whatever step embeds it.
 message Expression {
   oneof kind {
-    string value    = 1;
-    string function = 2;
+    string value = 1;
+    Call call    = 2;
   }
 }
 
 // Case pairs one value with the function to call when an expression
 // equals it.
 message Case {
-  string value    = 1;
-  string function = 2;
+  string value = 1;
+  Call call    = 2;
 }
 
 // Match evaluates expression and calls whichever case matches its value,
@@ -81,23 +81,23 @@ message Case {
 message Match {
   Expression expression = 1;
   repeated Case cases   = 2;
-  string default        = 3;
+  Call default          = 3;
 }
 
 // Repeat calls function count times, pausing delay_ms milliseconds
 // between calls.
 message Repeat {
-  string function = 1;
-  int32 count     = 2;
-  int32 delay_ms  = 3;
+  Call call      = 1;
+  int32 count    = 2;
+  int32 delay_ms = 3;
 }
 
 // Retry calls function up to attempts times, stopping at the first
 // success, pausing delay_ms milliseconds between attempts.
 message Retry {
-  string function = 1;
-  int32 attempts  = 2;
-  int32 delay_ms  = 3;
+  Call call      = 1;
+  int32 attempts = 2;
+  int32 delay_ms = 3;
 }
 
 // Sleep pauses this thread for duration_ms milliseconds.
@@ -108,7 +108,7 @@ message Sleep {
 // Timeout calls function, failing it if it runs past timeout_ms
 // milliseconds.
 message Timeout {
-  string function  = 1;
+  Call call        = 1;
   int32 timeout_ms = 2;
 }
 

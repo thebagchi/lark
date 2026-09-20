@@ -11,9 +11,15 @@ import (
 )
 
 var (
-	// ErrNotAName is every refusal spawn can make: the argument is missing,
-	// is not a function, is a lambda, or takes parameters nothing can supply.
-	ErrNotAName = errors.New("spawn wants a named function")
+	// ErrNotAName is every refusal spawn can make: the argument is missing, is
+	// not a function, or takes parameters nothing can supply.
+	//
+	// A lambda is no longer among them. A compiler emits one wherever a call
+	// passes arguments - spawn(lambda: greet("alice")) - because spawn takes no
+	// arguments to pass on. What a handle lost by accepting it is its name, and
+	// a name is not something a handle has to have: what reports a run is the
+	// graph, which knows what runs on the lane a fork named.
+	ErrNotAName = errors.New("spawn wants a function")
 
 	// ErrCancelled separates "the interpreter stopped you" from "your code was
 	// wrong", because a caller acts on them differently.
@@ -24,7 +30,10 @@ var (
 )
 
 const (
-	SPAWN  = "spawn"
+	SPAWN = "spawn"
+
+	// LAMBDA is what the interpreter calls an anonymous function. Nothing
+	// refuses one; this is here so a reporter can tell that a name is not one.
 	LAMBDA = "lambda"
 
 	// REPORTER names what failed when a host's own reporter raises, so the
@@ -98,10 +107,6 @@ func _Named(args starlark.Tuple, kwargs []starlark.Tuple) (*starlark.Function, e
 	target, ok := args[0].(*starlark.Function)
 	if !ok {
 		return nil, fmt.Errorf("%s got %s: %w", SPAWN, args[0].Type(), ErrNotAName)
-	}
-
-	if target.Name() == LAMBDA {
-		return nil, fmt.Errorf("%s got a lambda: %w", SPAWN, ErrNotAName)
 	}
 
 	if target.NumParams() > 0 {

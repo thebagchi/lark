@@ -3,4 +3,4 @@ def step():
     return n()
 
 def main():
-    return repeat(step, 3)()
+    return repeat(3, step)

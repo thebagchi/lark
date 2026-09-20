@@ -20,6 +20,11 @@ const (
 
 	// THRICE spawns three times where a graph declares two lanes.
 	THRICE = "testdata/thrice.star"
+
+	// ANON spawns a lambda, which is what a compiler emits for a call that
+	// passes arguments. GREET is the function that lambda calls.
+	ANON  = "testdata/anon.star"
+	GREET = "greet"
 )
 
 // _Graph declares the branching script: its four functions, on the spine.
@@ -227,7 +232,10 @@ func TestGraph_AWrapperPlacesItsFunction(t *testing.T) {
 		Functions: []*workflowpb.Function{{Name: UNREACHED}},
 		Threads: _Lanes(WRAPPED_LANE, []*workflowpb.Step{{
 			Action: &workflowpb.Step_Repeat{
-				Repeat: &workflowpb.Repeat{Function: UNREACHED, Count: 2},
+				Repeat: &workflowpb.Repeat{
+					Call:  &workflowpb.Call{Function: UNREACHED},
+					Count: 2,
+				},
 			},
 		}}),
 	}
@@ -347,5 +355,73 @@ func _Authored() *workflowpb.Graph {
 				{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: "second"}}},
 			}},
 		},
+	}
+}
+
+// TestGraph_NamesASpawnedLambda is phase 3 of lark-graph-author: a compiler
+// emits a lambda wherever a call passes arguments, and the graph is what says
+// which function it is.
+//
+// A fork names a lane and that lane declares what runs there, so a spawned
+// lambda has exactly one candidate. Without a graph it stays anonymous, which
+// is the next test.
+//
+// Revisions:
+//   - 2026-09-20 20:53: initial creation
+func TestGraph_NamesASpawnedLambda(t *testing.T) {
+	declared := &workflowpb.Graph{
+		Functions: []*workflowpb.Function{{Name: GREET}},
+		Threads: []*workflowpb.GraphThread{
+			{Steps: []*workflowpb.Step{
+				{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: ENTRY}}},
+				{Action: &workflowpb.Step_Fork{Fork: &workflowpb.Fork{Thread: 1}}},
+			}},
+			{Steps: []*workflowpb.Step{
+				{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: GREET}}},
+			}},
+		},
+	}
+
+	snap := _Ran(t, ANON, observe.WithGraph(declared))
+
+	node, lane := _Node(snap, GREET)
+	if node == nil {
+		t.Fatal("want the graph to have named the spawned lambda")
+	}
+
+	if lane == SPINE {
+		t.Fatalf("want it on the lane the fork named, got the spine")
+	}
+
+	if node.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
+		t.Fatalf("want it succeeded, got %v", node.GetStatus())
+	}
+
+	// And no node is left carrying the interpreter's word for it.
+	if _Count(snap, "lambda") != 0 {
+		t.Fatal("want no node called lambda")
+	}
+}
+
+// TestGraph_LeavesALambdaAnonymousWithoutOne is the honest half: with nothing
+// to read a name from, the node carries none.
+//
+// Empty rather than "lambda", which reads like a function of that name.
+//
+// Revisions:
+//   - 2026-09-20 20:53: initial creation
+func TestGraph_LeavesALambdaAnonymousWithoutOne(t *testing.T) {
+	snap := _Ran(t, ANON)
+
+	for _, lane := range snap.GetThreads() {
+		for _, node := range lane.GetNodes() {
+			if node.GetFunction() == "lambda" {
+				t.Fatal("want no node named lambda")
+			}
+
+			if lane.GetIndex() != SPINE && node.GetFunction() != "" {
+				t.Fatalf("want the spawned lane anonymous, got %q", node.GetFunction())
+			}
+		}
 	}
 }

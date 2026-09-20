@@ -3,4 +3,4 @@ def slow():
     return "never"
 
 def main():
-    return timeout(slow, 0.05)()
+    return timeout(0.05, slow)

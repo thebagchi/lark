@@ -3,5 +3,5 @@ def step():
     return n()
 
 def main():
-    last = repeat(step, 3)()
+    last = repeat(3, step)
     return [last, state.get("calls")]

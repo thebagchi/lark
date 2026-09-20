@@ -86,7 +86,7 @@ func (Status) EnumDescriptor() ([]byte, []int) {
 	return file_workflow_proto_rawDescGZIP(), []int{0}
 }
 
-// Call runs function as this thread's next step. args are the values at
+// Call runs function, with args as the values at
 // this site, in order; two Calls of one function may differ here.
 type Call struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -241,7 +241,7 @@ type Condition struct {
 	// Types that are valid to be assigned to Kind:
 	//
 	//	*Condition_Value
-	//	*Condition_Function
+	//	*Condition_Call
 	Kind          isCondition_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -293,13 +293,13 @@ func (x *Condition) GetValue() bool {
 	return false
 }
 
-func (x *Condition) GetFunction() string {
+func (x *Condition) GetCall() *Call {
 	if x != nil {
-		if x, ok := x.Kind.(*Condition_Function); ok {
-			return x.Function
+		if x, ok := x.Kind.(*Condition_Call); ok {
+			return x.Call
 		}
 	}
-	return ""
+	return nil
 }
 
 type isCondition_Kind interface {
@@ -310,20 +310,20 @@ type Condition_Value struct {
 	Value bool `protobuf:"varint,1,opt,name=value,proto3,oneof"`
 }
 
-type Condition_Function struct {
-	Function string `protobuf:"bytes,2,opt,name=function,proto3,oneof"`
+type Condition_Call struct {
+	Call *Call `protobuf:"bytes,2,opt,name=call,proto3,oneof"`
 }
 
 func (*Condition_Value) isCondition_Kind() {}
 
-func (*Condition_Function) isCondition_Kind() {}
+func (*Condition_Call) isCondition_Kind() {}
 
 // If calls then or else, depending on condition.
 type If struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Condition     *Condition             `protobuf:"bytes,1,opt,name=condition,proto3" json:"condition,omitempty"`
-	Then          string                 `protobuf:"bytes,2,opt,name=then,proto3" json:"then,omitempty"`
-	Else          string                 `protobuf:"bytes,3,opt,name=else,proto3" json:"else,omitempty"`
+	Then          *Call                  `protobuf:"bytes,2,opt,name=then,proto3" json:"then,omitempty"`
+	Else          *Call                  `protobuf:"bytes,3,opt,name=else,proto3" json:"else,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -365,18 +365,18 @@ func (x *If) GetCondition() *Condition {
 	return nil
 }
 
-func (x *If) GetThen() string {
+func (x *If) GetThen() *Call {
 	if x != nil {
 		return x.Then
 	}
-	return ""
+	return nil
 }
 
-func (x *If) GetElse() string {
+func (x *If) GetElse() *Call {
 	if x != nil {
 		return x.Else
 	}
-	return ""
+	return nil
 }
 
 // Expression is a literal string, or the name of a function to call for
@@ -387,7 +387,7 @@ type Expression struct {
 	// Types that are valid to be assigned to Kind:
 	//
 	//	*Expression_Value
-	//	*Expression_Function
+	//	*Expression_Call
 	Kind          isExpression_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -439,13 +439,13 @@ func (x *Expression) GetValue() string {
 	return ""
 }
 
-func (x *Expression) GetFunction() string {
+func (x *Expression) GetCall() *Call {
 	if x != nil {
-		if x, ok := x.Kind.(*Expression_Function); ok {
-			return x.Function
+		if x, ok := x.Kind.(*Expression_Call); ok {
+			return x.Call
 		}
 	}
-	return ""
+	return nil
 }
 
 type isExpression_Kind interface {
@@ -456,20 +456,20 @@ type Expression_Value struct {
 	Value string `protobuf:"bytes,1,opt,name=value,proto3,oneof"`
 }
 
-type Expression_Function struct {
-	Function string `protobuf:"bytes,2,opt,name=function,proto3,oneof"`
+type Expression_Call struct {
+	Call *Call `protobuf:"bytes,2,opt,name=call,proto3,oneof"`
 }
 
 func (*Expression_Value) isExpression_Kind() {}
 
-func (*Expression_Function) isExpression_Kind() {}
+func (*Expression_Call) isExpression_Kind() {}
 
 // Case pairs one value with the function to call when an expression
 // equals it.
 type Case struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
-	Function      string                 `protobuf:"bytes,2,opt,name=function,proto3" json:"function,omitempty"`
+	Call          *Call                  `protobuf:"bytes,2,opt,name=call,proto3" json:"call,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -511,11 +511,11 @@ func (x *Case) GetValue() string {
 	return ""
 }
 
-func (x *Case) GetFunction() string {
+func (x *Case) GetCall() *Call {
 	if x != nil {
-		return x.Function
+		return x.Call
 	}
-	return ""
+	return nil
 }
 
 // Match evaluates expression and calls whichever case matches its value,
@@ -525,7 +525,7 @@ type Match struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Expression    *Expression            `protobuf:"bytes,1,opt,name=expression,proto3" json:"expression,omitempty"`
 	Cases         []*Case                `protobuf:"bytes,2,rep,name=cases,proto3" json:"cases,omitempty"`
-	Default       string                 `protobuf:"bytes,3,opt,name=default,proto3" json:"default,omitempty"`
+	Default       *Call                  `protobuf:"bytes,3,opt,name=default,proto3" json:"default,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -574,18 +574,18 @@ func (x *Match) GetCases() []*Case {
 	return nil
 }
 
-func (x *Match) GetDefault() string {
+func (x *Match) GetDefault() *Call {
 	if x != nil {
 		return x.Default
 	}
-	return ""
+	return nil
 }
 
 // Repeat calls function count times, pausing delay_ms milliseconds
 // between calls.
 type Repeat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Function      string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
+	Call          *Call                  `protobuf:"bytes,1,opt,name=call,proto3" json:"call,omitempty"`
 	Count         int32                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
 	DelayMs       int32                  `protobuf:"varint,3,opt,name=delay_ms,json=delayMs,proto3" json:"delay_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -622,11 +622,11 @@ func (*Repeat) Descriptor() ([]byte, []int) {
 	return file_workflow_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *Repeat) GetFunction() string {
+func (x *Repeat) GetCall() *Call {
 	if x != nil {
-		return x.Function
+		return x.Call
 	}
-	return ""
+	return nil
 }
 
 func (x *Repeat) GetCount() int32 {
@@ -647,7 +647,7 @@ func (x *Repeat) GetDelayMs() int32 {
 // success, pausing delay_ms milliseconds between attempts.
 type Retry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Function      string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
+	Call          *Call                  `protobuf:"bytes,1,opt,name=call,proto3" json:"call,omitempty"`
 	Attempts      int32                  `protobuf:"varint,2,opt,name=attempts,proto3" json:"attempts,omitempty"`
 	DelayMs       int32                  `protobuf:"varint,3,opt,name=delay_ms,json=delayMs,proto3" json:"delay_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -684,11 +684,11 @@ func (*Retry) Descriptor() ([]byte, []int) {
 	return file_workflow_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *Retry) GetFunction() string {
+func (x *Retry) GetCall() *Call {
 	if x != nil {
-		return x.Function
+		return x.Call
 	}
-	return ""
+	return nil
 }
 
 func (x *Retry) GetAttempts() int32 {
@@ -754,7 +754,7 @@ func (x *Sleep) GetDurationMs() int32 {
 // milliseconds.
 type Timeout struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Function      string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
+	Call          *Call                  `protobuf:"bytes,1,opt,name=call,proto3" json:"call,omitempty"`
 	TimeoutMs     int32                  `protobuf:"varint,2,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -790,11 +790,11 @@ func (*Timeout) Descriptor() ([]byte, []int) {
 	return file_workflow_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *Timeout) GetFunction() string {
+func (x *Timeout) GetCall() *Call {
 	if x != nil {
-		return x.Function
+		return x.Call
 	}
-	return ""
+	return nil
 }
 
 func (x *Timeout) GetTimeoutMs() int32 {
@@ -1477,42 +1477,42 @@ const file_workflow_proto_rawDesc = "" +
 	"\x04Fork\x12\x16\n" +
 	"\x06thread\x18\x01 \x01(\x05R\x06thread\" \n" +
 	"\x04Join\x12\x18\n" +
-	"\athreads\x18\x01 \x03(\x05R\athreads\"I\n" +
+	"\athreads\x18\x01 \x03(\x05R\athreads\"Q\n" +
 	"\tCondition\x12\x16\n" +
-	"\x05value\x18\x01 \x01(\bH\x00R\x05value\x12\x1c\n" +
-	"\bfunction\x18\x02 \x01(\tH\x00R\bfunctionB\x06\n" +
-	"\x04kind\"_\n" +
+	"\x05value\x18\x01 \x01(\bH\x00R\x05value\x12$\n" +
+	"\x04call\x18\x02 \x01(\v2\x0e.workflow.CallH\x00R\x04callB\x06\n" +
+	"\x04kind\"\x7f\n" +
 	"\x02If\x121\n" +
-	"\tcondition\x18\x01 \x01(\v2\x13.workflow.ConditionR\tcondition\x12\x12\n" +
-	"\x04then\x18\x02 \x01(\tR\x04then\x12\x12\n" +
-	"\x04else\x18\x03 \x01(\tR\x04else\"J\n" +
+	"\tcondition\x18\x01 \x01(\v2\x13.workflow.ConditionR\tcondition\x12\"\n" +
+	"\x04then\x18\x02 \x01(\v2\x0e.workflow.CallR\x04then\x12\"\n" +
+	"\x04else\x18\x03 \x01(\v2\x0e.workflow.CallR\x04else\"R\n" +
 	"\n" +
 	"Expression\x12\x16\n" +
-	"\x05value\x18\x01 \x01(\tH\x00R\x05value\x12\x1c\n" +
-	"\bfunction\x18\x02 \x01(\tH\x00R\bfunctionB\x06\n" +
-	"\x04kind\"8\n" +
+	"\x05value\x18\x01 \x01(\tH\x00R\x05value\x12$\n" +
+	"\x04call\x18\x02 \x01(\v2\x0e.workflow.CallH\x00R\x04callB\x06\n" +
+	"\x04kind\"@\n" +
 	"\x04Case\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\tR\x05value\x12\x1a\n" +
-	"\bfunction\x18\x02 \x01(\tR\bfunction\"}\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\x12\"\n" +
+	"\x04call\x18\x02 \x01(\v2\x0e.workflow.CallR\x04call\"\x8d\x01\n" +
 	"\x05Match\x124\n" +
 	"\n" +
 	"expression\x18\x01 \x01(\v2\x14.workflow.ExpressionR\n" +
 	"expression\x12$\n" +
-	"\x05cases\x18\x02 \x03(\v2\x0e.workflow.CaseR\x05cases\x12\x18\n" +
-	"\adefault\x18\x03 \x01(\tR\adefault\"U\n" +
-	"\x06Repeat\x12\x1a\n" +
-	"\bfunction\x18\x01 \x01(\tR\bfunction\x12\x14\n" +
+	"\x05cases\x18\x02 \x03(\v2\x0e.workflow.CaseR\x05cases\x12(\n" +
+	"\adefault\x18\x03 \x01(\v2\x0e.workflow.CallR\adefault\"]\n" +
+	"\x06Repeat\x12\"\n" +
+	"\x04call\x18\x01 \x01(\v2\x0e.workflow.CallR\x04call\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x05R\x05count\x12\x19\n" +
-	"\bdelay_ms\x18\x03 \x01(\x05R\adelayMs\"Z\n" +
-	"\x05Retry\x12\x1a\n" +
-	"\bfunction\x18\x01 \x01(\tR\bfunction\x12\x1a\n" +
+	"\bdelay_ms\x18\x03 \x01(\x05R\adelayMs\"b\n" +
+	"\x05Retry\x12\"\n" +
+	"\x04call\x18\x01 \x01(\v2\x0e.workflow.CallR\x04call\x12\x1a\n" +
 	"\battempts\x18\x02 \x01(\x05R\battempts\x12\x19\n" +
 	"\bdelay_ms\x18\x03 \x01(\x05R\adelayMs\"(\n" +
 	"\x05Sleep\x12\x1f\n" +
 	"\vduration_ms\x18\x01 \x01(\x05R\n" +
-	"durationMs\"D\n" +
-	"\aTimeout\x12\x1a\n" +
-	"\bfunction\x18\x01 \x01(\tR\bfunction\x12\x1d\n" +
+	"durationMs\"L\n" +
+	"\aTimeout\x12\"\n" +
+	"\x04call\x18\x01 \x01(\v2\x0e.workflow.CallR\x04call\x12\x1d\n" +
 	"\n" +
 	"timeout_ms\x18\x02 \x01(\x05R\ttimeoutMs\"\xf8\x02\n" +
 	"\x04Step\x12$\n" +
@@ -1600,32 +1600,41 @@ var file_workflow_proto_goTypes = []any{
 }
 var file_workflow_proto_depIdxs = []int32{
 	21, // 0: workflow.Call.args:type_name -> google.protobuf.Value
-	4,  // 1: workflow.If.condition:type_name -> workflow.Condition
-	6,  // 2: workflow.Match.expression:type_name -> workflow.Expression
-	7,  // 3: workflow.Match.cases:type_name -> workflow.Case
-	1,  // 4: workflow.Step.call:type_name -> workflow.Call
-	2,  // 5: workflow.Step.fork:type_name -> workflow.Fork
-	3,  // 6: workflow.Step.join:type_name -> workflow.Join
-	5,  // 7: workflow.Step.if:type_name -> workflow.If
-	8,  // 8: workflow.Step.match:type_name -> workflow.Match
-	9,  // 9: workflow.Step.repeat:type_name -> workflow.Repeat
-	10, // 10: workflow.Step.retry:type_name -> workflow.Retry
-	11, // 11: workflow.Step.sleep:type_name -> workflow.Sleep
-	12, // 12: workflow.Step.timeout:type_name -> workflow.Timeout
-	13, // 13: workflow.Thread.steps:type_name -> workflow.Step
-	16, // 14: workflow.Thread.nodes:type_name -> workflow.Node
-	0,  // 15: workflow.Node.status:type_name -> workflow.Status
-	13, // 16: workflow.GraphThread.steps:type_name -> workflow.Step
-	14, // 17: workflow.Graph.functions:type_name -> workflow.Function
-	17, // 18: workflow.Graph.threads:type_name -> workflow.GraphThread
-	0,  // 19: workflow.Workflow.status:type_name -> workflow.Status
-	15, // 20: workflow.Workflow.threads:type_name -> workflow.Thread
-	19, // 21: workflow.Workflow.cause:type_name -> workflow.Cause
-	22, // [22:22] is the sub-list for method output_type
-	22, // [22:22] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	1,  // 1: workflow.Condition.call:type_name -> workflow.Call
+	4,  // 2: workflow.If.condition:type_name -> workflow.Condition
+	1,  // 3: workflow.If.then:type_name -> workflow.Call
+	1,  // 4: workflow.If.else:type_name -> workflow.Call
+	1,  // 5: workflow.Expression.call:type_name -> workflow.Call
+	1,  // 6: workflow.Case.call:type_name -> workflow.Call
+	6,  // 7: workflow.Match.expression:type_name -> workflow.Expression
+	7,  // 8: workflow.Match.cases:type_name -> workflow.Case
+	1,  // 9: workflow.Match.default:type_name -> workflow.Call
+	1,  // 10: workflow.Repeat.call:type_name -> workflow.Call
+	1,  // 11: workflow.Retry.call:type_name -> workflow.Call
+	1,  // 12: workflow.Timeout.call:type_name -> workflow.Call
+	1,  // 13: workflow.Step.call:type_name -> workflow.Call
+	2,  // 14: workflow.Step.fork:type_name -> workflow.Fork
+	3,  // 15: workflow.Step.join:type_name -> workflow.Join
+	5,  // 16: workflow.Step.if:type_name -> workflow.If
+	8,  // 17: workflow.Step.match:type_name -> workflow.Match
+	9,  // 18: workflow.Step.repeat:type_name -> workflow.Repeat
+	10, // 19: workflow.Step.retry:type_name -> workflow.Retry
+	11, // 20: workflow.Step.sleep:type_name -> workflow.Sleep
+	12, // 21: workflow.Step.timeout:type_name -> workflow.Timeout
+	13, // 22: workflow.Thread.steps:type_name -> workflow.Step
+	16, // 23: workflow.Thread.nodes:type_name -> workflow.Node
+	0,  // 24: workflow.Node.status:type_name -> workflow.Status
+	13, // 25: workflow.GraphThread.steps:type_name -> workflow.Step
+	14, // 26: workflow.Graph.functions:type_name -> workflow.Function
+	17, // 27: workflow.Graph.threads:type_name -> workflow.GraphThread
+	0,  // 28: workflow.Workflow.status:type_name -> workflow.Status
+	15, // 29: workflow.Workflow.threads:type_name -> workflow.Thread
+	19, // 30: workflow.Workflow.cause:type_name -> workflow.Cause
+	31, // [31:31] is the sub-list for method output_type
+	31, // [31:31] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_workflow_proto_init() }
@@ -1635,11 +1644,11 @@ func file_workflow_proto_init() {
 	}
 	file_workflow_proto_msgTypes[3].OneofWrappers = []any{
 		(*Condition_Value)(nil),
-		(*Condition_Function)(nil),
+		(*Condition_Call)(nil),
 	}
 	file_workflow_proto_msgTypes[5].OneofWrappers = []any{
 		(*Expression_Value)(nil),
-		(*Expression_Function)(nil),
+		(*Expression_Call)(nil),
 	}
 	file_workflow_proto_msgTypes[12].OneofWrappers = []any{
 		(*Step_Call)(nil),
