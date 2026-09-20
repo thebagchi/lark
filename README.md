@@ -250,10 +250,13 @@ attempt, because the thread the attempt runs on is marked as catching. When
 every attempt has failed, the last assertion propagates and ends the run exactly
 as a bare assertion would.
 
-**`n()` is a call, not a variable.** A predeclared name is one value shared by
-every thread and resolved when the script is compiled, so it cannot know which
-attempt is asking. A function can, because it is handed the calling thread.
-Outside a `repeat` or `retry` it is an error rather than a guess.
+**`n()` is a call, not a variable.** A plain name belongs to the *module*, and
+every thread of a run shares one of those: a global is an index into a single
+slice of values, a predeclared name a key in a single map. Neither is reachable
+per thread, so a bare `n` would be one number for every attempt at once, and two
+wrappers running side by side would read each other's. A builtin is handed the
+calling thread, which is where the attempt is kept, so `n()` can answer. Outside
+a `repeat` or `retry` it is an error rather than a guess.
 
 **Each attempt runs on its own goroutine and interpreter thread**, so two
 wrappers running in parallel never share an attempt count, and `timeout` can
@@ -397,6 +400,7 @@ Each is reachable with `errors.Is`, through whatever wrapping carried it.
 | `runtime.ErrCancelled` | A joined handle was cancelled |
 | `runtime.ErrNotAName` | `spawn` got something other than a named zero-argument function |
 | `runtime.ErrConflict` | Two plugins supply one name |
+| `runtime.ErrUnknown` | No run answers to that id |
 
 ### Cancellation
 
@@ -411,6 +415,128 @@ its own.
 `Run` does not return until every thread it started has stopped. A handle nobody
 joined is cancelled rather than waited for, so a forgotten `spawn` cannot hold a
 call open.
+
+## Watching a run
+
+`Run` and `Invoke` block until the script is over. A long-running host — a
+service with a web interface rather than a command-line tool — wants the other
+shape: start the script, get an id back at once, and ask about it afterwards.
+
+```go
+id := runtime.Start(ctx, artifact)         // returns immediately, a v7 UUID
+snap, err := runtime.Status(id)            // how is it doing
+value, err := runtime.Wait(ctx, id)        // block until it is over
+err := runtime.Cancel(id)                  // stop it, without waiting
+```
+
+`Start` returns while the script is still running, whatever it goes on to do.
+The id is a version 7 UUID, so it sorts by start time and can never be reissued
+— a stale id from a previous process is always unknown rather than quietly
+attaching to a different run.
+
+### What a status says
+
+`runtime.Status` returns a `*runtime.Workflow` — [`workflow.proto`](proto/workflow.proto)'s
+own message, not a copy. A script whose `main` joins a failing `bad` and a
+sleeping `patient` reports:
+
+```json
+{
+  "status": "STATUS_FAILED",
+  "threads": [
+    { "nodes": [{ "function": "main", "status": "STATUS_FAILED",
+                  "failure": "\"this one breaks\": assertion failed" }] },
+    { "index": 1,
+      "nodes": [{ "function": "bad", "status": "STATUS_FAILED",
+                  "failure": "\"this one breaks\": assertion failed" }] },
+    { "index": 2,
+      "nodes": [{ "function": "patient", "status": "STATUS_CANCELLED" }] }
+  ],
+  "cause": { "thread": 1, "function": "bad",
+             "failure": "\"this one breaks\": assertion failed" }
+}
+```
+
+One node per function per thread, so the same function spawned twice is two
+nodes with one name. A thread's number is the one `spawn` gave it; the entry
+point is thread 0 and carries no `index`, because zero is the default.
+
+`main` is failed here too, and that is not double-counting: the assertion
+reached it through `join`, so its own evaluation failed. `cause` is what says
+which of the two mattered.
+
+| Status | Means |
+| --- | --- |
+| `STATUS_RUNNING` | still going |
+| `STATUS_SUCCEEDED` | finished |
+| `STATUS_FAILED` | something went wrong, and `failure` says what |
+| `STATUS_CANCELLED` | stopped — **not** a failure |
+| `STATUS_PENDING` | declared by a graph and not reached |
+
+**Cancelled is not failed, and the difference is worth having.** This runtime is
+fail-fast, so a failing run stops threads that were doing nothing wrong. Without
+a separate value, one broken script reports as several.
+
+`failure` is set **only** for `STATUS_FAILED`, so a non-empty `failure` means
+there is something to show without first checking the status. A cancellation's
+text would only say it was cancelled, which the status already says.
+
+`cause` names the node whose failure ended the run — thread, function and text —
+so a host follows it to a node instead of searching every thread for a failed
+one. It is nil unless the run failed.
+
+### Reading, waiting and forgetting
+
+Asking costs nothing and changes nothing. Every caller that asks is told how a
+run ended, as often as they like, and two interfaces watching one run are both
+answered.
+
+**A finished run is forgotten 24 hours after it ended**, read or not. Nothing
+else forgets it: `Status` does not consume it and neither does `Wait`. So a host
+that starts runs and never asks is bounded by time rather than by attention —
+and a finished run holds what it produced for that day, which is the price of
+answering everyone.
+
+After that, its id is unknown, which is the same answer as an id that never
+existed. A host polling a run a day later cannot tell those apart.
+
+`Wait` takes a context of its own, and it is the **caller's** patience, not the
+run's. Giving up on a wait leaves the run untouched; stopping the run is
+`Cancel`, or the context passed to `Start`.
+
+### Saying what has not happened yet
+
+Without a graph, a report says what the run **did**: a function nothing called
+never appears. Hand one over and every function it declares starts `PENDING`,
+so a report can also say what was not reached.
+
+```go
+id := runtime.Start(ctx, artifact, runtime.WithGraph(graph))
+```
+
+A graph is a **floor, not a ceiling**. It may add functions and threads that
+have not happened; it may never remove, rename or hide one that did. A run that
+spawns something the graph never mentions is reported anyway, beside the pending
+ones — when a graph and a run disagree, both are visible and the run wins.
+
+A function left pending after the run ended is not an error. It means the run
+finished without going there.
+
+### A store of your own
+
+`runtime.Start` and friends use one store the package owns, which is what makes
+them plain calls. Two hosts in one process share it, and tests in one binary
+cannot isolate from each other's runs. Neither is solved by hiding it:
+
+```go
+import "github.com/thebagchi/lark/runtime/observe"
+
+store := observe.New()          // your own, with the same methods
+id := store.Start(ctx, artifact)
+```
+
+This is the one place a host names a subpackage. Everything above is reachable
+through `runtime` alone.
 
 ## Adding your own names
 

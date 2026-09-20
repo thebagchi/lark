@@ -67,6 +67,7 @@ func Detach(thread *starlark.Thread, name string) (*starlark.Thread, context.Can
 	made.SetLocal(RUN_KEY, run)
 	made.SetLocal(THREAD_KEY, thread.Local(THREAD_KEY))
 	made.SetLocal(CONTEXT_KEY, inner)
+	made.SetLocal(REPORTER_KEY, thread.Local(REPORTER_KEY))
 
 	watching := _CancelOn(inner, made)
 

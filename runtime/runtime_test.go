@@ -20,6 +20,11 @@ const (
 	HOST_FIXTURE   = "host.star"
 	BROKEN_FIXTURE = "broken.star"
 	EXPECTED_SUM   = 10
+
+	// EXPECTED_TOTAL is EXPECTED_SUM as a script reports it, and MISSING_RUN
+	// an id nothing will ever answer to.
+	EXPECTED_TOTAL = "10"
+	MISSING_RUN    = "no-such-run"
 	WHY            = "the host should see this"
 )
 

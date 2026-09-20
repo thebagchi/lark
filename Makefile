@@ -5,6 +5,12 @@
 # owns is unactionable. .poc/go is a module of its own and is handled beside it.
 GO_FILES := $(shell find . -name '*.go' -not -path './proto/gen/*' -not -path './.poc/*' -print)
 
+# Everything a binary is built from. Wider than GO_FILES, which drops generated
+# code because a formatter has nothing to say about a file it does not own - a
+# build does. Two questions, two lists; sharing one would mean a change to a
+# generated message never rebuilding the binary that carries it.
+GO_SOURCES := $(shell find . -name '*.go' -not -path './.poc/*' -print) go.mod go.sum
+
 .PHONY: all bootstrap generate tidy check lint lint-go lint-proto fmt build binaries vet test poc clean
 
 all: generate build check test
@@ -53,7 +59,11 @@ build:
 # Binaries land in bin/. tools/bin/ is for code generators, and there are none.
 binaries: bin/lark.bin
 
-bin/lark.bin:
+# The prerequisites are the point. Without them make sees the file, calls it up
+# to date and does nothing, so the binary is built once and never again - which
+# is worse than having no target, because it ships stale code in silence.
+bin/lark.bin: $(GO_SOURCES)
+	@mkdir -p $(@D)
 	go build -o $@ ./cmd/lark
 
 vet:

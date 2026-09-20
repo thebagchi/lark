@@ -56,17 +56,27 @@ func _Retry(
 		for attempt := ONCE; attempt <= attempts; attempt++ {
 			value, err := _Await(inner, target, attempt, true, passed, named)
 			if err == nil {
+				_Finished(inner, target.Name(), nil)
+
 				return value, nil
 			}
 
 			if !errors.Is(err, scheduler.ErrAssert) {
-				return nil, fmt.Errorf("%s attempt %d: %w", self.Name(), attempt, err)
+				failed := fmt.Errorf("%s attempt %d: %w", self.Name(), attempt, err)
+
+				_Finished(inner, target.Name(), failed)
+
+				return nil, failed
 			}
 
 			last = err
 		}
 
-		return nil, _Exhausted(inner, self, attempts, last)
+		exhausted := _Exhausted(inner, self, attempts, last)
+
+		_Finished(inner, target.Name(), exhausted)
+
+		return nil, exhausted
 	}), nil
 }
 
@@ -163,7 +173,11 @@ func _Bounded(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	done, stop, err := _Aside(thread, target, ONCE, false, args, kwargs)
+	// UNCOUNTED, not ONCE: a timeout makes one call rather than attempts, and
+	// its progress is time against a budget, which nothing here reports. A
+	// timeout node is indistinguishable from a plain call, which is right - the
+	// wrapping is the caller's business, not the function's.
+	done, stop, err := _Aside(thread, target, UNCOUNTED, false, args, kwargs)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", self.Name(), err)
 	}
@@ -176,8 +190,14 @@ func _Bounded(
 	select {
 	case got := <-done:
 		if got.err != nil {
-			return nil, fmt.Errorf("%s: %w", self.Name(), got.err)
+			failed := fmt.Errorf("%s: %w", self.Name(), got.err)
+
+			_Finished(thread, target.Name(), failed)
+
+			return nil, failed
 		}
+
+		_Finished(thread, target.Name(), nil)
 
 		return got.value, nil
 
@@ -188,6 +208,10 @@ func _Bounded(
 		// instruction could otherwise still write state after this returned.
 		<-done
 
-		return nil, fmt.Errorf("%s: %w", self.Name(), ErrTimeout)
+		expired := fmt.Errorf("%s: %w", self.Name(), ErrTimeout)
+
+		_Finished(thread, target.Name(), expired)
+
+		return nil, expired
 	}
 }

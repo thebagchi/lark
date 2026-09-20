@@ -10,6 +10,9 @@ import (
 
 var ErrBoom = errors.New("guard: boom")
 
+// WHY is the text a contained panic carries, so a test can look for it.
+const WHY = "a host's callback blew up"
+
 const (
 	VALUE     = 7
 	TEXT      = "not an error"
@@ -118,5 +121,51 @@ func TestWithRecover_WrapsAPanicThatIsNotAnError(t *testing.T) {
 
 	if !strings.Contains(err.Error(), RECOVERED) {
 		t.Fatalf("error does not say it was recovered: %v", err)
+	}
+}
+
+// TestContained_HandsBackThePanic records what Contained is for: work done for
+// its effect, whose failure still has to reach somebody.
+//
+// It returns the panic rather than absorbing it, which is the whole difference
+// from swallowing one. A caller decides what the failure means; none of them
+// may decide to ignore it in silence.
+//
+// Revisions:
+//   - 2026-09-20 11:58: initial creation
+//   - 2026-09-20 12:00: asks for the panic back, since Contain absorbed it
+func TestContained_HandsBackThePanic(t *testing.T) {
+	blown := guard.Contained(func() {
+		panic(WHY)
+	})
+
+	if blown == nil {
+		t.Fatal("want the panic handed back")
+	}
+
+	if !strings.Contains(blown.Error(), WHY) {
+		t.Fatalf("want the panic's own words, got %v", blown)
+	}
+
+	quiet := guard.Contained(func() {})
+	if quiet != nil {
+		t.Fatalf("want nothing for work that did not raise, got %v", quiet)
+	}
+}
+
+// TestContained_KeepsAnErrorMatchable records that a panic carrying an error
+// stays matchable through the recovery, as WithRecover's does.
+//
+// Revisions:
+//   - 2026-09-20 12:00: initial creation
+func TestContained_KeepsAnErrorMatchable(t *testing.T) {
+	sentinel := errors.New("a host's own failure")
+
+	blown := guard.Contained(func() {
+		panic(sentinel)
+	})
+
+	if !errors.Is(blown, sentinel) {
+		t.Fatalf("want the panic's error still matchable, got %v", blown)
 	}
 }

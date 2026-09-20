@@ -9,6 +9,7 @@ package workflow
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -22,6 +23,11 @@ const (
 )
 
 // Status is a function's execution state.
+//
+// CANCELLED is not a kind of failure. A thread stopped because something
+// else failed did not itself fail, and a run a caller stopped did not
+// break. Reporting either as FAILED tells a reader that something went
+// wrong where nothing did - which is why the value exists separately.
 type Status int32
 
 const (
@@ -30,6 +36,7 @@ const (
 	Status_STATUS_RUNNING     Status = 2
 	Status_STATUS_SUCCEEDED   Status = 3
 	Status_STATUS_FAILED      Status = 4
+	Status_STATUS_CANCELLED   Status = 5
 )
 
 // Enum value maps for Status.
@@ -40,6 +47,7 @@ var (
 		2: "STATUS_RUNNING",
 		3: "STATUS_SUCCEEDED",
 		4: "STATUS_FAILED",
+		5: "STATUS_CANCELLED",
 	}
 	Status_value = map[string]int32{
 		"STATUS_UNSPECIFIED": 0,
@@ -47,6 +55,7 @@ var (
 		"STATUS_RUNNING":     2,
 		"STATUS_SUCCEEDED":   3,
 		"STATUS_FAILED":      4,
+		"STATUS_CANCELLED":   5,
 	}
 )
 
@@ -77,10 +86,12 @@ func (Status) EnumDescriptor() ([]byte, []int) {
 	return file_workflow_proto_rawDescGZIP(), []int{0}
 }
 
-// Call runs function as this thread's next step.
+// Call runs function as this thread's next step. args are the values at
+// this site, in order; two Calls of one function may differ here.
 type Call struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Function      string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
+	Args          []*structpb.Value      `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -120,6 +131,13 @@ func (x *Call) GetFunction() string {
 		return x.Function
 	}
 	return ""
+}
+
+func (x *Call) GetArgs() []*structpb.Value {
+	if x != nil {
+		return x.Args
+	}
+	return nil
 }
 
 // Fork starts thread as a new, concurrent thread, without pausing the
@@ -993,9 +1011,15 @@ func (*Step_Timeout) isStep_Action() {}
 // thread is not carried here: every function has a self-Call as some
 // thread's own step, which is where a caller finds it, and a function in
 // no thread's steps is code nothing reaches.
+//
+// body is the statements inside def, not a full def. params are the
+// names in the signature, in order. Two Calls of one function share
+// this message and differ in args.
 type Function struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Body          string                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	Params        []string               `protobuf:"bytes,3,rep,name=params,proto3" json:"params,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1037,9 +1061,26 @@ func (x *Function) GetName() string {
 	return ""
 }
 
-// Thread is one thread's own state. steps are its actions in execution
-// order; nodes are its own functions' statuses, in the order it runs
-// them.
+func (x *Function) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+func (x *Function) GetParams() []string {
+	if x != nil {
+		return x.Params
+	}
+	return nil
+}
+
+// Thread is one live thread's own state. index is the id a UI draws
+// status against; it is not Graph list position, because a snapshot may
+// omit the spine and may include a spawn the Graph never listed.
+//
+// steps are its actions in execution order; nodes are its own
+// functions' statuses, in the order it runs them.
 //
 // The two lists differ in length and in order, because a Fork or Join
 // names another thread without being one of this thread's own functions.
@@ -1105,11 +1146,24 @@ func (x *Thread) GetNodes() []*Node {
 	return nil
 }
 
-// Node is one function's status within a thread's timeline.
+// Node is one function's status within a thread's timeline, which
+// attempt it is on when a repeat or a retry is calling it repeatedly,
+// and what went wrong if anything did.
+//
+// Zero attempts means the function is not inside one, which is the same
+// zero a script sees from n() outside a repeat or a retry. A timeout
+// reports zero too: it makes one call, not attempts.
+//
+// failure is set only when status is FAILED. A cancelled thread leaves
+// it empty: its text would say it was cancelled, which the status
+// already says, and a reader should not have to read prose to learn
+// something the enum states.
 type Node struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Function      string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
 	Status        Status                 `protobuf:"varint,2,opt,name=status,proto3,enum=workflow.Status" json:"status,omitempty"`
+	Attempt       int32                  `protobuf:"varint,3,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	Failure       string                 `protobuf:"bytes,4,opt,name=failure,proto3" json:"failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1158,20 +1212,82 @@ func (x *Node) GetStatus() Status {
 	return Status_STATUS_UNSPECIFIED
 }
 
+func (x *Node) GetAttempt() int32 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *Node) GetFailure() string {
+	if x != nil {
+		return x.Failure
+	}
+	return ""
+}
+
+// GraphThread is one authored thread: its steps in execution order.
+// Identity is its position in Graph.threads. There is no index, so a UI
+// cannot send one; Fork and Join name list slots instead.
+type GraphThread struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Steps         []*Step                `protobuf:"bytes,1,rep,name=steps,proto3" json:"steps,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GraphThread) Reset() {
+	*x = GraphThread{}
+	mi := &file_workflow_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GraphThread) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GraphThread) ProtoMessage() {}
+
+func (x *GraphThread) ProtoReflect() protoreflect.Message {
+	mi := &file_workflow_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GraphThread.ProtoReflect.Descriptor instead.
+func (*GraphThread) Descriptor() ([]byte, []int) {
+	return file_workflow_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *GraphThread) GetSteps() []*Step {
+	if x != nil {
+		return x.Steps
+	}
+	return nil
+}
+
 // Graph is the static half of a script's workflow: one entry per
 // top-level function, grouped into the threads that run them. Only steps
-// are populated, since nothing has run.
+// are populated, since nothing has run. Authored threads have no index;
+// identity is list position.
 type Graph struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Functions     []*Function            `protobuf:"bytes,1,rep,name=functions,proto3" json:"functions,omitempty"`
-	Threads       []*Thread              `protobuf:"bytes,2,rep,name=threads,proto3" json:"threads,omitempty"`
+	Threads       []*GraphThread         `protobuf:"bytes,2,rep,name=threads,proto3" json:"threads,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Graph) Reset() {
 	*x = Graph{}
-	mi := &file_workflow_proto_msgTypes[16]
+	mi := &file_workflow_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1183,7 +1299,7 @@ func (x *Graph) String() string {
 func (*Graph) ProtoMessage() {}
 
 func (x *Graph) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[16]
+	mi := &file_workflow_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1196,7 +1312,7 @@ func (x *Graph) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Graph.ProtoReflect.Descriptor instead.
 func (*Graph) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{16}
+	return file_workflow_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *Graph) GetFunctions() []*Function {
@@ -1206,26 +1322,102 @@ func (x *Graph) GetFunctions() []*Function {
 	return nil
 }
 
-func (x *Graph) GetThreads() []*Thread {
+func (x *Graph) GetThreads() []*GraphThread {
 	if x != nil {
 		return x.Threads
 	}
 	return nil
 }
 
+// Cause names the node whose failure ended a run: which thread, which
+// function, and what it said.
+//
+// A pointer rather than a copy of the text alone, because a reader
+// seeing why a run failed almost always wants to see where - and a
+// sentence with no function attached leaves them scanning every thread
+// for a failed node, which is ambiguous exactly when two of them failed.
+//
+// Its text is the same text that node carries. That is one fact in two
+// places and is deliberate: a host showing a banner should not have to
+// walk the threads to fill it in.
+type Cause struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Thread        int32                  `protobuf:"varint,1,opt,name=thread,proto3" json:"thread,omitempty"`
+	Function      string                 `protobuf:"bytes,2,opt,name=function,proto3" json:"function,omitempty"`
+	Failure       string                 `protobuf:"bytes,3,opt,name=failure,proto3" json:"failure,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Cause) Reset() {
+	*x = Cause{}
+	mi := &file_workflow_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Cause) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Cause) ProtoMessage() {}
+
+func (x *Cause) ProtoReflect() protoreflect.Message {
+	mi := &file_workflow_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Cause.ProtoReflect.Descriptor instead.
+func (*Cause) Descriptor() ([]byte, []int) {
+	return file_workflow_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *Cause) GetThread() int32 {
+	if x != nil {
+		return x.Thread
+	}
+	return 0
+}
+
+func (x *Cause) GetFunction() string {
+	if x != nil {
+		return x.Function
+	}
+	return ""
+}
+
+func (x *Cause) GetFailure() string {
+	if x != nil {
+		return x.Failure
+	}
+	return ""
+}
+
 // Workflow is a snapshot of one run's live status. Its threads populate
 // nodes as well as steps.
+//
+// cause is set only when status is FAILED, so a host can test the
+// pointer rather than the enum. A cancelled run has no cause: nothing
+// went wrong in it, which is what CANCELLED is for.
 type Workflow struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Status        Status                 `protobuf:"varint,1,opt,name=status,proto3,enum=workflow.Status" json:"status,omitempty"`
 	Threads       []*Thread              `protobuf:"bytes,2,rep,name=threads,proto3" json:"threads,omitempty"`
+	Cause         *Cause                 `protobuf:"bytes,3,opt,name=cause,proto3" json:"cause,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Workflow) Reset() {
 	*x = Workflow{}
-	mi := &file_workflow_proto_msgTypes[17]
+	mi := &file_workflow_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1237,7 +1429,7 @@ func (x *Workflow) String() string {
 func (*Workflow) ProtoMessage() {}
 
 func (x *Workflow) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[17]
+	mi := &file_workflow_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1250,7 +1442,7 @@ func (x *Workflow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Workflow.ProtoReflect.Descriptor instead.
 func (*Workflow) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{17}
+	return file_workflow_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Workflow) GetStatus() Status {
@@ -1267,13 +1459,21 @@ func (x *Workflow) GetThreads() []*Thread {
 	return nil
 }
 
+func (x *Workflow) GetCause() *Cause {
+	if x != nil {
+		return x.Cause
+	}
+	return nil
+}
+
 var File_workflow_proto protoreflect.FileDescriptor
 
 const file_workflow_proto_rawDesc = "" +
 	"\n" +
-	"\x0eworkflow.proto\x12\bworkflow\"\"\n" +
+	"\x0eworkflow.proto\x12\bworkflow\x1a\x1cgoogle/protobuf/struct.proto\"N\n" +
 	"\x04Call\x12\x1a\n" +
-	"\bfunction\x18\x01 \x01(\tR\bfunction\"\x1e\n" +
+	"\bfunction\x18\x01 \x01(\tR\bfunction\x12*\n" +
+	"\x04args\x18\x02 \x03(\v2\x16.google.protobuf.ValueR\x04args\"\x1e\n" +
 	"\x04Fork\x12\x16\n" +
 	"\x06thread\x18\x01 \x01(\x05R\x06thread\" \n" +
 	"\x04Join\x12\x18\n" +
@@ -1325,28 +1525,40 @@ const file_workflow_proto_rawDesc = "" +
 	"\x05retry\x18\a \x01(\v2\x0f.workflow.RetryH\x00R\x05retry\x12'\n" +
 	"\x05sleep\x18\b \x01(\v2\x0f.workflow.SleepH\x00R\x05sleep\x12-\n" +
 	"\atimeout\x18\t \x01(\v2\x11.workflow.TimeoutH\x00R\atimeoutB\b\n" +
-	"\x06action\"\x1e\n" +
+	"\x06action\"J\n" +
 	"\bFunction\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"j\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04body\x18\x02 \x01(\tR\x04body\x12\x16\n" +
+	"\x06params\x18\x03 \x03(\tR\x06params\"j\n" +
 	"\x06Thread\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x05R\x05index\x12$\n" +
 	"\x05steps\x18\x02 \x03(\v2\x0e.workflow.StepR\x05steps\x12$\n" +
-	"\x05nodes\x18\x03 \x03(\v2\x0e.workflow.NodeR\x05nodes\"L\n" +
+	"\x05nodes\x18\x03 \x03(\v2\x0e.workflow.NodeR\x05nodes\"\x80\x01\n" +
 	"\x04Node\x12\x1a\n" +
 	"\bfunction\x18\x01 \x01(\tR\bfunction\x12(\n" +
-	"\x06status\x18\x02 \x01(\x0e2\x10.workflow.StatusR\x06status\"e\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x10.workflow.StatusR\x06status\x12\x18\n" +
+	"\aattempt\x18\x03 \x01(\x05R\aattempt\x12\x18\n" +
+	"\afailure\x18\x04 \x01(\tR\afailure\"3\n" +
+	"\vGraphThread\x12$\n" +
+	"\x05steps\x18\x01 \x03(\v2\x0e.workflow.StepR\x05steps\"j\n" +
 	"\x05Graph\x120\n" +
-	"\tfunctions\x18\x01 \x03(\v2\x12.workflow.FunctionR\tfunctions\x12*\n" +
-	"\athreads\x18\x02 \x03(\v2\x10.workflow.ThreadR\athreads\"`\n" +
+	"\tfunctions\x18\x01 \x03(\v2\x12.workflow.FunctionR\tfunctions\x12/\n" +
+	"\athreads\x18\x02 \x03(\v2\x15.workflow.GraphThreadR\athreads\"U\n" +
+	"\x05Cause\x12\x16\n" +
+	"\x06thread\x18\x01 \x01(\x05R\x06thread\x12\x1a\n" +
+	"\bfunction\x18\x02 \x01(\tR\bfunction\x12\x18\n" +
+	"\afailure\x18\x03 \x01(\tR\afailure\"\x87\x01\n" +
 	"\bWorkflow\x12(\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x10.workflow.StatusR\x06status\x12*\n" +
-	"\athreads\x18\x02 \x03(\v2\x10.workflow.ThreadR\athreads*q\n" +
+	"\athreads\x18\x02 \x03(\v2\x10.workflow.ThreadR\athreads\x12%\n" +
+	"\x05cause\x18\x03 \x01(\v2\x0f.workflow.CauseR\x05cause*\x87\x01\n" +
 	"\x06Status\x12\x16\n" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSTATUS_PENDING\x10\x01\x12\x12\n" +
 	"\x0eSTATUS_RUNNING\x10\x02\x12\x14\n" +
 	"\x10STATUS_SUCCEEDED\x10\x03\x12\x11\n" +
-	"\rSTATUS_FAILED\x10\x04B7Z5github.com/thebagchi/lark/proto/gen/workflow;workflowb\x06proto3"
+	"\rSTATUS_FAILED\x10\x04\x12\x14\n" +
+	"\x10STATUS_CANCELLED\x10\x05B7Z5github.com/thebagchi/lark/proto/gen/workflow;workflowb\x06proto3"
 
 var (
 	file_workflow_proto_rawDescOnce sync.Once
@@ -1361,53 +1573,59 @@ func file_workflow_proto_rawDescGZIP() []byte {
 }
 
 var file_workflow_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_workflow_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_workflow_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_workflow_proto_goTypes = []any{
-	(Status)(0),        // 0: workflow.Status
-	(*Call)(nil),       // 1: workflow.Call
-	(*Fork)(nil),       // 2: workflow.Fork
-	(*Join)(nil),       // 3: workflow.Join
-	(*Condition)(nil),  // 4: workflow.Condition
-	(*If)(nil),         // 5: workflow.If
-	(*Expression)(nil), // 6: workflow.Expression
-	(*Case)(nil),       // 7: workflow.Case
-	(*Match)(nil),      // 8: workflow.Match
-	(*Repeat)(nil),     // 9: workflow.Repeat
-	(*Retry)(nil),      // 10: workflow.Retry
-	(*Sleep)(nil),      // 11: workflow.Sleep
-	(*Timeout)(nil),    // 12: workflow.Timeout
-	(*Step)(nil),       // 13: workflow.Step
-	(*Function)(nil),   // 14: workflow.Function
-	(*Thread)(nil),     // 15: workflow.Thread
-	(*Node)(nil),       // 16: workflow.Node
-	(*Graph)(nil),      // 17: workflow.Graph
-	(*Workflow)(nil),   // 18: workflow.Workflow
+	(Status)(0),            // 0: workflow.Status
+	(*Call)(nil),           // 1: workflow.Call
+	(*Fork)(nil),           // 2: workflow.Fork
+	(*Join)(nil),           // 3: workflow.Join
+	(*Condition)(nil),      // 4: workflow.Condition
+	(*If)(nil),             // 5: workflow.If
+	(*Expression)(nil),     // 6: workflow.Expression
+	(*Case)(nil),           // 7: workflow.Case
+	(*Match)(nil),          // 8: workflow.Match
+	(*Repeat)(nil),         // 9: workflow.Repeat
+	(*Retry)(nil),          // 10: workflow.Retry
+	(*Sleep)(nil),          // 11: workflow.Sleep
+	(*Timeout)(nil),        // 12: workflow.Timeout
+	(*Step)(nil),           // 13: workflow.Step
+	(*Function)(nil),       // 14: workflow.Function
+	(*Thread)(nil),         // 15: workflow.Thread
+	(*Node)(nil),           // 16: workflow.Node
+	(*GraphThread)(nil),    // 17: workflow.GraphThread
+	(*Graph)(nil),          // 18: workflow.Graph
+	(*Cause)(nil),          // 19: workflow.Cause
+	(*Workflow)(nil),       // 20: workflow.Workflow
+	(*structpb.Value)(nil), // 21: google.protobuf.Value
 }
 var file_workflow_proto_depIdxs = []int32{
-	4,  // 0: workflow.If.condition:type_name -> workflow.Condition
-	6,  // 1: workflow.Match.expression:type_name -> workflow.Expression
-	7,  // 2: workflow.Match.cases:type_name -> workflow.Case
-	1,  // 3: workflow.Step.call:type_name -> workflow.Call
-	2,  // 4: workflow.Step.fork:type_name -> workflow.Fork
-	3,  // 5: workflow.Step.join:type_name -> workflow.Join
-	5,  // 6: workflow.Step.if:type_name -> workflow.If
-	8,  // 7: workflow.Step.match:type_name -> workflow.Match
-	9,  // 8: workflow.Step.repeat:type_name -> workflow.Repeat
-	10, // 9: workflow.Step.retry:type_name -> workflow.Retry
-	11, // 10: workflow.Step.sleep:type_name -> workflow.Sleep
-	12, // 11: workflow.Step.timeout:type_name -> workflow.Timeout
-	13, // 12: workflow.Thread.steps:type_name -> workflow.Step
-	16, // 13: workflow.Thread.nodes:type_name -> workflow.Node
-	0,  // 14: workflow.Node.status:type_name -> workflow.Status
-	14, // 15: workflow.Graph.functions:type_name -> workflow.Function
-	15, // 16: workflow.Graph.threads:type_name -> workflow.Thread
-	0,  // 17: workflow.Workflow.status:type_name -> workflow.Status
-	15, // 18: workflow.Workflow.threads:type_name -> workflow.Thread
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	21, // 0: workflow.Call.args:type_name -> google.protobuf.Value
+	4,  // 1: workflow.If.condition:type_name -> workflow.Condition
+	6,  // 2: workflow.Match.expression:type_name -> workflow.Expression
+	7,  // 3: workflow.Match.cases:type_name -> workflow.Case
+	1,  // 4: workflow.Step.call:type_name -> workflow.Call
+	2,  // 5: workflow.Step.fork:type_name -> workflow.Fork
+	3,  // 6: workflow.Step.join:type_name -> workflow.Join
+	5,  // 7: workflow.Step.if:type_name -> workflow.If
+	8,  // 8: workflow.Step.match:type_name -> workflow.Match
+	9,  // 9: workflow.Step.repeat:type_name -> workflow.Repeat
+	10, // 10: workflow.Step.retry:type_name -> workflow.Retry
+	11, // 11: workflow.Step.sleep:type_name -> workflow.Sleep
+	12, // 12: workflow.Step.timeout:type_name -> workflow.Timeout
+	13, // 13: workflow.Thread.steps:type_name -> workflow.Step
+	16, // 14: workflow.Thread.nodes:type_name -> workflow.Node
+	0,  // 15: workflow.Node.status:type_name -> workflow.Status
+	13, // 16: workflow.GraphThread.steps:type_name -> workflow.Step
+	14, // 17: workflow.Graph.functions:type_name -> workflow.Function
+	17, // 18: workflow.Graph.threads:type_name -> workflow.GraphThread
+	0,  // 19: workflow.Workflow.status:type_name -> workflow.Status
+	15, // 20: workflow.Workflow.threads:type_name -> workflow.Thread
+	19, // 21: workflow.Workflow.cause:type_name -> workflow.Cause
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_workflow_proto_init() }
@@ -1440,7 +1658,7 @@ func file_workflow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_workflow_proto_rawDesc), len(file_workflow_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   18,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

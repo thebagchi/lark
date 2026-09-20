@@ -23,8 +23,13 @@ const (
 	ISOLATED      = "isolated"
 	SURVIVOR      = "survivor"
 	EXPECTED_NAME = "scheduler"
-	EXPECTED_SIZE = 4
 )
+
+// SUPPLIED is every name this package puts in a script's environment, written
+// once. A count beside a list is two statements of one fact, and the one not
+// used in the failure message is the one that goes stale - which is how sleep
+// was added to the plugin and not to its test.
+var SUPPLIED = []string{SPAWN, JOIN, CANCEL, ASSERT, SLEEP}
 
 // _Call invokes _Assert with the arguments given.
 //
@@ -258,12 +263,14 @@ def survivor():
 	t.Logf("outcome: %v / sibling: %v", run._Outcome(), spinner.err)
 }
 
-// TestBuiltins_SuppliesTheFourNames proves what a host gets, and that each call
+// TestBuiltins_SuppliesItsNames proves what a host gets, and that each call
 // builds a fresh map rather than handing out one shared with every other host.
 //
 // Revisions:
 //   - 2026-09-19 22:23: initial creation
-func TestBuiltins_SuppliesTheFourNames(t *testing.T) {
+//   - 2026-09-20 01:01: checks against one list rather than a list and a count,
+//     and names what is missing instead of reporting a size
+func TestBuiltins_SuppliesItsNames(t *testing.T) {
 	plugin := &Builtins{}
 
 	if plugin.Name() != EXPECTED_NAME {
@@ -272,11 +279,11 @@ func TestBuiltins_SuppliesTheFourNames(t *testing.T) {
 
 	values := plugin.Values()
 
-	if len(values) != EXPECTED_SIZE {
-		t.Fatalf("supplies %v, want %d names", values.Keys(), EXPECTED_SIZE)
+	if len(values) != len(SUPPLIED) {
+		t.Fatalf("supplies %v, want %v", values.Keys(), SUPPLIED)
 	}
 
-	for _, name := range []string{SPAWN, JOIN, CANCEL, ASSERT} {
+	for _, name := range SUPPLIED {
 		builtin, ok := values[name].(*starlark.Builtin)
 		if !ok {
 			t.Fatalf("%s is %T, want *starlark.Builtin", name, values[name])

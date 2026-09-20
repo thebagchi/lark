@@ -2,20 +2,30 @@ syntax = "proto3";
 
 package workflow;
 
+import "google/protobuf/struct.proto";
+
 option go_package = "github.com/thebagchi/lark/proto/gen/workflow;workflow";
 
 // Status is a function's execution state.
+//
+// CANCELLED is not a kind of failure. A thread stopped because something
+// else failed did not itself fail, and a run a caller stopped did not
+// break. Reporting either as FAILED tells a reader that something went
+// wrong where nothing did - which is why the value exists separately.
 enum Status {
   STATUS_UNSPECIFIED = 0;
   STATUS_PENDING     = 1;
   STATUS_RUNNING     = 2;
   STATUS_SUCCEEDED   = 3;
   STATUS_FAILED      = 4;
+  STATUS_CANCELLED   = 5;
 }
 
-// Call runs function as this thread's next step.
+// Call runs function as this thread's next step. args are the values at
+// this site, in order; two Calls of one function may differ here.
 message Call {
   string function = 1;
+  repeated google.protobuf.Value args = 2;
 }
 
 // Fork starts thread as a new, concurrent thread, without pausing the
@@ -129,13 +139,22 @@ message Step {
 // thread is not carried here: every function has a self-Call as some
 // thread's own step, which is where a caller finds it, and a function in
 // no thread's steps is code nothing reaches.
+//
+// body is the statements inside def, not a full def. params are the
+// names in the signature, in order. Two Calls of one function share
+// this message and differ in args.
 message Function {
-  string name = 1;
+  string name            = 1;
+  string body            = 2;
+  repeated string params = 3;
 }
 
-// Thread is one thread's own state. steps are its actions in execution
-// order; nodes are its own functions' statuses, in the order it runs
-// them.
+// Thread is one live thread's own state. index is the id a UI draws
+// status against; it is not Graph list position, because a snapshot may
+// omit the spine and may include a spawn the Graph never listed.
+//
+// steps are its actions in execution order; nodes are its own
+// functions' statuses, in the order it runs them.
 //
 // The two lists differ in length and in order, because a Fork or Join
 // names another thread without being one of this thread's own functions.
@@ -147,23 +166,66 @@ message Thread {
   repeated Node nodes = 3;
 }
 
-// Node is one function's status within a thread's timeline.
+// Node is one function's status within a thread's timeline, which
+// attempt it is on when a repeat or a retry is calling it repeatedly,
+// and what went wrong if anything did.
+//
+// Zero attempts means the function is not inside one, which is the same
+// zero a script sees from n() outside a repeat or a retry. A timeout
+// reports zero too: it makes one call, not attempts.
+//
+// failure is set only when status is FAILED. A cancelled thread leaves
+// it empty: its text would say it was cancelled, which the status
+// already says, and a reader should not have to read prose to learn
+// something the enum states.
 message Node {
   string function = 1;
   Status status   = 2;
+  int32 attempt   = 3;
+  string failure  = 4;
+}
+
+// GraphThread is one authored thread: its steps in execution order.
+// Identity is its position in Graph.threads. There is no index, so a UI
+// cannot send one; Fork and Join name list slots instead.
+message GraphThread {
+  repeated Step steps = 1;
 }
 
 // Graph is the static half of a script's workflow: one entry per
 // top-level function, grouped into the threads that run them. Only steps
-// are populated, since nothing has run.
+// are populated, since nothing has run. Authored threads have no index;
+// identity is list position.
 message Graph {
-  repeated Function functions = 1;
-  repeated Thread threads     = 2;
+  repeated Function functions  = 1;
+  repeated GraphThread threads = 2;
+}
+
+// Cause names the node whose failure ended a run: which thread, which
+// function, and what it said.
+//
+// A pointer rather than a copy of the text alone, because a reader
+// seeing why a run failed almost always wants to see where - and a
+// sentence with no function attached leaves them scanning every thread
+// for a failed node, which is ambiguous exactly when two of them failed.
+//
+// Its text is the same text that node carries. That is one fact in two
+// places and is deliberate: a host showing a banner should not have to
+// walk the threads to fill it in.
+message Cause {
+  int32 thread    = 1;
+  string function = 2;
+  string failure  = 3;
 }
 
 // Workflow is a snapshot of one run's live status. Its threads populate
 // nodes as well as steps.
+//
+// cause is set only when status is FAILED, so a host can test the
+// pointer rather than the enum. A cancelled run has no cause: nothing
+// went wrong in it, which is what CANCELLED is for.
 message Workflow {
   Status status           = 1;
   repeated Thread threads = 2;
+  Cause cause             = 3;
 }

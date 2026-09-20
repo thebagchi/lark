@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/runtime/guard"
 )
 
 var (
@@ -29,6 +31,10 @@ const (
 	// spawn takes. workflow.proto records both as int32.
 	SPINE       = 0
 	FIRST_SPAWN = 1
+
+	// NO_ATTEMPT is what a function not wrapped by a repeat or a retry reports,
+	// which is the same zero a script gets from n() outside one.
+	NO_ATTEMPT = 0
 )
 
 // _Run is one entry point's execution: every handle it started, so the ones
@@ -48,6 +54,7 @@ type _Run struct {
 	next    int32
 	outcome error
 	locals  map[string]any
+	into    Reporter
 }
 
 // _Abandon cancels every handle still running.
@@ -119,26 +126,64 @@ func _Of(thread *starlark.Thread) (*_Run, error) {
 //
 // Revisions:
 //   - 2026-09-19 22:39: initial creation
-func Begin(ctx context.Context, thread *starlark.Thread) func() {
+//   - 2026-09-20 01:39: takes the entry point's name and reports the spine
+//     starting and stopping, since this is where thread 0 is set up
+func Begin(ctx context.Context, thread *starlark.Thread, name string) func() {
 	inner, stop := context.WithCancel(ctx)
+
+	into := _Reporter(ctx)
 
 	run := &_Run{
 		ctx:  inner,
 		stop: stop,
 		next: FIRST_SPAWN,
+		into: into,
 	}
 
 	thread.SetLocal(RUN_KEY, run)
 	thread.SetLocal(THREAD_KEY, int32(SPINE))
 	thread.SetLocal(CONTEXT_KEY, inner)
+	thread.SetLocal(REPORTER_KEY, into)
 
 	watching := _CancelOn(inner, thread)
+
+	run._Tell(func() {
+		into.Started(SPINE, name, NO_ATTEMPT)
+	})
 
 	return func() {
 		watching()
 		run._Abandon()
 		run.group.Wait()
+
+		run._Tell(func() {
+			into.Ended(SPINE, name, run._Outcome())
+		})
+
 		stop()
+	}
+}
+
+// _Tell runs one report, and ends the run if the reporter raises.
+//
+// A reporter is a host's code running on a thread of this runtime's. Left
+// unguarded here it leaves Invoke by a path Invoke does not recover, and for a
+// caller that runs an artifact directly it takes the process down.
+//
+// It ends the run rather than being absorbed. A run whose report was never made
+// has not been observed, and reporting success for it tells a host that
+// everything worked including the part that did not.
+//
+// Revisions:
+//   - 2026-09-20 12:00: initial creation
+func (r *_Run) _Tell(report func()) {
+	if r.into == nil {
+		return
+	}
+
+	blown := guard.Contained(report)
+	if blown != nil {
+		r._End(fmt.Errorf("%s: %w", REPORTER, blown))
 	}
 }
 

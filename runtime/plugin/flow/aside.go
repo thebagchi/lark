@@ -50,6 +50,8 @@ func _Aside(
 
 	beside.SetLocal(ATTEMPT_KEY, attempt)
 
+	_Began(thread, target.Name(), attempt)
+
 	if catching {
 		scheduler.Catch(beside)
 	}

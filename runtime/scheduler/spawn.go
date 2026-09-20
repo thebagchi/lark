@@ -26,6 +26,10 @@ var (
 const (
 	SPAWN  = "spawn"
 	LAMBDA = "lambda"
+
+	// REPORTER names what failed when a host's own reporter raises, so the
+	// error says whose bug it is rather than reading as the script's.
+	REPORTER = "reporter"
 )
 
 // _Spawn starts fn on a goroutine and an interpreter thread of its own, and
@@ -66,6 +70,10 @@ func _Spawn(
 
 	run._Track(handle)
 	run.group.Add(1)
+
+	run._Tell(func() {
+		run.into.Started(handle.thread, handle.name, NO_ATTEMPT)
+	})
 
 	go func() {
 		defer run.group.Done()
@@ -126,6 +134,7 @@ func (h *Handle) _Work(ctx context.Context, run *_Run, target *starlark.Function
 	thread.SetLocal(RUN_KEY, run)
 	thread.SetLocal(THREAD_KEY, h.thread)
 	thread.SetLocal(CONTEXT_KEY, ctx)
+	thread.SetLocal(REPORTER_KEY, run.into)
 
 	stop := _CancelOn(ctx, thread)
 	defer stop()
@@ -138,6 +147,8 @@ func (h *Handle) _Work(ctx context.Context, run *_Run, target *starlark.Function
 		},
 	)
 
+	raw := h.err
+
 	if h.err != nil && ctx.Err() != nil {
 		// The interpreter's own message also says "cancelled", so it is
 		// replaced rather than wrapped: what a reader needs is which handle,
@@ -149,4 +160,49 @@ func (h *Handle) _Work(ctx context.Context, run *_Run, target *starlark.Function
 		// one rule with no cases in it.
 		h.err = fmt.Errorf("%w: %w", ErrCancelled, ctx.Err())
 	}
+
+	h._Report(run, raw)
+}
+
+// _Report tells the run's reporter how this handle ended.
+//
+// The relabelled error, except for the one thread that caused the run to stop.
+// Both halves are needed and neither is obvious.
+//
+// A thread stopped by the cancellation must report the relabelled error,
+// because the interpreter raises its own cancellation from a reason string
+// which wraps nothing - a reporter handed that cannot tell a thread that was
+// stopped from one that broke, and in a fail-fast runtime most stopped threads
+// were doing nothing wrong.
+//
+// The thread whose failure ended the run must report its own, because the
+// relabel is deliberately unconditional: _Work says a handle reports what
+// happened to that thread, and the run's outcome says why the run ended. That
+// is right for a caller joining a handle, and wrong for a report of which
+// function failed - it would show the one thing that did fail as cancelled,
+// alongside every sibling it stopped.
+//
+// A handle is the cause when the run's outcome is reachable from its own raw
+// error, which is exactly what _End recorded.
+//
+// Contained, because a reporter belongs to a host and a host's code panicking
+// on a goroutine of ours would take the process down rather than fail anything.
+// The panic ends the run, which is what phase 5 froze when it put the report
+// inside the guard: a host's callback is host code, and host code that raises
+// on a thread of ours is a bug somebody has to be told about. Absorbing it
+// would leave a run reporting success while the report of it was never made.
+//
+// Revisions:
+//   - 2026-09-20 11:35: initial creation
+func (h *Handle) _Report(run *_Run, raw error) {
+	ended := h.err
+
+	outcome := run._Outcome()
+	if outcome != nil && raw != nil && errors.Is(raw, outcome) {
+		ended = raw
+	}
+
+	run._Tell(func() {
+		run.into.Ended(h.thread, h.name, ended)
+	})
 }

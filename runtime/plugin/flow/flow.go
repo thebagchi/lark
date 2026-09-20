@@ -34,7 +34,11 @@ const (
 	ATTEMPT     = "n"
 	LAMBDA      = "lambda"
 	ATTEMPT_KEY = "flow.attempt"
-	ONCE        = 1
+
+	// UNCOUNTED is the attempt a function reports when nothing is counting its
+	// calls, which is the same zero n() gives outside a repeat or a retry.
+	UNCOUNTED = 0
+	ONCE      = 1
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -166,9 +170,15 @@ func _Repeat(
 		for attempt := ONCE; attempt <= count; attempt++ {
 			last, err = _Await(inner, target, attempt, false, passed, named)
 			if err != nil {
-				return nil, fmt.Errorf("%s attempt %d: %w", self.Name(), attempt, err)
+				failed := fmt.Errorf("%s attempt %d: %w", self.Name(), attempt, err)
+
+				_Finished(inner, target.Name(), failed)
+
+				return nil, failed
 			}
 		}
+
+		_Finished(inner, target.Name(), nil)
 
 		return last, nil
 	}), nil

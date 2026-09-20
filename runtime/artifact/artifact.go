@@ -157,10 +157,14 @@ func (c *Compiler) Compile(name string, src []byte) (*Artifact, error) {
 // Returns ErrNoGlobal if fn names nothing, ErrNotCallable if it names something
 // that is not a function, and wraps whatever the script raised otherwise -
 // including a failure re-raised from a join, and the interpreter's own message
-// when ctx ended the call.
+// when ctx ended the call. A failure arriving with ctx already done also wraps
+// ctx's own error, so a caller who stopped the run can say that is why.
 //
 // Revisions:
 //   - 2026-09-19 22:40: initial creation
+//   - 2026-09-20 01:41: wraps the context's error when a failure arrives with
+//     it already done, so a cancelled run is identifiable wherever the cancel
+//     happened to land
 func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error) {
 	value, found := a.globals[fn]
 	if !found {
@@ -174,7 +178,7 @@ func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error
 
 	thread := &starlark.Thread{Name: fn}
 
-	finish := scheduler.Begin(ctx, thread)
+	finish := scheduler.Begin(ctx, thread, fn)
 
 	var (
 		result starlark.Value
@@ -206,6 +210,16 @@ func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error
 	}
 
 	if err != nil {
+		// A caller who stopped this run should be able to say so, and could
+		// not. The interpreter raises its own cancellation as text - it is
+		// handed a reason string, not an error - so a cancel landing on the
+		// spine produced a failure nothing could match against, while the same
+		// cancel landing on a spawned thread produced one that could. Measured
+		// at 7 runs in 40 taking the unmatchable path.
+		if ctx.Err() != nil && !errors.Is(err, ctx.Err()) {
+			return nil, fmt.Errorf("%w: %w", err, ctx.Err())
+		}
+
 		// Wrapped with the function only when something above would otherwise
 		// not say which one ran. A Starlark error carries its own backtrace,
 		// and a re-raised join failure already names the thread that failed,
