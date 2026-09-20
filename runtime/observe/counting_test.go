@@ -48,7 +48,7 @@ func _NewCounter() *_Counter {
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
-func (c *_Counter) Started(thread int32, name string, attempt int32) {
+func (c *_Counter) Started(thread string, name string, attempt int32) {
 	c.guard.Lock()
 	defer c.guard.Unlock()
 
@@ -59,7 +59,7 @@ func (c *_Counter) Started(thread int32, name string, attempt int32) {
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
-func (c *_Counter) Ended(thread int32, name string, err error) {
+func (c *_Counter) Ended(thread string, name string, err error) {
 	c.guard.Lock()
 	defer c.guard.Unlock()
 
@@ -139,7 +139,7 @@ type _Exploding struct {
 //
 // Revisions:
 //   - 2026-09-20 12:01: initial creation
-func (e *_Exploding) Started(thread int32, name string, attempt int32) {
+func (e *_Exploding) Started(thread string, name string, attempt int32) {
 	e._Maybe(STARTED)
 }
 
@@ -147,7 +147,7 @@ func (e *_Exploding) Started(thread int32, name string, attempt int32) {
 //
 // Revisions:
 //   - 2026-09-20 12:01: initial creation
-func (e *_Exploding) Ended(thread int32, name string, err error) {
+func (e *_Exploding) Ended(thread string, name string, err error) {
 	e._Maybe(ENDED)
 }
 

@@ -3,13 +3,17 @@
 # that generator's output, pasted unedited - a test reads the graph back out of
 # this comment, generates from it, and fails if the two ever disagree.
 #
+# The spine carries no entry. What runs there is the artifact's entry point,
+# which the runtime fixes and the graph does not restate; every other thread
+# names what runs on it.
+#
 # Read the JSON as two halves. functions is the code: a name, its parameters,
 # and a body of statements. threads is the workflow: what runs, on which
 # thread, in what order. A function no thread runs is a helper - greet is
-# called by two forks, and every other leaf by a step - and helpers never
-# appear in a status report, because a report is of steps.
+# called by two spawned threads, and every other leaf by a step - and helpers
+# never appear in a status report, because a report is of steps.
 #
-# All nine step kinds, in the order the spine performs them:
+# Every step kind, in the order the spine performs them:
 #
 #   Fork      h1 = spawn(lambda: greet("alice"))
 #   Join      join(h1, h2)
@@ -21,6 +25,11 @@
 #   If        if both_greeted(): ... else: ...
 #   Match     _match = kind(); if _match == "alpha": ...
 #
+# Cancel is the tenth and is not here, because this script cancels nothing -
+# see samples/cancel.star. Every builtin has a message of its own, so a step
+# that names a thread carries a list of thread ids rather than values something
+# has to read back as strings.
+#
 # All six argument kinds are in that one Call, and they keep their JSON kinds:
 # a string, a number, a bool, a list, an object and null become "ada", 36,
 # True, ["x", 1.5], {"k": 1} and None.
@@ -31,9 +40,9 @@
 #                        spawn takes none to pass on. A site without them is
 #                        the bare name - see timeout(2, settle).
 #
-#   h1, h2               a Fork names a slot in threads, and the handle is
-#                        numbered by that slot. What runs there is that slot's
-#                        own first Call.
+#   h1, h2               a spawn names a thread by id, and the handle is that
+#                        id with its prefix swapped - thread_1 is h1. What runs
+#                        there is that thread's own entry.
 #
 #   repeat(3, tick)      the count comes first and the callable last. It calls
 #                        straight away: the wrappers are not factories.
@@ -41,7 +50,8 @@
 #   sleep(0.02)          the schema counts milliseconds and the builtins take
 #                        seconds, so 20 becomes 0.02 and 2000 becomes 2 - an
 #                        integer, because Starlark has two number types where
-#                        JSON has one.
+#                        JSON has one. One unit throughout, so a reader never
+#                        checks which a duration is in.
 #
 #   36, not 36.0         the same rule for an argument. A whole number is an
 #                        integer, and // and % treat the two differently.
@@ -81,7 +91,7 @@
 #         "name": "tick"
 #       },
 #       {
-#         "body": "assert(n() \u003e= 2, \"not ready on attempt \" + str(n()))\n\nreturn \"ready\"",
+#         "body": "assert(n() >= 2, \"not ready on attempt \" + str(n()))\n\nreturn \"ready\"",
 #         "name": "flaky"
 #       },
 #       {
@@ -126,148 +136,142 @@
 #     ],
 #     "threads": [
 #       {
-#         "steps": [
-#           {
-#             "call": {
-#               "function": "main"
-#             }
-#           },
-#           {
-#             "fork": {
-#               "thread": 1
-#             }
-#           },
-#           {
-#             "fork": {
-#               "thread": 2
-#             }
-#           },
-#           {
-#             "join": {
-#               "threads": [
-#                 1,
-#                 2
-#               ]
-#             }
-#           },
-#           {
-#             "call": {
-#               "args": [
-#                 "ada",
-#                 36,
-#                 true,
-#                 [
-#                   "x",
-#                   1.5
+#         "id": "thread_0",
+#         "static": {
+#           "steps": [
+#             {
+#               "fork": {
+#                 "thread": "thread_1"
+#               }
+#             },
+#             {
+#               "fork": {
+#                 "thread": "thread_2"
+#               }
+#             },
+#             {
+#               "join": {
+#                 "threads": [
+#                   "thread_1",
+#                   "thread_2"
+#                 ]
+#               }
+#             },
+#             {
+#               "call": {
+#                 "args": [
+#                   "ada",
+#                   36,
+#                   true,
+#                   [
+#                     "x",
+#                     1.5
+#                   ],
+#                   {
+#                     "k": 1
+#                   },
+#                   null
 #                 ],
-#                 {
-#                   "k": 1
-#                 },
-#                 null
-#               ],
-#               "function": "record"
-#             }
-#           },
-#           {
-#             "repeat": {
-#               "call": {
-#                 "function": "tick"
-#               },
-#               "count": 3
-#             }
-#           },
-#           {
-#             "retry": {
-#               "attempts": 5,
-#               "call": {
-#                 "function": "flaky"
+#                 "function": "record"
 #               }
-#             }
-#           },
-#           {
-#             "sleep": {
-#               "durationMs": 20
-#             }
-#           },
-#           {
-#             "timeout": {
-#               "call": {
-#                 "function": "settle"
-#               },
-#               "timeoutMs": 2000
-#             }
-#           },
-#           {
-#             "if": {
-#               "condition": {
+#             },
+#             {
+#               "repeat": {
 #                 "call": {
-#                   "function": "both_greeted"
-#                 }
-#               },
-#               "else": {
-#                 "function": "hush"
-#               },
-#               "then": {
-#                 "function": "announce"
-#               }
-#             }
-#           },
-#           {
-#             "match": {
-#               "cases": [
-#                 {
-#                   "call": {
-#                     "function": "on_alpha"
-#                   },
-#                   "value": "alpha"
+#                   "function": "tick"
 #                 },
-#                 {
-#                   "call": {
-#                     "function": "on_beta"
-#                   },
-#                   "value": "beta"
-#                 }
-#               ],
-#               "default": {
-#                 "function": "on_other"
-#               },
-#               "expression": {
+#                 "count": 3
+#               }
+#             },
+#             {
+#               "retry": {
+#                 "attempts": 5,
 #                 "call": {
-#                   "function": "kind"
+#                   "function": "flaky"
 #                 }
 #               }
+#             },
+#             {
+#               "sleep": {
+#                 "durationMs": 20
+#               }
+#             },
+#             {
+#               "timeout": {
+#                 "call": {
+#                   "function": "settle"
+#                 },
+#                 "timeoutMs": 2000
+#               }
+#             },
+#             {
+#               "if": {
+#                 "condition": {
+#                   "call": {
+#                     "function": "both_greeted"
+#                   }
+#                 },
+#                 "else": {
+#                   "function": "hush"
+#                 },
+#                 "then": {
+#                   "function": "announce"
+#                 }
+#               }
+#             },
+#             {
+#               "match": {
+#                 "cases": [
+#                   {
+#                     "call": {
+#                       "function": "on_alpha"
+#                     },
+#                     "value": "alpha"
+#                   },
+#                   {
+#                     "call": {
+#                       "function": "on_beta"
+#                     },
+#                     "value": "beta"
+#                   }
+#                 ],
+#                 "default": {
+#                   "function": "on_other"
+#                 },
+#                 "expression": {
+#                   "call": {
+#                     "function": "kind"
+#                   }
+#                 }
+#               }
+#             },
+#             {
+#               "call": {
+#                 "function": "report"
+#               }
 #             }
-#           },
-#           {
-#             "call": {
-#               "function": "report"
-#             }
-#           }
-#         ]
+#           ]
+#         }
 #       },
 #       {
-#         "steps": [
-#           {
-#             "call": {
-#               "args": [
-#                 "alice"
-#               ],
-#               "function": "greet"
-#             }
-#           }
-#         ]
+#         "entry": {
+#           "args": [
+#             "alice"
+#           ],
+#           "function": "greet"
+#         },
+#         "id": "thread_1",
+#         "static": {}
 #       },
 #       {
-#         "steps": [
-#           {
-#             "call": {
-#               "args": [
-#                 "bob"
-#               ],
-#               "function": "greet"
-#             }
-#           }
-#         ]
+#         "entry": {
+#           "args": [
+#             "bob"
+#           ],
+#           "function": "greet"
+#         },
+#         "id": "thread_2",
+#         "static": {}
 #       }
 #     ]
 #   }

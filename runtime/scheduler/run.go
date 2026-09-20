@@ -27,9 +27,14 @@ const (
 	RUN_KEY    = "scheduler.run"
 	THREAD_KEY = "scheduler.thread"
 
-	// SPINE is the entry point's thread number and FIRST_SPAWN is the first a
-	// spawn takes. workflow.proto records both as int32.
-	SPINE       = 0
+	// SPINE is the entry point's thread id, THREAD prefixes every id, and
+	// FIRST_SPAWN is the ordinal the first child of any thread takes.
+	//
+	// An id names its parent: the spine's children are thread_1 and thread_2,
+	// and thread_1's own first child is thread_1_1. The spine contributes no
+	// prefix, because a prefix every id carries says nothing.
+	SPINE       = "thread_0"
+	THREAD      = "thread_"
 	FIRST_SPAWN = 1
 
 	// NO_ATTEMPT is what a function not wrapped by a repeat or a retry reports,
@@ -51,7 +56,7 @@ type _Run struct {
 	group   sync.WaitGroup
 	mutex   sync.Mutex
 	live    []*Handle
-	next    int32
+	ordinal map[string]int32
 	outcome error
 	locals  map[string]any
 	into    Reporter
@@ -74,24 +79,47 @@ func (r *_Run) _Abandon() {
 	}
 }
 
-// _Track records a handle as running and gives it its thread number.
+// _Track records a handle as running and gives it its thread id, as a child of
+// the thread that spawned it.
 //
-// Numbering happens under the same lock that records the handle, so the number
-// a handle carries is the position it was started in and two spawns racing
-// cannot be given one number.
+// The ordinal is per parent rather than per run. One counter shared by every
+// thread numbers in the order spawns happen, which is a fact about time; an id
+// that names its parent is a fact about structure, and the two disagree
+// whenever a spawned function spawns before its siblings start.
+//
+// Numbering happens under the same lock that records the handle, so two spawns
+// racing cannot be given one id.
 //
 // Revisions:
 //   - 2026-09-19 20:36: initial creation
 //   - 2026-09-19 20:51: assigns the thread number, so a schema that records one
 //     reads it rather than reconstructing it
-func (r *_Run) _Track(handle *Handle) {
+//   - 2026-09-21 00:59: assigns an id naming its parent, counted per parent
+//     rather than per run
+func (r *_Run) _Track(handle *Handle, parent string) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	handle.thread = r.next
-	r.next++
+	r.ordinal[parent]++
+
+	handle.thread = _Child(parent, r.ordinal[parent])
 
 	r.live = append(r.live, handle)
+}
+
+// _Child is the id of a thread's nth child.
+//
+// The spine is the one special case: it contributes no prefix, so its children
+// are thread_1 and thread_2 rather than thread_0_1.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func _Child(parent string, ordinal int32) string {
+	if parent == SPINE {
+		return fmt.Sprintf("%s%d", THREAD, ordinal)
+	}
+
+	return fmt.Sprintf("%s_%d", parent, ordinal)
 }
 
 // _Of returns the run a thread belongs to.
@@ -134,14 +162,14 @@ func Begin(ctx context.Context, thread *starlark.Thread, name string) func() {
 	into := _Reporter(ctx)
 
 	run := &_Run{
-		ctx:  inner,
-		stop: stop,
-		next: FIRST_SPAWN,
-		into: into,
+		ctx:     inner,
+		stop:    stop,
+		ordinal: make(map[string]int32),
+		into:    into,
 	}
 
 	thread.SetLocal(RUN_KEY, run)
-	thread.SetLocal(THREAD_KEY, int32(SPINE))
+	thread.SetLocal(THREAD_KEY, SPINE)
 	thread.SetLocal(CONTEXT_KEY, inner)
 	thread.SetLocal(REPORTER_KEY, into)
 

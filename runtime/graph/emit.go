@@ -3,6 +3,7 @@ package graph
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -31,6 +32,11 @@ const (
 
 // SOURCE is the whole of the rendering.
 //
+// Constants come after the defs. A constant may be a call of a function this
+// graph declares, so the functions have to exist by then; and a def resolves
+// the names in its body when it runs rather than when it is written, so a body
+// reading a constant declared below it is fine.
+//
 // One unnamed template with its bindings at the top, per
 // .guidelines/styles.md. It lays out lines and never indentation: everything
 // indented arrives already indented, from a method that got it right in Go
@@ -53,6 +59,9 @@ def {{$NAME}}({{$PARAMS}}):
 {{$BODY}}
 {{- end}}
 {{$GEN.Close}}
+{{end}}
+{{- range $NAME := $GEN.Constants}}
+{{$NAME}} = {{$GEN.Bound $NAME}}
 {{end}}`
 
 // _Gen is what the template calls. Its methods are exported because a template
@@ -84,6 +93,39 @@ func Emit(graph *workflowpb.Graph) ([]byte, error) {
 	}
 
 	return out.Bytes(), nil
+}
+
+// Constants is every module-level name a generated script binds, sorted.
+//
+// Sorted because a map has no order and a generator that emits a different
+// file each run is one nobody can diff.
+//
+// Revisions:
+//   - 2026-09-21 01:32: initial creation
+func (g *_Gen) Constants() []string {
+	var names []string
+
+	for name := range g.graph.GetConstants() {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+// Bound is what a constant is bound to, as a script writes it.
+//
+// Revisions:
+//   - 2026-09-21 01:32: initial creation
+func (g *_Gen) Bound(name string) (string, error) {
+	held := g.graph.GetConstants()[name]
+
+	if held.GetCall() != nil {
+		return g._Invocation(held.GetCall())
+	}
+
+	return _Value(held.GetValue())
 }
 
 // Functions is every function the graph declares, in the order it declared

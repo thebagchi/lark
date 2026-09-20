@@ -28,8 +28,8 @@ const REPORTER_KEY = "scheduler.reporter"
 // value in some schema does it in one place, next to the schema. This package
 // names no status anywhere.
 type Reporter interface {
-	Started(thread int32, name string, attempt int32)
-	Ended(thread int32, name string, err error)
+	Started(thread string, name string, attempt int32)
+	Ended(thread string, name string, err error)
 }
 
 // WithReporter returns a context carrying the reporter a run should tell what
@@ -61,16 +61,17 @@ func Reporting(thread *starlark.Thread) Reporter {
 	return into
 }
 
-// Number is the thread number this evaluation runs under.
+// Number is the id of the thread this evaluation runs under.
 //
-// The spine when a thread carries none, which is a thread nothing set up. A
-// number is only ever used to group what is reported, so a wrong lane is a
-// tidier failure than no answer at all.
+// The spine when a thread carries none, which is a thread nothing set up. An id
+// is only ever used to group what is reported, so a wrong lane is a tidier
+// failure than no answer at all.
 //
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
-func Number(thread *starlark.Thread) int32 {
-	number, ok := thread.Local(THREAD_KEY).(int32)
+//   - 2026-09-21 00:59: a thread id is a string that names its parent
+func Number(thread *starlark.Thread) string {
+	number, ok := thread.Local(THREAD_KEY).(string)
 	if !ok {
 		return SPINE
 	}

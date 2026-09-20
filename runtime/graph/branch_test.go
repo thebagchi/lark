@@ -134,7 +134,7 @@ func TestBranch_TheScriptRuns(t *testing.T) {
 			_Fn("stop", "return 2"),
 			_Fn("main", ""),
 		},
-		Threads: []*workflowpb.GraphThread{_Spine(&workflowpb.Step{
+		Threads: []*workflowpb.Thread{_Spine(&workflowpb.Step{
 			Action: &workflowpb.Step_If{
 				If: &workflowpb.If{Condition: _Ask("ready"), Then: _To("go"), Else: _To("stop")},
 			},

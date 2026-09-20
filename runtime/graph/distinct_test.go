@@ -65,20 +65,8 @@ func TestDistinct_IgnoresNodes(t *testing.T) {
 	snap := &workflowpb.Workflow{
 		Status: workflowpb.Status_STATUS_RUNNING,
 		Threads: []*workflowpb.Thread{
-			{
-				Index: 1,
-				Nodes: []*workflowpb.Node{{
-					Function: "first",
-					Status:   workflowpb.Status_STATUS_SUCCEEDED,
-				}},
-			},
-			{
-				Index: 3,
-				Nodes: []*workflowpb.Node{{
-					Function: "first",
-					Status:   workflowpb.Status_STATUS_RUNNING,
-				}},
-			},
+			_Ran("thread_1", "first", workflowpb.Status_STATUS_SUCCEEDED),
+			_Ran("thread_1_1", "first", workflowpb.Status_STATUS_RUNNING),
 		},
 	}
 
@@ -89,7 +77,7 @@ func TestDistinct_IgnoresNodes(t *testing.T) {
 	count := 0
 
 	for _, lane := range snap.GetThreads() {
-		for _, node := range lane.GetNodes() {
+		for _, node := range lane.GetLive().GetNodes() {
 			if node.GetFunction() != "first" {
 				continue
 			}
@@ -100,5 +88,20 @@ func TestDistinct_IgnoresNodes(t *testing.T) {
 
 	if count != 2 {
 		t.Fatalf("want first on two live threads, got %d", count)
+	}
+}
+
+// _Ran is one live thread that ran a single function.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func _Ran(id string, name string, status workflowpb.Status) *workflowpb.Thread {
+	return &workflowpb.Thread{
+		Id: id,
+		State: &workflowpb.Thread_Live{
+			Live: &workflowpb.Live{
+				Nodes: []*workflowpb.Node{{Function: name, Status: status}},
+			},
+		},
 	}
 }

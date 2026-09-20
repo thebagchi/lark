@@ -77,7 +77,7 @@ func _Spawn(
 		stop: stop,
 	}
 
-	run._Track(handle)
+	run._Track(handle, Number(thread))
 	run.group.Add(1)
 
 	run._Tell(func() {

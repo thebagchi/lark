@@ -12,8 +12,8 @@ import (
 const (
 	// LANE and OTHER are two thread numbers, and BROKE the text of the one
 	// failure in these tests.
-	LANE  = 1
-	OTHER = 2
+	LANE  = "thread_1"
+	OTHER = "thread_2"
 	BROKE = "it broke"
 
 	// ANON is what the interpreter calls an anonymous function.
@@ -54,7 +54,7 @@ func TestBlame_IgnoresACancellationHoweverEarly(t *testing.T) {
 	}
 
 	if cause.GetThread() != LANE {
-		t.Fatalf("want thread %d, got %d", LANE, cause.GetThread())
+		t.Fatalf("want thread %s, got %s", LANE, cause.GetThread())
 	}
 }
 

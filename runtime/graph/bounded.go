@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"go.starlark.net/syntax"
+
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 )
 
@@ -91,14 +93,6 @@ func (g *_Gen) _Wrap(
 	return fmt.Sprintf("%s(%s%s%s)", who, bound, SEPARATOR, site), nil
 }
 
-// _Pause is a sleep, in the seconds the builtin takes.
-//
-// Revisions:
-//   - 2026-09-20 21:05: initial creation
-func _Pause(sleep *workflowpb.Sleep) string {
-	return fmt.Sprintf("%s(%s)", SLEEP, _Seconds(sleep.GetDurationMs()))
-}
-
 // _Seconds is a duration in milliseconds as the number of seconds a builtin
 // takes.
 //
@@ -110,4 +104,63 @@ func _Pause(sleep *workflowpb.Sleep) string {
 //   - 2026-09-20 21:05: initial creation
 func _Seconds(ms int32) string {
 	return _Number(float64(ms) / MILLIS)
+}
+
+// _Pause is a sleep, in the seconds the builtin takes.
+//
+// Revisions:
+//   - 2026-09-20 21:05: initial creation
+//   - 2026-09-21 01:32: Sleep carries milliseconds again, so this divides
+func _Pause(sleep *workflowpb.Sleep) string {
+	return fmt.Sprintf("%s(%s)", SLEEP, _Seconds(sleep.GetDurationMs()))
+}
+
+// _Wrapper is the bounded step a repeat, retry or timeout states, and whether
+// it states one.
+//
+// The count or the budget comes first and the callable last, and the wrappers
+// call straight away - there is no second call to read past. The callable
+// takes the two spellings a spawned site takes, so a wrapped call carries
+// arguments through a lambda.
+//
+// delay_ms is never set. No builtin can spell a delay, and the emitter already
+// refuses a graph that asks for one, so this is the symmetric half.
+//
+// Revisions:
+//   - 2026-09-21 01:32: initial creation
+func (r *_Reading) _Wrapper(name string, call *syntax.CallExpr) *workflowpb.Step {
+	if len(call.Args) != 2 {
+		return nil
+	}
+
+	bound, ok := _Arg(call.Args[0])
+	if !ok {
+		return nil
+	}
+
+	site, def := r._Target(call.Args[1])
+	if def == nil {
+		return nil
+	}
+
+	count := int32(bound.GetNumberValue())
+
+	switch name {
+	case REPEAT:
+		return &workflowpb.Step{Action: &workflowpb.Step_Repeat{
+			Repeat: &workflowpb.Repeat{Call: site, Count: count},
+		}}
+
+	case RETRY:
+		return &workflowpb.Step{Action: &workflowpb.Step_Retry{
+			Retry: &workflowpb.Retry{Call: site, Attempts: count},
+		}}
+	}
+
+	return &workflowpb.Step{Action: &workflowpb.Step_Timeout{
+		Timeout: &workflowpb.Timeout{
+			Call:      site,
+			TimeoutMs: int32(bound.GetNumberValue() * MILLIS),
+		},
+	}}
 }

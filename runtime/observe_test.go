@@ -141,7 +141,7 @@ func TestFacade_SuppliesAGraphWithoutLeavingIt(t *testing.T) {
 	}
 
 	for _, lane := range snap.GetThreads() {
-		for _, node := range lane.GetNodes() {
+		for _, node := range lane.GetLive().GetNodes() {
 			if node.GetFunction() != UNCALLED {
 				continue
 			}

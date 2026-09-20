@@ -1,10 +1,12 @@
 package observe_test
 
 import (
+	"fmt"
 	"testing"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/runtime/observe"
+	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
 // PHANTOM is a function no script defines, used to ask what a graph that is
@@ -15,8 +17,12 @@ const (
 
 	// WRAPPED_LANE is a thread a graph runs a wrapper on, and EMPTY_LANE one it
 	// forks and never describes. Both above any the samples use.
-	WRAPPED_LANE = 7
-	EMPTY_LANE   = 9
+	WRAPPED_LANE = "thread_7"
+	EMPTY_LANE   = "thread_9"
+
+	// NESTED spawns from inside a spawned function, which is what makes an id
+	// hierarchical rather than flat.
+	NESTED = "testdata/nested.star"
 
 	// THRICE spawns three times where a graph declares two lanes.
 	THRICE = "testdata/thrice.star"
@@ -139,22 +145,50 @@ func TestGraph_NilBehavesAsNone(t *testing.T) {
 	}
 }
 
-// _Lanes is index+1 authored threads, with steps on that slot. Graph
-// threads have no index field; identity is list position, so a function
-// that must not sit on the spine needs empty slots in front.
+// _Lanes is a spine and one authored thread under this id, carrying these
+// steps.
 //
 // Revisions:
 //   - 2026-09-20 18:40: initial creation
-func _Lanes(index int32, steps []*workflowpb.Step) []*workflowpb.GraphThread {
-	lanes := make([]*workflowpb.GraphThread, index+1)
-
-	for slot := range lanes {
-		lanes[slot] = new(workflowpb.GraphThread)
+//   - 2026-09-21 00:59: a thread carries its own id, so no empty slots are
+//     needed in front of one that must not be the spine
+func _Lanes(id string, steps []*workflowpb.Step) []*workflowpb.Thread {
+	return []*workflowpb.Thread{
+		_Static(scheduler.SPINE, nil, nil),
+		_Static(id, nil, steps),
 	}
+}
 
-	lanes[index].Steps = steps
+// _Static is one authored thread: its id, what runs on it, and its steps.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func _Static(id string, entry *workflowpb.Call, steps []*workflowpb.Step) *workflowpb.Thread {
+	return &workflowpb.Thread{
+		Id:    id,
+		Entry: entry,
+		State: &workflowpb.Thread_Static{
+			Static: &workflowpb.Static{Steps: steps},
+		},
+	}
+}
 
-	return lanes
+// _Spawns is a step that starts this thread.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func _Spawns(id string) *workflowpb.Step {
+	return &workflowpb.Step{
+		Action: &workflowpb.Step_Fork{Fork: &workflowpb.Fork{Thread: id}},
+	}
+}
+
+// _Of is a call of this function, passing nothing.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func _Of(name string) *workflowpb.Call {
+	return &workflowpb.Call{Function: name}
 }
 
 // _Placed builds a graph that runs each named function on its own lane,
@@ -163,18 +197,17 @@ func _Lanes(index int32, steps []*workflowpb.Step) []*workflowpb.GraphThread {
 // Revisions:
 //   - 2026-09-20 11:55: initial creation
 //   - 2026-09-20 18:40: GraphThread has no index; pads a spine slot
+//   - 2026-09-21 00:59: a thread names what runs on it through its entry
 func _Placed(names ...string) *workflowpb.Graph {
 	graph := &workflowpb.Graph{}
-	graph.Threads = append(graph.Threads, new(workflowpb.GraphThread))
+	graph.Threads = append(graph.Threads, _Static(scheduler.SPINE, nil, nil))
 
-	for _, name := range names {
+	for index, name := range names {
 		graph.Functions = append(graph.Functions, &workflowpb.Function{Name: name})
 
-		graph.Threads = append(graph.Threads, &workflowpb.GraphThread{
-			Steps: []*workflowpb.Step{
-				{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: name}}},
-			},
-		})
+		id := fmt.Sprintf("%s%d", scheduler.THREAD, index+1)
+
+		graph.Threads = append(graph.Threads, _Static(id, _Of(name), nil))
 	}
 
 	return graph
@@ -217,7 +250,7 @@ func TestGraph_DeclaredButUnplacedGoesToTheSpine(t *testing.T) {
 	}
 
 	if lane != SPINE {
-		t.Fatalf("want an unplaced function on the spine, got thread %d", lane)
+		t.Fatalf("want an unplaced function on the spine, got thread %s", lane)
 	}
 }
 
@@ -243,7 +276,7 @@ func TestGraph_AWrapperPlacesItsFunction(t *testing.T) {
 	_, lane := _Node(_Ran(t, BRANCHING, observe.WithGraph(declared)), UNREACHED)
 
 	if lane != WRAPPED_LANE {
-		t.Fatalf("want the wrapper's lane %d, got %d", WRAPPED_LANE, lane)
+		t.Fatalf("want the wrapper's lane %s, got %s", WRAPPED_LANE, lane)
 	}
 }
 
@@ -254,28 +287,26 @@ func TestGraph_AWrapperPlacesItsFunction(t *testing.T) {
 //   - 2026-09-20 11:55: initial creation
 func TestGraph_AForkedLaneWithNothingOnItIsStillALane(t *testing.T) {
 	declared := &workflowpb.Graph{
-		Threads: []*workflowpb.GraphThread{{
-			Steps: []*workflowpb.Step{{
-				Action: &workflowpb.Step_Fork{Fork: &workflowpb.Fork{Thread: EMPTY_LANE}},
-			}},
-		}},
+		Threads: []*workflowpb.Thread{
+			_Static(scheduler.SPINE, nil, []*workflowpb.Step{_Spawns(EMPTY_LANE)}),
+		},
 	}
 
 	snap := _Ran(t, BRANCHING, observe.WithGraph(declared))
 
 	for _, lane := range snap.GetThreads() {
-		if lane.GetIndex() != EMPTY_LANE {
+		if lane.GetId() != EMPTY_LANE {
 			continue
 		}
 
-		if len(lane.GetNodes()) != 0 {
-			t.Fatalf("want an empty lane, got %d nodes", len(lane.GetNodes()))
+		if len(lane.GetLive().GetNodes()) != 0 {
+			t.Fatalf("want an empty lane, got %d nodes", len(lane.GetLive().GetNodes()))
 		}
 
 		return
 	}
 
-	t.Fatalf("want a lane %d the graph forked and never described", EMPTY_LANE)
+	t.Fatalf("want a lane %s the graph spawned and never described", EMPTY_LANE)
 }
 
 // AUTHORED is how many lanes the graph in the numbering test declares: the
@@ -308,18 +339,23 @@ func TestGraph_LiveNumberingFollowsAuthoredSlots(t *testing.T) {
 		t.Fatalf("want %d lanes, got %d", AUTHORED+1, len(snap.GetThreads()))
 	}
 
-	want := map[int32]string{0: ENTRY, 1: "first", 2: "second", 3: "first"}
+	want := map[string]string{
+		scheduler.SPINE: ENTRY,
+		"thread_1":      "first",
+		"thread_2":      "second",
+		"thread_3":      "first",
+	}
 
 	for _, lane := range snap.GetThreads() {
-		nodes := lane.GetNodes()
+		nodes := lane.GetLive().GetNodes()
 
 		if len(nodes) != 1 {
-			t.Fatalf("thread %d: want one node, got %d", lane.GetIndex(), len(nodes))
+			t.Fatalf("thread %s: want one node, got %d", lane.GetId(), len(nodes))
 		}
 
-		if nodes[0].GetFunction() != want[lane.GetIndex()] {
-			t.Fatalf("thread %d: want %s, got %s",
-				lane.GetIndex(), want[lane.GetIndex()], nodes[0].GetFunction())
+		if nodes[0].GetFunction() != want[lane.GetId()] {
+			t.Fatalf("thread %s: want %s, got %s",
+				lane.GetId(), want[lane.GetId()], nodes[0].GetFunction())
 		}
 	}
 
@@ -330,11 +366,14 @@ func TestGraph_LiveNumberingFollowsAuthoredSlots(t *testing.T) {
 	}
 }
 
-// _Authored is a graph declaring the spine, first on lane 1 and second on lane
-// 2 - two lanes for a script that spawns three times.
+// _Authored is a graph declaring the spine, first on thread_1 and second on
+// thread_2 - two threads for a script that spawns three times.
+//
+// The spine carries no entry, because what runs there is the entry point.
 //
 // Revisions:
 //   - 2026-09-20 19:40: initial creation
+//   - 2026-09-21 00:59: threads carry ids and entries rather than a head Call
 func _Authored() *workflowpb.Graph {
 	return &workflowpb.Graph{
 		Functions: []*workflowpb.Function{
@@ -342,18 +381,13 @@ func _Authored() *workflowpb.Graph {
 			{Name: "second"},
 			{Name: ENTRY},
 		},
-		Threads: []*workflowpb.GraphThread{
-			{Steps: []*workflowpb.Step{
-				{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: ENTRY}}},
-				{Action: &workflowpb.Step_Fork{Fork: &workflowpb.Fork{Thread: 1}}},
-				{Action: &workflowpb.Step_Fork{Fork: &workflowpb.Fork{Thread: 2}}},
-			}},
-			{Steps: []*workflowpb.Step{
-				{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: "first"}}},
-			}},
-			{Steps: []*workflowpb.Step{
-				{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: "second"}}},
-			}},
+		Threads: []*workflowpb.Thread{
+			_Static(scheduler.SPINE, nil, []*workflowpb.Step{
+				_Spawns("thread_1"),
+				_Spawns("thread_2"),
+			}),
+			_Static("thread_1", _Of("first"), nil),
+			_Static("thread_2", _Of("second"), nil),
 		},
 	}
 }
@@ -362,7 +396,7 @@ func _Authored() *workflowpb.Graph {
 // emits a lambda wherever a call passes arguments, and the graph is what says
 // which function it is.
 //
-// A fork names a lane and that lane declares what runs there, so a spawned
+// A spawn names a thread and that thread declares what runs there, so a spawned
 // lambda has exactly one candidate. Without a graph it stays anonymous, which
 // is the next test.
 //
@@ -371,14 +405,9 @@ func _Authored() *workflowpb.Graph {
 func TestGraph_NamesASpawnedLambda(t *testing.T) {
 	declared := &workflowpb.Graph{
 		Functions: []*workflowpb.Function{{Name: GREET}},
-		Threads: []*workflowpb.GraphThread{
-			{Steps: []*workflowpb.Step{
-				{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: ENTRY}}},
-				{Action: &workflowpb.Step_Fork{Fork: &workflowpb.Fork{Thread: 1}}},
-			}},
-			{Steps: []*workflowpb.Step{
-				{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: GREET}}},
-			}},
+		Threads: []*workflowpb.Thread{
+			_Static(scheduler.SPINE, nil, []*workflowpb.Step{_Spawns("thread_1")}),
+			_Static("thread_1", _Of(GREET), nil),
 		},
 	}
 
@@ -390,7 +419,7 @@ func TestGraph_NamesASpawnedLambda(t *testing.T) {
 	}
 
 	if lane == SPINE {
-		t.Fatalf("want it on the lane the fork named, got the spine")
+		t.Fatalf("want it on the thread the spawn named, got the spine")
 	}
 
 	if node.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
@@ -414,14 +443,43 @@ func TestGraph_LeavesALambdaAnonymousWithoutOne(t *testing.T) {
 	snap := _Ran(t, ANON)
 
 	for _, lane := range snap.GetThreads() {
-		for _, node := range lane.GetNodes() {
+		for _, node := range lane.GetLive().GetNodes() {
 			if node.GetFunction() == "lambda" {
 				t.Fatal("want no node named lambda")
 			}
 
-			if lane.GetIndex() != SPINE && node.GetFunction() != "" {
+			if lane.GetId() != SPINE && node.GetFunction() != "" {
 				t.Fatalf("want the spawned lane anonymous, got %q", node.GetFunction())
 			}
 		}
+	}
+}
+
+// TestGraph_ANestedSpawnIsAChildOfItsSpawner proves a thread id names its
+// parent through the interpreter, rather than only where _Track is called.
+//
+// alpha is the spine's first child and deep is alpha's first, so deep is
+// thread_1_1. Under one counter shared by the run it would have been thread_2
+// or thread_3 depending on which spawn happened first, which is a fact about
+// time rather than about the tree.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func TestGraph_ANestedSpawnIsAChildOfItsSpawner(t *testing.T) {
+	snap := _Ran(t, NESTED)
+
+	_, on := _Node(snap, "deep")
+	if on != "thread_1_1" {
+		t.Fatalf("want deep on thread_1_1, got %s", on)
+	}
+
+	_, alpha := _Node(snap, "alpha")
+	if alpha != "thread_1" {
+		t.Fatalf("want alpha on thread_1, got %s", alpha)
+	}
+
+	_, beta := _Node(snap, "beta")
+	if beta != "thread_2" {
+		t.Fatalf("want beta on thread_2, got %s", beta)
 	}
 }

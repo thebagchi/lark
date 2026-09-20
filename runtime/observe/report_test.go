@@ -23,7 +23,7 @@ const (
 
 	// SPINE is the entry point's thread, and UNREACHED a function the
 	// branching script declares and never calls.
-	SPINE     = 0
+	SPINE     = "thread_0"
 	UNREACHED = "unreached"
 
 	// ENTRY is the function a run starts at.
@@ -62,16 +62,16 @@ func _Ran(t *testing.T, path string, opts ...observe.Option) *workflowpb.Workflo
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
-func _Node(snap *workflowpb.Workflow, name string) (*workflowpb.Node, int32) {
+func _Node(snap *workflowpb.Workflow, name string) (*workflowpb.Node, string) {
 	for _, lane := range snap.GetThreads() {
-		for _, node := range lane.GetNodes() {
+		for _, node := range lane.GetLive().GetNodes() {
 			if node.GetFunction() == name {
-				return node, lane.GetIndex()
+				return node, lane.GetId()
 			}
 		}
 	}
 
-	return nil, 0
+	return nil, ""
 }
 
 // TestReport_NamesEveryFunctionThatRan is §7.2: a spawned function appears, on
@@ -88,10 +88,10 @@ func TestReport_NamesEveryFunctionThatRan(t *testing.T) {
 	}
 
 	if lane != SPINE {
-		t.Fatalf("want main on the spine, got thread %d", lane)
+		t.Fatalf("want main on the spine, got thread %s", lane)
 	}
 
-	lanes := make(map[int32]bool)
+	lanes := make(map[string]bool)
 
 	for _, name := range []string{"alpha", "beta"} {
 		node, on := _Node(snap, name)
@@ -104,7 +104,7 @@ func TestReport_NamesEveryFunctionThatRan(t *testing.T) {
 		}
 
 		if lanes[on] {
-			t.Fatalf("want alpha and beta on different threads, both got %d", on)
+			t.Fatalf("want alpha and beta on different threads, both got %s", on)
 		}
 
 		lanes[on] = true
@@ -207,7 +207,7 @@ func _Count(snap *workflowpb.Workflow, name string) int {
 	found := 0
 
 	for _, lane := range snap.GetThreads() {
-		for _, node := range lane.GetNodes() {
+		for _, node := range lane.GetLive().GetNodes() {
 			if node.GetFunction() == name {
 				found++
 			}
@@ -432,7 +432,7 @@ func TestReport_SuccessCarriesNoMessage(t *testing.T) {
 	}
 
 	for _, lane := range snap.GetThreads() {
-		for _, node := range lane.GetNodes() {
+		for _, node := range lane.GetLive().GetNodes() {
 			if node.GetFailure() != "" {
 				t.Fatalf("want %s to carry nothing, got %q", node.GetFunction(), node.GetFailure())
 			}
@@ -469,7 +469,7 @@ func TestReport_TheCauseNamesItsFunctionAndThread(t *testing.T) {
 	}
 
 	if lane != cause.GetThread() {
-		t.Fatalf("want the cause's thread to be the node's, got %d and %d", cause.GetThread(), lane)
+		t.Fatalf("want the cause's thread to be the node's, got %s and %s", cause.GetThread(), lane)
 	}
 
 	if node.GetStatus() != workflowpb.Status_STATUS_FAILED {
@@ -491,7 +491,7 @@ func TestReport_AFailureOnTheSpineNamesTheSpine(t *testing.T) {
 	}
 
 	if cause.GetThread() != SPINE {
-		t.Fatalf("want the spine, got thread %d", cause.GetThread())
+		t.Fatalf("want the spine, got thread %s", cause.GetThread())
 	}
 
 	if cause.GetFunction() != ENTRY {

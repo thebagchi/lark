@@ -84,7 +84,7 @@ func _Globals(t *testing.T) starlark.StringDict {
 func _Thread(run *_Run) *starlark.Thread {
 	thread := &starlark.Thread{Name: SCRIPT_NAME}
 	thread.SetLocal(RUN_KEY, run)
-	thread.SetLocal(THREAD_KEY, int32(SPINE))
+	thread.SetLocal(THREAD_KEY, SPINE)
 
 	return thread
 }
@@ -138,8 +138,8 @@ func TestSpawn_RunsOnItsOwnThread(t *testing.T) {
 		t.Fatalf("got %d, want %d", got, ANSWER)
 	}
 
-	if handle.Thread() != FIRST_SPAWN {
-		t.Fatalf("thread is %d, want %d", handle.Thread(), FIRST_SPAWN)
+	if handle.Thread() != _Child(SPINE, FIRST_SPAWN) {
+		t.Fatalf("thread is %s, want %s", handle.Thread(), _Child(SPINE, FIRST_SPAWN))
 	}
 }
 
@@ -276,7 +276,7 @@ func TestSpawn_ConcurrentSpawnsDoNotShareAThread(t *testing.T) {
 		handles[index] = handle
 	}
 
-	seen := map[int32]bool{}
+	seen := map[string]bool{}
 
 	for index, handle := range handles {
 		<-handle.done
@@ -296,7 +296,7 @@ func TestSpawn_ConcurrentSpawnsDoNotShareAThread(t *testing.T) {
 		}
 
 		if seen[handle.Thread()] {
-			t.Fatalf("thread %d was given to two spawns", handle.Thread())
+			t.Fatalf("thread %s was given to two spawns", handle.Thread())
 		}
 
 		seen[handle.Thread()] = true

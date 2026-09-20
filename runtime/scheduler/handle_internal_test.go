@@ -17,7 +17,7 @@ import (
 
 const (
 	WORKER_NAME   = "worker"
-	WORKER_THREAD = 2
+	WORKER_THREAD = "thread_2"
 	UNHASHABLE    = "unhashable"
 )
 
@@ -48,14 +48,15 @@ func TestHandle_IsAStarlarkValue(t *testing.T) {
 }
 
 // TestHandle_StringNamesTheFunctionAndTheThread proves what a script sees when
-// it prints one, including the thread number a workflow schema records.
+// it prints one, including the thread id a workflow schema records.
 //
 // Revisions:
 //   - 2026-09-19 21:52: initial creation
+//   - 2026-09-21 00:59: a thread id is a string that names its parent
 func TestHandle_StringNamesTheFunctionAndTheThread(t *testing.T) {
 	got := _Handle().String()
 
-	for _, want := range []string{HANDLE_TYPE, WORKER_NAME, "#2"} {
+	for _, want := range []string{HANDLE_TYPE, WORKER_NAME, "#" + WORKER_THREAD} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("String is %q, which does not carry %q", got, want)
 		}
@@ -124,7 +125,7 @@ func TestHandle_ReportsItsNameAndThread(t *testing.T) {
 	}
 
 	if handle.Thread() != WORKER_THREAD {
-		t.Fatalf("thread is %d, want %d", handle.Thread(), WORKER_THREAD)
+		t.Fatalf("thread is %s, want %s", handle.Thread(), WORKER_THREAD)
 	}
 }
 

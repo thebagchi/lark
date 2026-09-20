@@ -18,7 +18,7 @@ const HANDLE_TYPE = "handle"
 // everything a script can do with one it does through join.
 type Handle struct {
 	name   string
-	thread int32
+	thread string
 	done   chan struct{}
 	stop   context.CancelFunc
 	value  starlark.Value
@@ -29,14 +29,15 @@ type Handle struct {
 //
 // Revisions:
 //   - 2026-09-19 20:26: initial creation
+//   - 2026-09-21 00:59: a thread id is a string
 func (h *Handle) String() string {
-	return fmt.Sprintf("<%s %s #%d>", HANDLE_TYPE, h.name, h.thread)
+	return fmt.Sprintf("<%s %s #%s>", HANDLE_TYPE, h.name, h.thread)
 }
 
-// Thread is the number this handle's evaluation runs under.
+// Thread is the id this handle's evaluation runs under.
 //
-// Numbers are what a workflow schema records - a thread's index, the thread a
-// fork starts, the threads a join waits for - so they are assigned here, where
+// Ids are what a workflow schema records - a thread's own id, the thread a
+// spawn starts, the threads a join waits for - so they are assigned here, where
 // a thread is actually started, rather than reconstructed afterwards by
 // something that would have to guess the order.
 //
@@ -46,7 +47,7 @@ func (h *Handle) String() string {
 //
 // Revisions:
 //   - 2026-09-19 20:50: initial creation
-func (h *Handle) Thread() int32 {
+func (h *Handle) Thread() string {
 	return h.thread
 }
 

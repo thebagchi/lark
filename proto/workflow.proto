@@ -29,16 +29,28 @@ message Call {
 }
 
 // Fork starts thread as a new, concurrent thread, without pausing the
-// thread that reports it.
+// thread that reports it. What runs there is that thread's own entry.
 message Fork {
-  int32 thread = 1;
+  string thread = 1;
 }
 
 // Join waits for every listed thread to finish and folds them back into
 // the thread that reports it. More than one thread when several branches
 // converge on the same call.
 message Join {
-  repeated int32 threads = 1;
+  repeated string threads = 1;
+}
+
+// Cancel stops every listed thread without waiting for any of them.
+//
+// Its own message rather than a Call, because it names threads and a
+// Call names a function. Nothing could express a cancel before: the
+// builtin takes a handle, a handle exists only where a fork made one,
+// and a Call passes google.protobuf.Value arguments.
+//
+// A list rather than one, because the builtin takes several.
+message Cancel {
+  repeated string threads = 1;
 }
 
 // Condition is a literal bool, or the name of a predicate function to
@@ -101,6 +113,10 @@ message Retry {
 }
 
 // Sleep pauses this thread for duration_ms milliseconds.
+//
+// Milliseconds because Repeat, Retry and Timeout count them, and one
+// schema with two units is a schema a reader has to check. The builtin
+// takes seconds, so whatever renders this divides.
 message Sleep {
   int32 duration_ms = 1;
 }
@@ -114,12 +130,13 @@ message Timeout {
 
 // Step is one action a thread performs, in execution order. A plain
 // sequential step is a Call; a fan-out is a Fork on the spawning thread
-// and a Call on the branch it starts; a merge is a Join on the thread
-// the branches fold back into, followed by a Call.
+// and the forked thread's own entry; a merge is a Join on the thread the
+// branches fold back into.
 //
-// The set of actions is closed, so a oneof states that. It also lets
-// Join carry a list of threads without a separate flag saying which
-// action is set.
+// The set of actions is closed, so a oneof states that. Every builtin
+// has a message of its own rather than sharing a named-and-arguments
+// shape, so a step that names a thread is checked by the schema rather
+// than by whatever reads it.
 message Step {
   oneof action {
     Call call       = 1;
@@ -131,14 +148,15 @@ message Step {
     Retry retry     = 7;
     Sleep sleep     = 8;
     Timeout timeout = 9;
+    Cancel cancel   = 10;
   }
 }
 
 // Function is one top-level script function. Its own message, rather
 // than a bare string, so a later field does not reshape Graph. Its
-// thread is not carried here: every function has a self-Call as some
-// thread's own step, which is where a caller finds it, and a function in
-// no thread's steps is code nothing reaches.
+// thread is not carried here: a thread names what runs on it through its
+// entry, which is where a caller finds it, and a function no thread
+// names is a leaf that something else calls.
 //
 // body is the statements inside def, not a full def. params are the
 // names in the signature, in order. Two Calls of one function share
@@ -149,21 +167,49 @@ message Function {
   repeated string params = 3;
 }
 
-// Thread is one live thread's own state. index is the id a UI draws
-// status against; it is not Graph list position, because a snapshot may
-// omit the spine and may include a spawn the Graph never listed.
+// Static is a thread as it was authored: what it will do, and nothing
+// about what happened.
+message Static {
+  repeated Step steps = 1;
+}
+
+// Live is a thread that is running or has run: the same steps, and its
+// own functions' statuses in the order it runs them.
 //
-// steps are its actions in execution order; nodes are its own
-// functions' statuses, in the order it runs them.
+// The two lists differ in length and in order, because a spawn or join
+// Builtin names another thread without being one of this thread's own
+// functions. One status per thread could not say which of its functions
+// are done, running or pending, since a thread runs more than one over
+// its life.
+message Live {
+  repeated Step steps = 1;
+  repeated Node nodes = 2;
+}
+
+// Thread is one thread, authored or running. A Graph carries the static
+// half and a Workflow the live one; they are one thread at two moments
+// rather than two kinds of thing, which is why the oneof states which
+// moment rather than a second message repeating the first.
 //
-// The two lists differ in length and in order, because a Fork or Join
-// names another thread without being one of this thread's own functions.
-// One status per thread could not say which of its functions are done,
-// running or pending, since a thread runs more than one over its life.
+// id names its parent: thread_1's first child is thread_1_1. It is a
+// fact about structure and not about time, which a list position could
+// not be - a graph numbers slots in source order while the scheduler
+// numbers in the order spawns happen, and those disagree whenever a
+// spawned function spawns before its siblings start.
+//
+// entry is what runs on the thread, and sits outside the oneof because
+// it is true whether or not the thread has run. An unset entry is the
+// spine, and what runs there is the artifact's entry point, which the
+// runtime already fixes - a graph does not restate it. Every other
+// thread has one, since a spawn always names something.
 message Thread {
-  int32 index         = 1;
-  repeated Step steps = 2;
-  repeated Node nodes = 3;
+  string id  = 1;
+  Call entry = 2;
+
+  oneof state {
+    Static static = 3;
+    Live live     = 4;
+  }
 }
 
 // Node is one function's status within a thread's timeline, which
@@ -185,20 +231,34 @@ message Node {
   string failure  = 4;
 }
 
-// GraphThread is one authored thread: its steps in execution order.
-// Identity is its position in Graph.threads. There is no index, so a UI
-// cannot send one; Fork and Join name list slots instead.
-message GraphThread {
-  repeated Step steps = 1;
+// Constant is a module-level value a body may read: a literal, or a call
+// of a function this graph declares.
+//
+// The second arm exists because some constants are computed. A Call
+// names a declared function and passes Value arguments, so it stays
+// inspectable and editable; arbitrary code before the entry point is
+// still refused, and a named call of a declared function is not that.
+message Constant {
+  oneof kind {
+    google.protobuf.Value value = 1;
+    Call call                   = 2;
+  }
 }
 
 // Graph is the static half of a script's workflow: one entry per
-// top-level function, grouped into the threads that run them. Only steps
-// are populated, since nothing has run. Authored threads have no index;
-// identity is list position.
+// top-level function, grouped into the threads that run them, and the
+// module-level values those functions read. Every thread carries its
+// static half, since nothing has run.
+//
+// constants is a map because names are unique and order does not matter
+// for a value. It matters for a Call naming another constant, which is
+// the one case this cannot express: a generated file emits its
+// functions before its constants, so a constant's call may name any
+// function but not another constant.
 message Graph {
-  repeated Function functions  = 1;
-  repeated GraphThread threads = 2;
+  repeated Function functions        = 1;
+  repeated Thread threads            = 2;
+  map<string, Constant> constants    = 3;
 }
 
 // Cause names the node whose failure ended a run: which thread, which
@@ -213,13 +273,13 @@ message Graph {
 // places and is deliberate: a host showing a banner should not have to
 // walk the threads to fill it in.
 message Cause {
-  int32 thread    = 1;
+  string thread   = 1;
   string function = 2;
   string failure  = 3;
 }
 
-// Workflow is a snapshot of one run's live status. Its threads populate
-// nodes as well as steps.
+// Workflow is a snapshot of one run's live status. Every thread carries
+// its live half, so nodes as well as steps.
 //
 // cause is set only when status is FAILED, so a host can test the
 // pointer rather than the enum. A cancelled run has no cause: nothing

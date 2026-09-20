@@ -1,6 +1,6 @@
-// Package workflow_test exercises the authored Graph JSON this phase
-// added: Function body and params, Call args, and GraphThread with no
-// index.
+// Package workflow_test exercises the authored Graph JSON: Function body and
+// params, Call args, and a Thread that carries its own id and names what runs
+// on it.
 package workflow_test
 
 import (
@@ -23,11 +23,12 @@ const (
 
 	// TODAY is a name-only graph as measured before this phase.
 	TODAY = `{"functions":[{"name":"first"},{"name":"second"},{"name":"main"}],` +
-		`"threads":[{"steps":[{"call":{"function":"main"}},` +
-		`{"fork":{"thread":1}},{"fork":{"thread":2}},` +
-		`{"join":{"threads":[1,2]}}]},` +
-		`{"steps":[{"call":{"function":"first"}}]},` +
-		`{"steps":[{"call":{"function":"second"}}]}]}`
+		`"threads":[{"id":"thread_0","static":{"steps":[` +
+		`{"fork":{"thread":"thread_1"}},` +
+		`{"fork":{"thread":"thread_2"}},` +
+		`{"join":{"threads":["thread_1","thread_2"]}}]}},` +
+		`{"id":"thread_1","entry":{"function":"first"},"static":{}},` +
+		`{"id":"thread_2","entry":{"function":"second"},"static":{}}]}`
 )
 
 // TestFunction_CarriesBodyAndParams is the draft a UI sends: a chatbot
@@ -135,9 +136,14 @@ func TestGraph_NameOnlyStillDecodes(t *testing.T) {
 		}
 	}
 
-	call := graph.GetThreads()[0].GetSteps()[0].GetCall()
-	if call.GetFunction() != ENTRY {
-		t.Fatalf("want thread 0 to open with %s, got %s", ENTRY, call.GetFunction())
+	spine := graph.GetThreads()[0]
+	if spine.GetEntry() != nil {
+		t.Fatalf("want the spine to name no entry, got %s", spine.GetEntry().GetFunction())
+	}
+
+	call := graph.GetThreads()[1].GetEntry()
+	if call.GetFunction() != "first" {
+		t.Fatalf("want thread_1 to run first, got %s", call.GetFunction())
 	}
 
 	if len(call.GetArgs()) != 0 {
@@ -145,95 +151,84 @@ func TestGraph_NameOnlyStillDecodes(t *testing.T) {
 	}
 }
 
-// TestGraphThread_HasNoIndex is why a UI cannot send a thread id:
-// authored JSON has steps only. Fork still names list slot 1.
+// TestThread_NamesItsParent is what a list position could not carry: an id
+// that says whose child a thread is.
 //
 // Revisions:
-//   - 2026-09-20 18:40: initial creation
-func TestGraphThread_HasNoIndex(t *testing.T) {
-	graph := &workflowpb.Graph{
-		Functions: []*workflowpb.Function{
-			{Name: "first"},
-			{Name: ENTRY},
-		},
-		Threads: []*workflowpb.GraphThread{
-			{Steps: []*workflowpb.Step{
-				{Action: &workflowpb.Step_Call{
-					Call: &workflowpb.Call{Function: ENTRY},
-				}},
-				{Action: &workflowpb.Step_Fork{
-					Fork: &workflowpb.Fork{Thread: 1},
-				}},
-			}},
-			{Steps: []*workflowpb.Step{
-				{Action: &workflowpb.Step_Call{
-					Call: &workflowpb.Call{Function: "first"},
-				}},
-			}},
-		},
-	}
-
-	raw, err := protojson.Marshal(graph)
-	if err != nil {
+//   - 2026-09-20 18:40: initial creation, as TestGraphThread_HasNoIndex
+//   - 2026-09-21 00:59: a thread carries an id, reversing .doc/workflow.md
+//     §9, because a hierarchical id states parentage and a slot cannot
+func TestThread_NamesItsParent(t *testing.T) {
+	graph := new(workflowpb.Graph)
+	if err := protojson.Unmarshal([]byte(TODAY), graph); err != nil {
 		t.Fatal(err)
 	}
 
-	text := string(raw)
-	if strings.Contains(text, `"index"`) {
-		t.Fatalf("want no index on a Graph thread, got %s", text)
+	named := graph.GetThreads()[0].GetStatic().GetSteps()[0].GetFork().GetThread()
+	if named != "thread_1" {
+		t.Fatalf("want the spawn to name thread_1, got %s", named)
 	}
 
-	fork := graph.GetThreads()[0].GetSteps()[1].GetFork().GetThread()
-	if fork != 1 {
-		t.Fatalf("want Fork to name list slot 1, got %d", fork)
+	if graph.GetThreads()[1].GetId() != named {
+		t.Fatalf("want a thread under %s, got %s", named, graph.GetThreads()[1].GetId())
 	}
 }
 
-// TestGraphThread_RefusesIndex is the confusion gone: a UI that still
-// puts "index":99 on a Graph thread is refused, because GraphThread
-// has no such field.
+// TestThread_RefusesNodesOnAnAuthoredGraph is what the oneof buys over a
+// single flat message: a graph cannot carry progress, by type rather than
+// by convention.
 //
 // Revisions:
-//   - 2026-09-20 18:40: initial creation
-func TestGraphThread_RefusesIndex(t *testing.T) {
-	raw := []byte(`{"index":99,"steps":[{"call":{"function":"first"}}]}`)
+//   - 2026-09-21 00:59: initial creation
+func TestThread_RefusesNodesOnAnAuthoredGraph(t *testing.T) {
+	raw := []byte(`{"id":"thread_1","static":{"nodes":[{"function":"first"}]}}`)
 
 	opts := protojson.UnmarshalOptions{DiscardUnknown: false}
 
-	lane := new(workflowpb.GraphThread)
+	lane := new(workflowpb.Thread)
 	err := opts.Unmarshal(raw, lane)
 	if err == nil {
-		t.Fatal("want GraphThread to refuse index")
+		t.Fatal("want the static half to refuse nodes")
 	}
 
-	if !strings.Contains(err.Error(), "index") {
-		t.Fatalf("want the refusal to name index, got %v", err)
+	if !strings.Contains(err.Error(), "nodes") {
+		t.Fatalf("want the refusal to name nodes, got %v", err)
 	}
 }
 
-// TestWorkflow_KeepsIndex is the live result a UI draws: thread 1
-// then thread 3, each carrying the id, not the list slot.
+// TestThread_NamesOneHalfNeverBoth is what a oneof is for.
 //
 // Revisions:
-//   - 2026-09-20 18:40: initial creation
-func TestWorkflow_KeepsIndex(t *testing.T) {
+//   - 2026-09-21 00:59: initial creation
+func TestThread_NamesOneHalfNeverBoth(t *testing.T) {
+	lane := &workflowpb.Thread{
+		Id:    "thread_1",
+		State: &workflowpb.Thread_Static{Static: new(workflowpb.Static)},
+	}
+
+	lane.State = &workflowpb.Thread_Live{Live: new(workflowpb.Live)}
+
+	if lane.GetStatic() != nil {
+		t.Fatal("want setting the live half to clear the static one")
+	}
+
+	if lane.GetLive() == nil {
+		t.Fatal("want the live half set")
+	}
+}
+
+// TestWorkflow_KeepsItsThreadIds is the live result a UI draws: thread_1
+// then thread_1_1, each carrying the id, not the list slot.
+//
+// Revisions:
+//   - 2026-09-20 18:40: initial creation, as TestWorkflow_KeepsIndex
+//   - 2026-09-21 00:59: a thread id is a string that names its parent
+func TestWorkflow_KeepsItsThreadIds(t *testing.T) {
 	snap := &workflowpb.Workflow{
 		Status: workflowpb.Status_STATUS_RUNNING,
 		Threads: []*workflowpb.Thread{
-			{
-				Index: 1,
-				Nodes: []*workflowpb.Node{{
-					Function: "first",
-					Status:   workflowpb.Status_STATUS_SUCCEEDED,
-				}},
-			},
-			{
-				Index: 3,
-				Nodes: []*workflowpb.Node{{
-					Function: "first",
-					Status:   workflowpb.Status_STATUS_RUNNING,
-				}},
-			},
+			_Running("thread_1", "first", workflowpb.Status_STATUS_SUCCEEDED),
+			_Running("thread_1_1", "first", workflowpb.Status_STATUS_RUNNING),
 		},
 	}
 
@@ -243,37 +238,51 @@ func TestWorkflow_KeepsIndex(t *testing.T) {
 	}
 
 	text := string(raw)
-	if !strings.Contains(text, `"index":1`) {
-		t.Fatalf("want live index 1, got %s", text)
+	if !strings.Contains(text, `"id":"thread_1"`) {
+		t.Fatalf("want live thread_1, got %s", text)
 	}
 
-	if !strings.Contains(text, `"index":3`) {
-		t.Fatalf("want live index 3, got %s", text)
+	if !strings.Contains(text, `"id":"thread_1_1"`) {
+		t.Fatalf("want live thread_1_1, got %s", text)
 	}
 
-	if snap.GetThreads()[0].GetIndex() != 1 {
-		t.Fatalf("want the first snapshot thread numbered 1, not list slot 0")
+	if snap.GetThreads()[0].GetId() != "thread_1" {
+		t.Fatalf("want the first snapshot thread to be thread_1, not list slot 0")
+	}
+}
+
+// _Running is one live thread, running or having run a single function.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func _Running(id string, name string, status workflowpb.Status) *workflowpb.Thread {
+	return &workflowpb.Thread{
+		Id: id,
+		State: &workflowpb.Thread_Live{
+			Live: &workflowpb.Live{
+				Nodes: []*workflowpb.Node{{Function: name, Status: status}},
+			},
+		},
 	}
 }
 
 // TestGraph_AuthoredJSON is the payload a UI sends after this phase:
-// bodies, params, and a spine with no index.
+// bodies, params, and a spine that names no entry.
 //
 // Revisions:
 //   - 2026-09-20 18:40: initial creation
+//   - 2026-09-21 00:59: the spine carries no entry, since the entry point is
+//     the runtime's rather than the graph's to name
 func TestGraph_AuthoredJSON(t *testing.T) {
 	graph := &workflowpb.Graph{
 		Functions: []*workflowpb.Function{
 			{Name: ENTRY, Body: `return greet("world")`},
 			{Name: "greet", Params: []string{"name"}, Body: BODY},
 		},
-		Threads: []*workflowpb.GraphThread{
-			{Steps: []*workflowpb.Step{
-				{Action: &workflowpb.Step_Call{
-					Call: &workflowpb.Call{Function: ENTRY},
-				}},
-			}},
-		},
+		Threads: []*workflowpb.Thread{{
+			Id:    "thread_0",
+			State: &workflowpb.Thread_Static{Static: new(workflowpb.Static)},
+		}},
 	}
 
 	raw, err := protojson.Marshal(graph)
@@ -288,7 +297,7 @@ func TestGraph_AuthoredJSON(t *testing.T) {
 		t.Fatalf("want bodies, got %s", text)
 	}
 
-	if strings.Contains(text, `"index"`) {
-		t.Fatalf("want no index on authored threads, got %s", text)
+	if strings.Contains(text, `"entry"`) {
+		t.Fatalf("want the spine to name no entry, got %s", text)
 	}
 }

@@ -21,7 +21,7 @@ func _Body(t *testing.T, steps ...*workflowpb.Step) string {
 
 	out, err := graph.Emit(&workflowpb.Graph{
 		Functions: []*workflowpb.Function{_Fn("main", "")},
-		Threads:   []*workflowpb.GraphThread{_Spine(steps...)},
+		Threads:   []*workflowpb.Thread{_Spine(steps...)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -58,9 +58,7 @@ func TestBounded_TheWrappersGenerateTheirLines(t *testing.T) {
 			want: "timeout(2, slow)",
 		},
 		{
-			step: &workflowpb.Step{Action: &workflowpb.Step_Sleep{
-				Sleep: &workflowpb.Sleep{DurationMs: 50},
-			}},
+			step: _Sleep(0.05),
 			want: "sleep(0.05)",
 		},
 	}
@@ -112,7 +110,7 @@ func TestBounded_ThereIsNoTrailingCall(t *testing.T) {
 func TestBounded_RefusesADelay(t *testing.T) {
 	_, err := graph.Emit(&workflowpb.Graph{
 		Functions: []*workflowpb.Function{_Fn("main", "")},
-		Threads: []*workflowpb.GraphThread{_Spine(&workflowpb.Step{
+		Threads: []*workflowpb.Thread{_Spine(&workflowpb.Step{
 			Action: &workflowpb.Step_Repeat{
 				Repeat: &workflowpb.Repeat{Call: &workflowpb.Call{Function: "greet"}, Count: 3, DelayMs: 500},
 			},
@@ -136,10 +134,10 @@ func TestBounded_RefusesADelay(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-20 21:06: initial creation
+//   - 2026-09-21 00:59: a sleep carries seconds, so this is the value rule
+//     rather than a conversion
 func TestBounded_AWholeNumberOfSecondsIsAnInteger(t *testing.T) {
-	got := _Body(t, &workflowpb.Step{Action: &workflowpb.Step_Sleep{
-		Sleep: &workflowpb.Sleep{DurationMs: 2000},
-	}})
+	got := _Body(t, _Sleep(2))
 
 	if !strings.Contains(got, "sleep(2)") {
 		t.Fatalf("want sleep(2), got\n%s", got)
@@ -160,13 +158,11 @@ func TestBounded_TheScriptRuns(t *testing.T) {
 			_Fn("step", "return 1"),
 			_Fn("main", ""),
 		},
-		Threads: []*workflowpb.GraphThread{_Spine(
+		Threads: []*workflowpb.Thread{_Spine(
 			&workflowpb.Step{Action: &workflowpb.Step_Repeat{
 				Repeat: &workflowpb.Repeat{Call: &workflowpb.Call{Function: "step"}, Count: 3},
 			}},
-			&workflowpb.Step{Action: &workflowpb.Step_Sleep{
-				Sleep: &workflowpb.Sleep{DurationMs: 10},
-			}},
+			_Sleep(0.01),
 		)},
 	})
 	if err != nil {
@@ -220,5 +216,18 @@ func TestBounded_AWrappedSiteWithoutArgumentsIsABareName(t *testing.T) {
 
 	if strings.Contains(got, "lambda") {
 		t.Fatalf("want no lambda where there are no arguments, got\n%s", got)
+	}
+}
+
+// _Sleep is a pause written in the seconds a script says, in the milliseconds
+// the schema counts.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func _Sleep(seconds float64) *workflowpb.Step {
+	return &workflowpb.Step{
+		Action: &workflowpb.Step_Sleep{
+			Sleep: &workflowpb.Sleep{DurationMs: int32(seconds * 1000)},
+		},
 	}
 }

@@ -4,22 +4,11 @@ import (
 	"sort"
 	"sync"
 
+	"google.golang.org/protobuf/proto"
+
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/runtime/scheduler"
 )
-
-// _Node is what one function is doing, before it becomes a message.
-//
-// Its own shape rather than the generated Node, because a node has to be found
-// again by function and thread to be updated, and the thread it belongs to is
-// not a field of the generated message - it is which list the message is in.
-type _Node struct {
-	thread  int32
-	name    string
-	status  workflowpb.Status
-	attempt int32
-	failure string
-}
 
 // _Recorder is what every function in one run is doing.
 //
@@ -32,15 +21,20 @@ type _Node struct {
 // succeeded" while the other is still going would be a report of neither.
 type _Recorder struct {
 	guard sync.Mutex
-	nodes map[_Where]*_Node
+	nodes map[_Where]*workflowpb.Node
 	order []_Where
-	lanes map[int32]bool
+	lanes map[string]bool
 	cause *workflowpb.Cause
 }
 
 // _Where is a node's identity: which function, on which thread.
+//
+// This is why a node needs no shape of its own. A generated Node carries no
+// thread - which thread it belongs to is which list it ends up in - and that
+// was the whole reason for a second struct. The key already holds it, so the
+// message itself is what the recorder keeps.
 type _Where struct {
-	thread int32
+	thread string
 	name   string
 }
 
@@ -50,8 +44,8 @@ type _Where struct {
 //   - 2026-09-20 01:39: initial creation
 func _NewRecorder() *_Recorder {
 	return &_Recorder{
-		nodes: make(map[_Where]*_Node),
-		lanes: make(map[int32]bool),
+		nodes: make(map[_Where]*workflowpb.Node),
+		lanes: make(map[string]bool),
 	}
 }
 
@@ -70,7 +64,7 @@ func _NewRecorder() *_Recorder {
 //
 // Revisions:
 //   - 2026-09-20 20:53: initial creation
-func (r *_Recorder) _Resolve(thread int32, name string) string {
+func (r *_Recorder) _Resolve(thread string, name string) string {
 	if name != scheduler.LAMBDA {
 		return name
 	}
@@ -100,14 +94,14 @@ func (r *_Recorder) _Resolve(thread int32, name string) string {
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
 //   - 2026-09-20 20:53: resolves an anonymous function against the graph
-func (r *_Recorder) Started(thread int32, name string, attempt int32) {
+func (r *_Recorder) Started(thread string, name string, attempt int32) {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
 	node := r._At(thread, r._Resolve(thread, name))
 
-	node.status = workflowpb.Status_STATUS_RUNNING
-	node.attempt = attempt
+	node.Status = workflowpb.Status_STATUS_RUNNING
+	node.Attempt = attempt
 }
 
 // Ended records how a function finished.
@@ -125,16 +119,18 @@ func (r *_Recorder) Started(thread int32, name string, attempt int32) {
 //   - 2026-09-20 11:34: tells a cancellation from a failure
 //   - 2026-09-20 11:36: carries the failure's text, for a reader that needs
 //     more than a colour
-func (r *_Recorder) Ended(thread int32, name string, err error) {
+func (r *_Recorder) Ended(thread string, name string, err error) {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	node := r._At(thread, r._Resolve(thread, name))
+	where := _Where{thread: thread, name: r._Resolve(thread, name)}
 
-	node.status = _Became(err)
-	node.failure = _Why(err)
+	node := r._At(where.thread, where.name)
 
-	r._Blame(node)
+	node.Status = _Became(err)
+	node.Failure = _Why(err)
+
+	r._Blame(where, node)
 }
 
 // _Blame remembers the first function to fail, which is the one that ended the
@@ -151,15 +147,17 @@ func (r *_Recorder) Ended(thread int32, name string, err error) {
 //
 // Revisions:
 //   - 2026-09-20 11:39: initial creation
-func (r *_Recorder) _Blame(node *_Node) {
-	if r.cause != nil || node.status != workflowpb.Status_STATUS_FAILED {
+//   - 2026-09-21 01:21: takes the node's identity, which the key holds, so the
+//     message needs no thread of its own
+func (r *_Recorder) _Blame(where _Where, node *workflowpb.Node) {
+	if r.cause != nil || node.GetStatus() != workflowpb.Status_STATUS_FAILED {
 		return
 	}
 
 	r.cause = &workflowpb.Cause{
-		Thread:   node.thread,
-		Function: node.name,
-		Failure:  node.failure,
+		Thread:   where.thread,
+		Function: where.name,
+		Failure:  node.GetFailure(),
 	}
 }
 
@@ -210,16 +208,25 @@ func (r *_Recorder) _Cause() *workflowpb.Cause {
 //   - 2026-09-20 01:39: initial creation
 //   - 2026-09-20 18:40: numbers Graph lanes by list slot; GraphThread has
 //     no index
+//   - 2026-09-21 00:59: takes each thread's own id, which the thread now
+//     carries, instead of numbering lanes by list slot
 func (r *_Recorder) _Seed(graph *workflowpb.Graph) {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	for slot, thread := range graph.GetThreads() {
-		lane := int32(slot)
+	for _, thread := range graph.GetThreads() {
+		lane := thread.GetId()
 
 		r._Lane(lane)
 
-		for _, step := range thread.GetSteps() {
+		// What a thread runs is its entry, which is a field rather than a step,
+		// so nothing below would enter it. The spine has none; its function is
+		// the entry point, which the declaration pass below picks up.
+		if thread.GetEntry() != nil {
+			r._At(lane, thread.GetEntry().GetFunction())
+		}
+
+		for _, step := range thread.GetStatic().GetSteps() {
 			r._Place(lane, step)
 		}
 	}
@@ -240,18 +247,19 @@ func (r *_Recorder) _Seed(graph *workflowpb.Graph) {
 // _Place enters whatever function a step names, on the thread the graph runs it
 // on.
 //
-// A fork names no function - it says a thread exists, and whatever runs there is
-// that thread's own steps to declare. Recording the lane is still worth doing:
-// a graph may fork a thread it never describes, and an empty lane is what phase
-// 7 means by one a run never fills.
+// A spawn names no function - it says a thread exists, and whatever runs there
+// is that thread's own entry to declare. Recording the lane is still worth
+// doing: a graph may spawn a thread it never describes, and an empty lane is
+// what phase 7 means by one a run never fills.
 //
 // Callers hold the lock.
 //
 // Revisions:
 //   - 2026-09-20 11:55: initial creation
-func (r *_Recorder) _Place(thread int32, step *workflowpb.Step) {
-	if fork := step.GetFork(); fork != nil {
-		r._Lane(fork.GetThread())
+//   - 2026-09-21 01:32: a Fork names the thread it starts
+func (r *_Recorder) _Place(thread string, step *workflowpb.Step) {
+	if spawned := _Spawned(step); spawned != "" {
+		r._Lane(spawned)
 
 		return
 	}
@@ -274,7 +282,7 @@ func (r *_Recorder) _Place(thread int32, step *workflowpb.Step) {
 //
 // Revisions:
 //   - 2026-09-20 11:55: initial creation
-func (r *_Recorder) _Lane(index int32) {
+func (r *_Recorder) _Lane(index string) {
 	r.lanes[index] = true
 }
 
@@ -292,6 +300,28 @@ func (r *_Recorder) _Placed(name string) bool {
 	}
 
 	return false
+}
+
+// _Spawned is the thread a fork step starts, or empty for any other step.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func _Spawned(step *workflowpb.Step) string {
+	return step.GetFork().GetThread()
+}
+
+// _Live is an empty running thread under this id.
+//
+// A snapshot always reports the live half, even for a thread nothing has run
+// on yet, so a host reads one arm rather than testing which it was given.
+//
+// Revisions:
+//   - 2026-09-21 00:59: initial creation
+func _Live(id string) *workflowpb.Thread {
+	return &workflowpb.Thread{
+		Id:    id,
+		State: &workflowpb.Thread_Live{Live: &workflowpb.Live{}},
+	}
 }
 
 // _Names is the function a step runs, or empty for a step that runs none.
@@ -328,12 +358,12 @@ func (r *_Recorder) _Threads() []*workflowpb.Thread {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	lanes := make(map[int32]*workflowpb.Thread)
+	lanes := make(map[string]*workflowpb.Thread)
 
-	var numbers []int32
+	var numbers []string
 
 	for index := range r.lanes {
-		lanes[index] = &workflowpb.Thread{Index: index}
+		lanes[index] = _Live(index)
 		numbers = append(numbers, index)
 	}
 
@@ -342,17 +372,24 @@ func (r *_Recorder) _Threads() []*workflowpb.Thread {
 
 		lane, known := lanes[where.thread]
 		if !known {
-			lane = &workflowpb.Thread{Index: where.thread}
+			lane = _Live(where.thread)
 			lanes[where.thread] = lane
 			numbers = append(numbers, where.thread)
 		}
 
-		lane.Nodes = append(lane.Nodes, &workflowpb.Node{
-			Function: node.name,
-			Status:   node.status,
-			Attempt:  node.attempt,
-			Failure:  node.failure,
-		})
+		live := lane.GetLive()
+
+		// Cloned, not aliased. The recorder keeps writing to its nodes after a
+		// snapshot is handed out, so sharing one would let a finished report
+		// change under whoever is reading it. proto.Clone rather than copying
+		// the fields, because a field added to Node later would be dropped by
+		// a copy and nothing would say so.
+		copied, ok := proto.Clone(node).(*workflowpb.Node)
+		if !ok {
+			continue
+		}
+
+		live.Nodes = append(live.Nodes, copied)
 	}
 
 	sort.Slice(numbers, func(i, j int) bool {
@@ -379,7 +416,8 @@ func (r *_Recorder) _Threads() []*workflowpb.Thread {
 //
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
-func (r *_Recorder) _At(thread int32, name string) *_Node {
+//   - 2026-09-21 01:21: keeps the generated Node rather than a shape of its own
+func (r *_Recorder) _At(thread string, name string) *workflowpb.Node {
 	where := _Where{thread: thread, name: name}
 
 	node, known := r.nodes[where]
@@ -387,10 +425,9 @@ func (r *_Recorder) _At(thread int32, name string) *_Node {
 		return node
 	}
 
-	node = &_Node{
-		thread: thread,
-		name:   name,
-		status: workflowpb.Status_STATUS_PENDING,
+	node = &workflowpb.Node{
+		Function: name,
+		Status:   workflowpb.Status_STATUS_PENDING,
 	}
 
 	r.nodes[where] = node
