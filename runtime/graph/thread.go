@@ -34,6 +34,8 @@ type _Lane struct {
 //
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
+//   - 2026-09-21 23:53: what the thread runs is its first step, not a field of
+//     its own
 func (r *_Reading) _Thread(id string, entry *workflowpb.Call, def *syntax.DefStmt) {
 	if r._Reading(def.Name.Name) {
 		r._Gave(def.Name.Name, "calls itself through a spawn")
@@ -44,12 +46,16 @@ func (r *_Reading) _Thread(id string, entry *workflowpb.Call, def *syntax.DefStm
 	r.chain = append(r.chain, def.Name.Name)
 	defer func() { r.chain = r.chain[:len(r.chain)-1] }()
 
-	thread := &workflowpb.Thread{Id: id, Entry: entry}
+	thread := new(workflowpb.Thread)
+	thread.Id = id
+
 	r.threads = append(r.threads, thread)
 
 	lane := &_Lane{id: id, bound: make(map[string]string)}
 
-	var steps []*workflowpb.Step
+	// The first step is what this thread runs. Everything read below is that
+	// function's own body, and follows it.
+	steps := []*workflowpb.Step{{Action: &workflowpb.Step_Call{Call: entry}}}
 
 	whole := true
 
@@ -72,11 +78,12 @@ func (r *_Reading) _Thread(id string, entry *workflowpb.Call, def *syntax.DefStm
 	}
 
 	// Steps or a body, never both. A thread that did not model its function
-	// keeps its entry and drops its steps, and the emitter's rule - a thread
-	// generates a body only when it has steps - then carries the authored text
-	// instead. Threads its body spawned are kept either way: they exist.
+	// keeps its first step and drops the rest, and the emitter's rule - a
+	// thread generates a body only when it has more than the one - then
+	// carries the authored text instead. Threads its body spawned are kept
+	// either way: they exist.
 	if !whole {
-		steps = nil
+		steps = steps[:FIRST_STEP]
 	}
 
 	thread.State = &workflowpb.Thread_Static{Static: &workflowpb.Static{Steps: steps}}
@@ -325,8 +332,8 @@ func (r *_Reading) _Matched(body []syntax.Stmt, idx int) *workflowpb.Step {
 // _Fork is a spawn, bound to the handle its thread's id names.
 //
 // A fork names a thread, not a function. What runs there is that thread's own
-// entry, which is also where a site's arguments live - so rendering one is two
-// lookups and the second is the one that matters.
+// first step, which is also where a site's arguments live - so rendering one is
+// two lookups and the second is the one that matters.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
@@ -336,7 +343,7 @@ func (g *_Gen) _Fork(fork *workflowpb.Fork) (string, error) {
 		return "", err
 	}
 
-	site, err := g._Site(thread.GetEntry())
+	site, err := g._Site(_First(thread))
 	if err != nil {
 		return "", err
 	}
@@ -376,7 +383,7 @@ func (g *_Gen) _Named(id string) (*workflowpb.Thread, error) {
 			continue
 		}
 
-		if thread.GetEntry() == nil {
+		if _First(thread) == nil {
 			return nil, fmt.Errorf("%s: %w", id, ErrNoEntry)
 		}
 

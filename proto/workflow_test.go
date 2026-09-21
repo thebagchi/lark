@@ -24,11 +24,12 @@ const (
 	// TODAY is a name-only graph as measured before this phase.
 	TODAY = `{"functions":[{"name":"first"},{"name":"second"},{"name":"main"}],` +
 		`"threads":[{"id":"thread_0","static":{"steps":[` +
+		`{"call":{"function":"main"}},` +
 		`{"fork":{"thread":"thread_1"}},` +
 		`{"fork":{"thread":"thread_2"}},` +
 		`{"join":{"threads":["thread_1","thread_2"]}}]}},` +
-		`{"id":"thread_1","entry":{"function":"first"},"static":{}},` +
-		`{"id":"thread_2","entry":{"function":"second"},"static":{}}]}`
+		`{"id":"thread_1","static":{"steps":[{"call":{"function":"first"}}]}},` +
+		`{"id":"thread_2","static":{"steps":[{"call":{"function":"second"}}]}}]}`
 )
 
 // TestFunction_CarriesBodyAndParams is the draft a UI sends: a chatbot
@@ -136,12 +137,12 @@ func TestGraph_NameOnlyStillDecodes(t *testing.T) {
 		}
 	}
 
-	spine := graph.GetThreads()[0]
-	if spine.GetEntry() != nil {
-		t.Fatalf("want the spine to name no entry, got %s", spine.GetEntry().GetFunction())
+	spine := graph.GetThreads()[0].GetStatic().GetSteps()
+	if spine[0].GetCall().GetFunction() != "main" {
+		t.Fatalf("want the spine to run main in its first step, got %v", spine[0])
 	}
 
-	call := graph.GetThreads()[1].GetEntry()
+	call := graph.GetThreads()[1].GetStatic().GetSteps()[0].GetCall()
 	if call.GetFunction() != "first" {
 		t.Fatalf("want thread_1 to run first, got %s", call.GetFunction())
 	}
@@ -158,13 +159,16 @@ func TestGraph_NameOnlyStillDecodes(t *testing.T) {
 //   - 2026-09-20 18:40: initial creation, as TestGraphThread_HasNoIndex
 //   - 2026-09-21 00:59: a thread carries an id, reversing .doc/workflow.md
 //     §9, because a hierarchical id states parentage and a slot cannot
+//   - 2026-09-21 23:53: the first step is what the thread runs, so the fork
+//     it makes is the one after
 func TestThread_NamesItsParent(t *testing.T) {
 	graph := new(workflowpb.Graph)
 	if err := protojson.Unmarshal([]byte(TODAY), graph); err != nil {
 		t.Fatal(err)
 	}
 
-	named := graph.GetThreads()[0].GetStatic().GetSteps()[0].GetFork().GetThread()
+	// Past the first, which is what the spine itself runs.
+	named := graph.GetThreads()[0].GetStatic().GetSteps()[1].GetFork().GetThread()
 	if named != "thread_1" {
 		t.Fatalf("want the spawn to name thread_1, got %s", named)
 	}

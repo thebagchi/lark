@@ -3,9 +3,10 @@
 # that generator's output, pasted unedited - a test reads the graph back out of
 # this comment, generates from it, and fails if the two ever disagree.
 #
-# The spine carries no entry. What runs there is the artifact's entry point,
-# which the runtime fixes and the graph does not restate; every other thread
-# names what runs on it.
+# Every thread says what it runs in its first step, the spine included: its
+# first step calls main, and the steps after it are main's own body. A thread
+# with only that one step is a fork pointing at a leaf, and the leaf keeps its
+# text.
 #
 # Read the JSON as two halves. functions is the code: a name, its parameters,
 # and a body of statements. threads is the workflow: what runs, on which
@@ -42,7 +43,7 @@
 #
 #   h1, h2               a spawn names a thread by id, and the handle is that
 #                        id with its prefix swapped - thread_1 is h1. What runs
-#                        there is that thread's own entry.
+#                        there is that thread's own first step.
 #
 #   repeat(3, tick)      the count comes first and the callable last. It calls
 #                        straight away: the wrappers are not factories.
@@ -91,7 +92,7 @@
 #         "name": "tick"
 #       },
 #       {
-#         "body": "assert(n() >= 2, \"not ready on attempt \" + str(n()))\n\nreturn \"ready\"",
+#         "body": "assert(n() \u003e= 2, \"not ready on attempt \" + str(n()))\n\nreturn \"ready\"",
 #         "name": "flaky"
 #       },
 #       {
@@ -139,6 +140,11 @@
 #         "id": "thread_0",
 #         "static": {
 #           "steps": [
+#             {
+#               "call": {
+#                 "function": "main"
+#               }
+#             },
 #             {
 #               "fork": {
 #                 "thread": "thread_1"
@@ -254,24 +260,34 @@
 #         }
 #       },
 #       {
-#         "entry": {
-#           "args": [
-#             "alice"
-#           ],
-#           "function": "greet"
-#         },
 #         "id": "thread_1",
-#         "static": {}
+#         "static": {
+#           "steps": [
+#             {
+#               "call": {
+#                 "args": [
+#                   "alice"
+#                 ],
+#                 "function": "greet"
+#               }
+#             }
+#           ]
+#         }
 #       },
 #       {
-#         "entry": {
-#           "args": [
-#             "bob"
-#           ],
-#           "function": "greet"
-#         },
 #         "id": "thread_2",
-#         "static": {}
+#         "static": {
+#           "steps": [
+#             {
+#               "call": {
+#                 "args": [
+#                   "bob"
+#                 ],
+#                 "function": "greet"
+#               }
+#             }
+#           ]
+#         }
 #       }
 #     ]
 #   }

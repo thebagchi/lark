@@ -45,10 +45,14 @@ func CONCURRENT() *workflowpb.Graph {
 //   - 2026-09-20 21:04: initial creation
 //   - 2026-09-21 00:59: carries no head Call, since the entry point is the
 //     runtime's to name
+//   - 2026-09-21 23:53: reversed: it names the entry point in its first step,
+//     as every thread names what it runs
 func _Spine(steps ...*workflowpb.Step) *workflowpb.Thread {
 	return &workflowpb.Thread{
-		Id:    "thread_0",
-		State: &workflowpb.Thread_Static{Static: &workflowpb.Static{Steps: steps}},
+		Id: "thread_0",
+		State: &workflowpb.Thread_Static{Static: &workflowpb.Static{
+			Steps: append([]*workflowpb.Step{_CallOf(graph.ENTRY)}, steps...),
+		}},
 	}
 }
 
@@ -57,11 +61,13 @@ func _Spine(steps ...*workflowpb.Step) *workflowpb.Thread {
 // Revisions:
 //   - 2026-09-20 21:04: initial creation
 //   - 2026-09-21 00:59: names its function through its entry, under its own id
+//   - 2026-09-21 23:53: names it in its first step
 func _Lane(id string, name string, args ...*structpb.Value) *workflowpb.Thread {
 	return &workflowpb.Thread{
-		Id:    id,
-		Entry: &workflowpb.Call{Function: name, Args: args},
-		State: &workflowpb.Thread_Static{Static: new(workflowpb.Static)},
+		Id: id,
+		State: &workflowpb.Thread_Static{Static: &workflowpb.Static{
+			Steps: []*workflowpb.Step{_CallOf(name, args...)},
+		}},
 	}
 }
 

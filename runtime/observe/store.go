@@ -56,6 +56,53 @@ func WithGraph(graph *workflowpb.Graph) Option {
 	}
 }
 
+// Pending is a graph as a workflow that has not started: every thread it
+// declares, every function it names, all waiting.
+//
+// What a user interface draws before anything runs, from the graph a bundle
+// carries. It is the same seeding a run does for the functions it has not
+// reached yet, which is why it lives here and not beside the graph: a status
+// is this package's word, and a graph carries none.
+//
+// A nil graph is an empty workflow rather than a refusal, as it is for
+// WithGraph: a bundle whose script a graph could not carry has none, and a
+// reader of one should get an empty drawing rather than an error.
+//
+// Revisions:
+//   - 2026-09-21 17:19: initial creation
+func Pending(graph *workflowpb.Graph) *workflowpb.Workflow {
+	into := _NewRecorder()
+
+	into._Seed(graph)
+
+	return &workflowpb.Workflow{
+		Status:  workflowpb.Status_STATUS_PENDING,
+		Threads: into._Threads(),
+	}
+}
+
+// WithLogs gives every run started with it a file of its own, under dir.
+//
+// A run's file is its id with .log on the end, so a host that named the
+// directory and holds the id knows the path without being told it: dir, the
+// id, ".log". That is why a snapshot carries no field for it.
+//
+// The directory is made if it is not there. A run whose file cannot be opened
+// fails, before its script is evaluated, rather than running with its output
+// going nowhere a caller asked for.
+//
+// The sweep forgets a run after the ttl; it does not delete the file. A
+// transcript that vanished with the run it describes would be no use the next
+// morning, which is what the ttl is sized for.
+//
+// Revisions:
+//   - 2026-09-21 16:42: initial creation
+func WithLogs(dir string) Option {
+	return func(into *_Recorder) {
+		into.dir = dir
+	}
+}
+
 // WithPrinter tells a run where what its script prints goes.
 //
 // Without it a line goes to standard error, which is where the interpreter's
@@ -123,6 +170,8 @@ func New() *Store {
 //     recorder where the scheduler will find it
 //   - 2026-09-20 11:56: guards the goroutine, so a panic before the script is
 //     reached fails the run instead of the process
+//   - 2026-09-21 16:42: the goroutine's body is _Perform, which opens and
+//     closes the run's own file around the evaluation
 func (s *Store) Start(
 	ctx context.Context,
 	art *artifact.Artifact,
@@ -153,23 +202,49 @@ func (s *Store) Start(
 		defer close(entry.done)
 		defer stop()
 
-		// Guarded, because this is a goroutine of ours and a panic on it cannot
-		// be recovered from outside - it would take the host down rather than
-		// fail the run. Invoke guards the script's own evaluation; this guards
-		// everything before it gets there, which is where an artifact that is
-		// not one lands.
-		guard.WithRecover(
-			&entry.value,
-			&entry.err,
-			func() (starlark.Value, error) {
-				return art.Run(inner)
-			},
-		)
-
-		entry.ended = time.Now()
+		_Perform(inner, entry, art)
 	}()
 
 	return entry.id
+}
+
+// _Perform evaluates art with the run's own file open around it, and records
+// how it ended.
+//
+// Guarded, because this is a goroutine of ours and a panic on it cannot be
+// recovered from outside - it would take the host down rather than fail the
+// run. Invoke guards the script's own evaluation; this guards everything
+// before it gets there, which is where an artifact that is not one lands.
+//
+// Revisions:
+//   - 2026-09-21 16:42: initial creation, lifting the goroutine's body so the
+//     run's file has somewhere to be opened and closed
+func _Perform(ctx context.Context, entry *_Entry, art *artifact.Artifact) {
+	defer func() {
+		entry.ended = time.Now()
+	}()
+
+	err := entry.into._Open(entry.id)
+	if err != nil {
+		entry.err = err
+
+		return
+	}
+
+	guard.WithRecover(
+		&entry.value,
+		&entry.err,
+		func() (starlark.Value, error) {
+			return art.Run(ctx)
+		},
+	)
+
+	// After the evaluation, which waited for every thread it started, so
+	// nothing is still printing.
+	closing := entry.into._Close()
+	if entry.err == nil {
+		entry.err = closing
+	}
 }
 
 // Status returns how the run with this id is doing.

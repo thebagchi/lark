@@ -9,9 +9,9 @@ import (
 )
 
 var (
-	// ErrNoEntry is returned for a spawned thread carrying no entry. Such a
-	// thread names no function, so nothing can be generated for it and a spawn
-	// of it says nothing. Only the spine may omit one.
+	// ErrNoEntry is returned for a thread with no steps. A thread says what it
+	// runs in its first step, so one with none names no function: nothing can
+	// be generated for it and a spawn of it says nothing.
 	ErrNoEntry = errors.New("thread names no function")
 
 	// ErrNoThread is returned for a builtin naming a thread the graph does not
@@ -47,12 +47,16 @@ const (
 	CANCEL = "cancel"
 	LAMBDA = "lambda: "
 
-	// ENTRY is the function the spine runs. A thread with no entry is the
-	// spine, and what runs there is the artifact's entry point rather than
-	// anything the graph says - so this must stay equal to artifact.ENTRY,
+	// ENTRY is the function the spine runs, which it carries as its first
+	// step like any other thread. This must stay equal to artifact.ENTRY,
 	// which a test asserts. It is repeated rather than imported because
 	// generating a script should not depend on compiling one.
 	ENTRY = "main"
+
+	// FIRST_STEP is where a thread says what it runs, and BODY_FROM where the
+	// steps of that function begin.
+	FIRST_STEP = 1
+	BODY_FROM  = 1
 
 	// TRUE and FALSE are how Starlark spells a boolean, and NONE its absence.
 	TRUE  = "True"
@@ -81,10 +85,12 @@ const (
 //     only names a leaf leaves that leaf's body alone
 //   - 2026-09-21 00:59: the entry is a field rather than the first step, so any
 //     step at all is a body this generates
+//   - 2026-09-21 23:53: reversed: the first step is what the thread runs, so a
+//     body is what follows it
 func (g *_Gen) Runs(fn *workflowpb.Function) bool {
 	thread := g._Thread(fn.GetName())
 
-	return thread != nil && len(thread.GetStatic().GetSteps()) > 0
+	return thread != nil && len(thread.GetStatic().GetSteps()) > FIRST_STEP
 }
 
 // Steps is the body generated from the thread that runs this function,
@@ -94,6 +100,8 @@ func (g *_Gen) Runs(fn *workflowpb.Function) bool {
 //   - 2026-09-20 21:02: initial creation
 //   - 2026-09-21 00:59: generates from every step, since the entry is no longer
 //     one of them
+//   - 2026-09-21 23:53: reversed: generates from the steps past the first,
+//     which is the thread's own call
 func (g *_Gen) Steps(fn *workflowpb.Function) (string, error) {
 	thread := g._Thread(fn.GetName())
 	if thread == nil {
@@ -102,7 +110,7 @@ func (g *_Gen) Steps(fn *workflowpb.Function) (string, error) {
 
 	var lines []string
 
-	for _, step := range thread.GetStatic().GetSteps() {
+	for _, step := range thread.GetStatic().GetSteps()[BODY_FROM:] {
 		written, err := g._Lines(step)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", fn.GetName(), err)
@@ -121,6 +129,7 @@ func (g *_Gen) Steps(fn *workflowpb.Function) (string, error) {
 // Revisions:
 //   - 2026-09-20 21:02: initial creation
 //   - 2026-09-21 00:59: matches a thread's entry rather than its first step
+//   - 2026-09-21 23:53: reversed: matches its first step again
 func (g *_Gen) _Thread(name string) *workflowpb.Thread {
 	for _, thread := range g.graph.GetThreads() {
 		if _Runs(thread) == name {
@@ -131,20 +140,30 @@ func (g *_Gen) _Thread(name string) *workflowpb.Thread {
 	return nil
 }
 
-// _Runs is the name of the function a thread runs.
+// _Runs is the name of the function a thread runs, which is what its first
+// step calls.
 //
-// A thread with no entry is the spine, and what runs there is the entry point.
-// Saying so here rather than at each caller is what keeps the spine from being
-// a special case anywhere else.
+// The spine is no special case: it carries the entry point as its first step
+// like any other thread carries what it was spawned with.
 //
 // Revisions:
 //   - 2026-09-21 00:59: initial creation
+//   - 2026-09-21 23:53: reads the first step rather than a field
 func _Runs(thread *workflowpb.Thread) string {
-	if thread.GetEntry() == nil {
-		return ENTRY
+	return _First(thread).GetFunction()
+}
+
+// _First is the call a thread's first step makes, or nil when it has none.
+//
+// Revisions:
+//   - 2026-09-21 23:53: initial creation
+func _First(thread *workflowpb.Thread) *workflowpb.Call {
+	steps := thread.GetStatic().GetSteps()
+	if len(steps) == 0 {
+		return nil
 	}
 
-	return thread.GetEntry().GetFunction()
+	return steps[0].GetCall()
 }
 
 // _Lines is one step as the statements a script would write, relative to the

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package artifact;
 
+import "workflow.proto";
+
 option go_package = "github.com/thebagchi/lark/proto/gen/artifact;artifact";
 
 // Unit is one compiled file: the name the artifact files it under, the
@@ -17,14 +19,30 @@ option go_package = "github.com/thebagchi/lark/proto/gen/artifact;artifact";
 // restored from here has none, and the entry-point rule cannot be applied a
 // second time.
 message Unit {
-  string name              = 1;
-  bytes code               = 2;
+  string name               = 1;
+  bytes code                = 2;
   map<string, string> loads = 3;
 }
 
-// Artifact is a script and every module it loads, compiled together. entry
-// names the unit a run starts in; units holds every unit, dependencies first.
+// Artifact is a script and every module it loads, compiled together, and the
+// graph a user interface draws it as. entry names the unit a run starts in;
+// units holds every unit, dependencies first.
+//
+// graph carries no function bodies. The code is already here, compiled, and a
+// body beside it would be the same program twice in two languages - which is
+// also why nothing regenerates a script from a bundle: it has one. What the
+// graph is for is display, so it holds the threads, the steps and the names.
+//
+// It carries no status either, because a graph describes what will happen. A
+// reader wanting the shape as a workflow that has not started renders one from
+// this, which is the same seeding a run does for the functions it has not
+// reached yet.
+//
+// A bundle either has a graph or has none. Nothing here explains a missing
+// one: a script that compiles may be one no graph can describe, and the
+// program in units runs either way.
 message Artifact {
-  string entry        = 1;
-  repeated Unit units = 2;
+  string entry         = 1;
+  repeated Unit units  = 2;
+  workflow.Graph graph = 3;
 }

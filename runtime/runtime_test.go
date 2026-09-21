@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/runtime"
 )
 
@@ -132,18 +133,51 @@ func TestHost_CanInvokeAnyTopLevelFunction(t *testing.T) {
 	}
 }
 
-// TestHost_CanSaveAnArtifact proves the bytes a container format needs are
-// reachable from here too.
+// TestHost_CanSaveAnArtifact proves the bundle a container format needs is
+// reachable from here too, and that it carries the graph a user interface
+// draws.
 //
 // Revisions:
 //   - 2026-09-19 23:37: initial creation
+//   - 2026-09-21 17:19: one bundle, carrying a graph
 func TestHost_CanSaveAnArtifact(t *testing.T) {
-	saved, err := _Compiled(t, HOST_FIXTURE).Save()
+	built := _Compiled(t, HOST_FIXTURE)
+
+	saved, err := built.Save()
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
 
-	if len(saved) != 2 {
-		t.Fatalf("saved %d units, want 2", len(saved))
+	if len(saved) == 0 {
+		t.Fatal("want a bundle")
+	}
+
+	if built.Graph() == nil {
+		t.Fatal("want the graph a bundle carries")
+	}
+}
+
+// TestHost_CanDrawABundleBeforeItRuns is what the graph in a bundle is for: a
+// user interface renders it as a workflow where nothing has happened yet.
+//
+// Revisions:
+//   - 2026-09-21 17:19: initial creation
+func TestHost_CanDrawABundleBeforeItRuns(t *testing.T) {
+	snap := runtime.Pending(_Compiled(t, HOST_FIXTURE).Graph())
+
+	if snap.GetStatus() != workflowpb.Status_STATUS_PENDING {
+		t.Fatalf("want a workflow that has not started, got %v", snap.GetStatus())
+	}
+
+	if len(snap.GetThreads()) == 0 {
+		t.Fatal("want the threads a user interface draws")
+	}
+
+	for _, lane := range snap.GetThreads() {
+		for _, node := range lane.GetLive().GetNodes() {
+			if node.GetStatus() != workflowpb.Status_STATUS_PENDING {
+				t.Fatalf("%s is %v, want pending", node.GetFunction(), node.GetStatus())
+			}
+		}
 	}
 }

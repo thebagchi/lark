@@ -35,8 +35,12 @@ func Names(graph *workflowpb.Graph) []string {
 // name, which Names never sees. A nil graph, or one with no functions,
 // has no duplicates.
 //
+// Check calls this, so a host validating a whole graph asks once. This stays
+// exported for one checking a single edit as a user makes it.
+//
 // Revisions:
 //   - 2026-09-20 19:20: initial creation
+//   - 2026-09-21 16:25: says that Check covers it
 func Distinct(graph *workflowpb.Graph) error {
 	seen := make(map[string]bool, len(graph.GetFunctions()))
 

@@ -169,6 +169,15 @@ message Function {
 
 // Static is a thread as it was authored: what it will do, and nothing
 // about what happened.
+//
+// The first step is what the thread itself runs, and the rest are that
+// function's own body. A thread with one step is a fork pointing at a
+// leaf, whose body is carried as the function's text; a thread with more
+// describes what that function does.
+//
+// That is why nothing names a thread's function in a field of its own.
+// A fork names a thread, a thread's first step names a function, and one
+// of those two indirections would otherwise say the same thing twice.
 message Static {
   repeated Step steps = 1;
 }
@@ -197,14 +206,11 @@ message Live {
 // numbers in the order spawns happen, and those disagree whenever a
 // spawned function spawns before its siblings start.
 //
-// entry is what runs on the thread, and sits outside the oneof because
-// it is true whether or not the thread has run. An unset entry is the
-// spine, and what runs there is the artifact's entry point, which the
-// runtime already fixes - a graph does not restate it. Every other
-// thread has one, since a spawn always names something.
+// What a thread runs is its first step, not a field: see Static. The
+// spine is the thread whose id is thread_0, and its first step is the
+// artifact's entry point like any other.
 message Thread {
-  string id  = 1;
-  Call entry = 2;
+  string id = 1;
 
   oneof state {
     Static static = 3;

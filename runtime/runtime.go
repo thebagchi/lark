@@ -39,6 +39,7 @@ type (
 	Plugin         = plugin.Plugin
 	Registry       = plugin.Registry
 	Store          = observe.Store
+	Log            = observe.Log
 	Workflow       = workflowpb.Workflow
 	Graph          = workflowpb.Graph
 )
@@ -84,8 +85,14 @@ var (
 // is a default, not the only way in.
 var STORE = observe.New()
 
-// ENTRY is the one top-level function a script a host runs must define.
-const ENTRY = artifact.ENTRY
+const (
+	// ENTRY is the one top-level function a script a host runs must define.
+	ENTRY = artifact.ENTRY
+
+	// LOG_SUFFIX is what a run's own file is called after the run or the
+	// script it belongs to.
+	LOG_SUFFIX = observe.SUFFIX
+)
 
 // NewCompiler returns a Compiler configured by opts.
 //
@@ -105,6 +112,27 @@ func NewCompiler(opts ...CompilerOption) *Compiler {
 //   - 2026-09-19 23:29: initial creation
 func WithLoader(loader Loader) CompilerOption {
 	return artifact.WithLoader(loader)
+}
+
+// WithAuthored makes a Compiler carry graph rather than deriving one, for the
+// case where the graph came first and the script was generated from it.
+//
+// Not WithGraph, which tells a run what its script could do. This says what a
+// bundle carries.
+//
+// Revisions:
+//   - 2026-09-21 17:19: initial creation
+func WithAuthored(graph *Graph) CompilerOption {
+	return artifact.WithAuthored(graph)
+}
+
+// Pending is a graph as a workflow that has not started, which is what a user
+// interface draws from a bundle before anything runs.
+//
+// Revisions:
+//   - 2026-09-21 17:19: initial creation
+func Pending(graph *Graph) *Workflow {
+	return observe.Pending(graph)
 }
 
 // WithPlugins makes a Compiler give its scripts the names in registry rather
@@ -190,6 +218,27 @@ func WithReporter(ctx context.Context, into Reporter) context.Context {
 //     thing
 func WithPrinter(ctx context.Context, print func(string)) context.Context {
 	return scheduler.WithPrinter(ctx, print)
+}
+
+// WithLogs gives every run started through this package's store a file of its
+// own under dir, named for the run's id with .log on the end.
+//
+// Revisions:
+//   - 2026-09-21 16:42: initial creation
+func WithLogs(dir string) observe.Option {
+	return observe.WithLogs(dir)
+}
+
+// NewLog opens a file for one run's printed output, for a host that names its
+// own rather than starting runs through a store.
+//
+// It is a Reporter that hears only the printing, so a host wanting the lines
+// somewhere else as well writes a reporter of its own holding one of these.
+//
+// Revisions:
+//   - 2026-09-21 16:42: initial creation
+func NewLog(path string) (*Log, error) {
+	return observe.NewLog(path)
 }
 
 // Status returns how the run with this id is doing, and forgets it if that

@@ -64,10 +64,13 @@ func _Sample(t *testing.T, name string) *graph.Report {
 //
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
+//   - 2026-09-21 23:53: skips the first, which names the entry point
 func _Spun(report *graph.Report) []string {
 	var names []string
 
-	for _, step := range report.Graph.GetThreads()[0].GetStatic().GetSteps() {
+	// Past the first, which is what the spine itself runs rather than
+	// something it does.
+	for _, step := range report.Graph.GetThreads()[0].GetStatic().GetSteps()[graph.BODY_FROM:] {
 		names = append(names, _Kind(step))
 	}
 
@@ -220,7 +223,7 @@ func TestOf_ReadsOnlyACallThroughABareName(t *testing.T) {
 func TestOf_ASleepIsMilliseconds(t *testing.T) {
 	report := _Derived(t, "def main():\n    sleep(0.05)\n")
 
-	steps := report.Graph.GetThreads()[0].GetStatic().GetSteps()
+	steps := report.Graph.GetThreads()[0].GetStatic().GetSteps()[graph.BODY_FROM:]
 	if len(steps) != 1 {
 		t.Fatalf("want one step, got %d", len(steps))
 	}
@@ -257,17 +260,22 @@ func TestOf_AnUnrecognisedCallIsNotAStep(t *testing.T) {
 	}
 }
 
-// TestOf_TheSpineNamesNoEntry records that what runs on the spine is the
-// runtime's entry point rather than anything the graph restates.
+// TestOf_TheSpineNamesTheEntryPoint records that the spine says what it runs
+// the way every thread does, in its first step.
 //
 // Revisions:
-//   - 2026-09-21 01:17: initial creation
-func TestOf_TheSpineNamesNoEntry(t *testing.T) {
+//   - 2026-09-21 01:17: initial creation, as TestOf_TheSpineNamesNoEntry
+//   - 2026-09-21 23:53: reversed: the entry point is the spine's first step
+func TestOf_TheSpineNamesTheEntryPoint(t *testing.T) {
 	report := _Sample(t, "hello.star")
 
-	spine := report.Graph.GetThreads()[0]
-	if spine.GetEntry() != nil {
-		t.Fatalf("want no entry on the spine, got %v", spine.GetEntry())
+	steps := report.Graph.GetThreads()[0].GetStatic().GetSteps()
+	if len(steps) == 0 {
+		t.Fatal("want the spine to say what it runs")
+	}
+
+	if steps[0].GetCall().GetFunction() != graph.ENTRY {
+		t.Fatalf("want %s first, got %v", graph.ENTRY, steps[0])
 	}
 }
 
@@ -483,7 +491,7 @@ func TestOf_AStringJoinIsNotThisJoin(t *testing.T) {
 func TestOf_ASpawnedLambdaIsItsCallWithArguments(t *testing.T) {
 	report := _Sample(t, "graph.star")
 
-	entry := report.Graph.GetThreads()[1].GetEntry()
+	entry := report.Graph.GetThreads()[1].GetStatic().GetSteps()[0].GetCall()
 	if entry.GetFunction() != "greet" {
 		t.Fatalf("want thread_1 to run greet, got %v", entry)
 	}

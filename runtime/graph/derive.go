@@ -176,10 +176,12 @@ func (r *_Reading) _Held(expr syntax.Expr) (*workflowpb.Constant, error) {
 //
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
+//   - 2026-09-21 23:53: the spine names the entry point in its first step, as
+//     every thread names what it runs
 func (r *_Reading) _Report() *Report {
 	graph := new(workflowpb.Graph)
 
-	r._Thread(SPINE, nil, r.defs[ENTRY])
+	r._Thread(SPINE, &workflowpb.Call{Function: ENTRY}, r.defs[ENTRY])
 
 	graph.Threads = r.threads
 
@@ -471,18 +473,24 @@ func (r *_Reading) _Function(def *syntax.DefStmt) *workflowpb.Function {
 	return fn
 }
 
-// _Generated reports whether a thread carries steps for this function, which
-// is the emitter's own rule for whose body it writes.
+// _Generated reports whether a thread carries steps for this function past
+// the one that names it, which is the emitter's own rule for whose body it
+// writes.
+//
+// Past the one that names it, because every thread has that: a thread with
+// only its first step is a fork pointing at a leaf, and a leaf keeps its text.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 23:53: counts the steps past the first, since the first is
+//     what the thread runs
 func (r *_Reading) _Generated(name string) bool {
 	for _, thread := range r.threads {
 		if _Runs(thread) != name {
 			continue
 		}
 
-		if len(thread.GetStatic().GetSteps()) > 0 {
+		if len(thread.GetStatic().GetSteps()) > FIRST_STEP {
 			return true
 		}
 	}

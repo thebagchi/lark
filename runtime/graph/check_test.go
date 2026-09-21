@@ -13,10 +13,13 @@ import (
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 23:53: the spine names the entry point in its first step
 func _Authored(spine []*workflowpb.Step, rest ...*workflowpb.Thread) *workflowpb.Graph {
+	steps := append([]*workflowpb.Step{_CallOf(graph.ENTRY)}, spine...)
+
 	threads := []*workflowpb.Thread{{
 		Id:    graph.SPINE,
-		State: &workflowpb.Thread_Static{Static: &workflowpb.Static{Steps: spine}},
+		State: &workflowpb.Thread_Static{Static: &workflowpb.Static{Steps: steps}},
 	}}
 
 	return &workflowpb.Graph{Threads: append(threads, rest...)}
@@ -26,11 +29,13 @@ func _Authored(spine []*workflowpb.Step, rest ...*workflowpb.Thread) *workflowpb
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 23:53: says what it runs in its first step
 func _Runs(id string, name string) *workflowpb.Thread {
 	return &workflowpb.Thread{
-		Id:    id,
-		Entry: &workflowpb.Call{Function: name},
-		State: &workflowpb.Thread_Static{Static: new(workflowpb.Static)},
+		Id: id,
+		State: &workflowpb.Thread_Static{
+			Static: &workflowpb.Static{Steps: []*workflowpb.Step{_CallOf(name)}},
+		},
 	}
 }
 
@@ -49,6 +54,25 @@ func TestCheck_AcceptsWhatDerivationProduces(t *testing.T) {
 	}
 }
 
+// TestCheck_RefusesTwoFunctionsOfOneName is the check that used to be reachable
+// only by calling Distinct as well, which nothing said to do.
+//
+// Revisions:
+//   - 2026-09-21 16:25: initial creation
+func TestCheck_RefusesTwoFunctionsOfOneName(t *testing.T) {
+	built := _Authored(nil)
+	built.Functions = []*workflowpb.Function{{Name: GREET}, {Name: GREET}}
+
+	err := graph.Check(built)
+	if !errors.Is(err, graph.ErrDuplicate) {
+		t.Fatalf("want ErrDuplicate, got %v", err)
+	}
+
+	if !strings.Contains(err.Error(), GREET) {
+		t.Fatalf("want the name in the refusal, got %v", err)
+	}
+}
+
 // TestCheck_RefusesProgressInAGraph is what the oneof buys: a graph cannot
 // carry what a run did.
 //
@@ -63,19 +87,34 @@ func TestCheck_RefusesProgressInAGraph(t *testing.T) {
 	}
 }
 
-// TestCheck_RefusesTwoEntryPoints records that an unset entry means the
-// artifact's entry point, and there is one of those.
+// TestCheck_RefusesTwoEntryPoints records that the spine is the thread whose
+// id says so, and there is one of those.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 23:53: two threads claiming the spine's id, since an entry is
+//     no longer a field to omit
 func TestCheck_RefusesTwoEntryPoints(t *testing.T) {
+	built := _Authored(nil, _Runs(graph.SPINE, graph.ENTRY))
+
+	if err := graph.Check(built); !errors.Is(err, graph.ErrTwoSpines) {
+		t.Fatalf("want ErrTwoSpines, got %v", err)
+	}
+}
+
+// TestCheck_RefusesAThreadThatNamesNothing is what a thread with no steps is:
+// one that does not say what it runs, so nothing can be generated for it.
+//
+// Revisions:
+//   - 2026-09-21 23:53: initial creation
+func TestCheck_RefusesAThreadThatNamesNothing(t *testing.T) {
 	built := _Authored(nil, &workflowpb.Thread{
 		Id:    "thread_1",
 		State: &workflowpb.Thread_Static{Static: new(workflowpb.Static)},
 	})
 
-	if err := graph.Check(built); !errors.Is(err, graph.ErrTwoSpines) {
-		t.Fatalf("want ErrTwoSpines, got %v", err)
+	if err := graph.Check(built); !errors.Is(err, graph.ErrNoEntry) {
+		t.Fatalf("want ErrNoEntry, got %v", err)
 	}
 }
 
@@ -92,7 +131,7 @@ func TestCheck_RefusesTwoEntryPoints(t *testing.T) {
 func TestCheck_RefusesAnIdThatDoesNotNameItsParent(t *testing.T) {
 	deep := _Runs("thread_1", "alpha")
 	deep.State = &workflowpb.Thread_Static{Static: &workflowpb.Static{
-		Steps: []*workflowpb.Step{_Fork("thread_9_4")},
+		Steps: []*workflowpb.Step{_CallOf("alpha"), _Fork("thread_9_4")},
 	}}
 
 	built := _Authored([]*workflowpb.Step{_Fork("thread_1")}, deep, _Runs("thread_9_4", "deep"))

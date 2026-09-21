@@ -7,6 +7,7 @@
 package artifact
 
 import (
+	workflow "github.com/thebagchi/lark/proto/gen/workflow"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -93,12 +94,28 @@ func (x *Unit) GetLoads() map[string]string {
 	return nil
 }
 
-// Artifact is a script and every module it loads, compiled together. entry
-// names the unit a run starts in; units holds every unit, dependencies first.
+// Artifact is a script and every module it loads, compiled together, and the
+// graph a user interface draws it as. entry names the unit a run starts in;
+// units holds every unit, dependencies first.
+//
+// graph carries no function bodies. The code is already here, compiled, and a
+// body beside it would be the same program twice in two languages - which is
+// also why nothing regenerates a script from a bundle: it has one. What the
+// graph is for is display, so it holds the threads, the steps and the names.
+//
+// It carries no status either, because a graph describes what will happen. A
+// reader wanting the shape as a workflow that has not started renders one from
+// this, which is the same seeding a run does for the functions it has not
+// reached yet.
+//
+// A bundle either has a graph or has none. Nothing here explains a missing
+// one: a script that compiles may be one no graph can describe, and the
+// program in units runs either way.
 type Artifact struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Entry         string                 `protobuf:"bytes,1,opt,name=entry,proto3" json:"entry,omitempty"`
 	Units         []*Unit                `protobuf:"bytes,2,rep,name=units,proto3" json:"units,omitempty"`
+	Graph         *workflow.Graph        `protobuf:"bytes,3,opt,name=graph,proto3" json:"graph,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -147,11 +164,18 @@ func (x *Artifact) GetUnits() []*Unit {
 	return nil
 }
 
+func (x *Artifact) GetGraph() *workflow.Graph {
+	if x != nil {
+		return x.Graph
+	}
+	return nil
+}
+
 var File_artifact_proto protoreflect.FileDescriptor
 
 const file_artifact_proto_rawDesc = "" +
 	"\n" +
-	"\x0eartifact.proto\x12\bartifact\"\x99\x01\n" +
+	"\x0eartifact.proto\x12\bartifact\x1a\x0eworkflow.proto\"\x99\x01\n" +
 	"\x04Unit\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\fR\x04code\x12/\n" +
@@ -159,10 +183,11 @@ const file_artifact_proto_rawDesc = "" +
 	"\n" +
 	"LoadsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"F\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"m\n" +
 	"\bArtifact\x12\x14\n" +
 	"\x05entry\x18\x01 \x01(\tR\x05entry\x12$\n" +
-	"\x05units\x18\x02 \x03(\v2\x0e.artifact.UnitR\x05unitsB7Z5github.com/thebagchi/lark/proto/gen/artifact;artifactb\x06proto3"
+	"\x05units\x18\x02 \x03(\v2\x0e.artifact.UnitR\x05units\x12%\n" +
+	"\x05graph\x18\x03 \x01(\v2\x0f.workflow.GraphR\x05graphB7Z5github.com/thebagchi/lark/proto/gen/artifact;artifactb\x06proto3"
 
 var (
 	file_artifact_proto_rawDescOnce sync.Once
@@ -178,18 +203,20 @@ func file_artifact_proto_rawDescGZIP() []byte {
 
 var file_artifact_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_artifact_proto_goTypes = []any{
-	(*Unit)(nil),     // 0: artifact.Unit
-	(*Artifact)(nil), // 1: artifact.Artifact
-	nil,              // 2: artifact.Unit.LoadsEntry
+	(*Unit)(nil),           // 0: artifact.Unit
+	(*Artifact)(nil),       // 1: artifact.Artifact
+	nil,                    // 2: artifact.Unit.LoadsEntry
+	(*workflow.Graph)(nil), // 3: workflow.Graph
 }
 var file_artifact_proto_depIdxs = []int32{
 	2, // 0: artifact.Unit.loads:type_name -> artifact.Unit.LoadsEntry
 	0, // 1: artifact.Artifact.units:type_name -> artifact.Unit
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 2: artifact.Artifact.graph:type_name -> workflow.Graph
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_artifact_proto_init() }

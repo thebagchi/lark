@@ -3,6 +3,7 @@ package observe
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 
@@ -29,6 +30,8 @@ type _Recorder struct {
 	cause *workflowpb.Cause
 
 	print func(string)
+	dir   string
+	logs  *Log
 }
 
 // _Where is a node's identity: which function, on which thread.
@@ -72,15 +75,68 @@ func _Stderr(msg string) {
 	}
 }
 
-// Printed hands a script's line to whatever the host asked for.
+// Printed hands a script's line to whatever the host asked for, and to the
+// run's own file when it has one.
 //
-// Not recorded in the snapshot: a Workflow carries statuses, and where a run's
-// log lives is another increment. This is the hook it will hang on.
+// Not recorded in the snapshot. A Workflow carries statuses, and a host that
+// asked for logs knows where they are: WithLogs says which directory, and a
+// run's file is its id with .log on the end. That rule is the whole of what a
+// poller needs, which is why the message gained no field.
+//
+// The printer is handed the line as the script wrote it and the file gets the
+// lane in front, because a printer is a host's own stream and a file is a
+// transcript of a concurrent run.
+//
+// logs is written before the evaluation starts and read only by threads that
+// evaluation creates, so no lock covers it.
 //
 // Revisions:
 //   - 2026-09-21 09:46: initial creation
+//   - 2026-09-21 16:42: writes the run's own file too
 func (r *_Recorder) Printed(thread string, msg string) {
 	r.print(msg)
+
+	if r.logs != nil {
+		r.logs.Printed(thread, msg)
+	}
+}
+
+// _Open gives this run its own file, if a host asked for one.
+//
+// Named for the run rather than the script, because two runs of one artifact
+// are two transcripts and an id is what tells them apart.
+//
+// Revisions:
+//   - 2026-09-21 16:42: initial creation
+func (r *_Recorder) _Open(id string) error {
+	if r.dir == "" {
+		return nil
+	}
+
+	made, err := NewLog(filepath.Join(r.dir, id+SUFFIX))
+	if err != nil {
+		return err
+	}
+
+	r.logs = made
+
+	return nil
+}
+
+// _Close finishes the run's file, and says so if it could not.
+//
+// A run whose transcript could not be finished is a run a caller should hear
+// about, so this is reported rather than dropped - unlike a failure to write
+// one line, which has nowhere to go.
+//
+// Revisions:
+//   - 2026-09-21 16:42: initial creation
+func (r *_Recorder) _Close() error {
+	if r.logs == nil {
+		return nil
+	}
+
+	return r.logs.Close()
 }
 
 // _Resolve is the name to report for a function on a thread.
@@ -245,6 +301,8 @@ func (r *_Recorder) _Cause() *workflowpb.Cause {
 //     no index
 //   - 2026-09-21 00:59: takes each thread's own id, which the thread now
 //     carries, instead of numbering lanes by list slot
+//   - 2026-09-21 23:53: a thread's own function is its first step, so placing
+//     the steps is the whole of it
 func (r *_Recorder) _Seed(graph *workflowpb.Graph) {
 	r.guard.Lock()
 	defer r.guard.Unlock()
@@ -254,13 +312,8 @@ func (r *_Recorder) _Seed(graph *workflowpb.Graph) {
 
 		r._Lane(lane)
 
-		// What a thread runs is its entry, which is a field rather than a step,
-		// so nothing below would enter it. The spine has none; its function is
-		// the entry point, which the declaration pass below picks up.
-		if thread.GetEntry() != nil {
-			r._At(lane, thread.GetEntry().GetFunction())
-		}
-
+		// Every step, the first included: what a thread runs is its first step,
+		// so placing the steps places it without a case of its own.
 		for _, step := range thread.GetStatic().GetSteps() {
 			r._Place(lane, step)
 		}

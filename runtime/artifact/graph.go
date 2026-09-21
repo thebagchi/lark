@@ -46,12 +46,55 @@ type _Dir struct{}
 
 // _Graph collects the compiled units of one artifact, in an order that puts a
 // dependency before whatever loads it.
+//
+// source is what each unit was compiled from, kept so that describing the
+// artifact afterwards reads no file twice. Every module is fetched once per
+// compile, and deriving a graph through the loader again would have broken
+// that - measured, by the test that counts what the loader was asked for.
 type _Graph struct {
 	loader Loader
 	env    starlark.StringDict
 	units  map[string]*_Unit
 	order  []string
 	chain  []string
+	source map[string][]byte
+}
+
+// _Held serves the sources a compile already read.
+//
+// It is a graph.Source, which asks exactly what a Loader does, so describing
+// an artifact costs no fetch and cannot read a file that has changed since the
+// compile. Resolving still goes through the loader, which is a path join
+// rather than a read.
+type _Held struct {
+	loader Loader
+	source map[string][]byte
+}
+
+// Resolve asks the loader what a spelling means, or reads it as a file beside
+// the one that loaded it when there is no loader.
+//
+// Revisions:
+//   - 2026-09-21 17:19: initial creation
+func (h *_Held) Resolve(from string, target string) (string, error) {
+	if h.loader == nil {
+		return (&_Dir{}).Resolve(from, target)
+	}
+
+	return h.loader.Resolve(from, target)
+}
+
+// Load returns what the compile read for this module.
+//
+// Revisions:
+//   - 2026-09-21 17:19: initial creation
+func (h *_Held) Load(name string) ([]byte, error) {
+	src, held := h.source[name]
+	if !held {
+		return nil, fmt.Errorf("%s: %w", name, ErrNoUnit)
+	}
+
+	return src, nil
 }
 
 // Resolve reads target as a file beside from.
@@ -87,6 +130,8 @@ func (d *_Dir) Load(name string) ([]byte, error) {
 //
 // Revisions:
 //   - 2026-09-19 18:30: initial creation
+//   - 2026-09-21 17:19: keeps what it compiled, so describing reads nothing
+//     twice
 func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 	tree, code, err := starlark.SourceProgramOptions(
 		dialect.OPTIONS,
@@ -107,6 +152,8 @@ func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode %s: %w", path, err)
 	}
+
+	g.source[path] = src
 
 	unit := &_Unit{
 		saved: &artifactpb.Unit{

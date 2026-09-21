@@ -32,7 +32,30 @@ def main():
 ```
 make binaries
 ./bin/lark.bin -s samples/concurrent.star
+./bin/lark.bin -s samples/concurrent.star -t   # the graph it describes, as JSON
 ```
+
+A script and the graph it describes are two forms of one workflow, and `lark`
+runs either and translates either into the other:
+
+```
+lark -s script.star        run the script
+lark -s script.star -t     print the graph it describes, as JSON
+lark -g graph.json         run the graph
+lark -g graph.json -t      print the Starlark it generates
+lark -s script.star -l dir keep a transcript in dir/script.star.log
+lark -s script.star -b out.bin  compile into a bundle instead of running
+```
+
+The two translations are inverses, so this prints what the first line printed:
+
+```
+lark -s samples/concurrent.star -t > graph.json && lark -g graph.json
+```
+
+A graph names no modules: deriving one inlines what the script loaded, so what
+comes back is self-contained. A graph is checked before anything is generated
+from it, and a graph that will not run is refused with the reason.
 
 ```
 "HELLO WORLD"
@@ -146,6 +169,8 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `state` | `state.set`, `state.get`, `state.update` — see below. |
 | `time`, `math` | go.starlark.net's own modules. |
 | `jsonpath` | `patch_json`, `extract_json`, `match_json`, `len_json`, `find_key`. |
+| `codec` | Twelve conversions between bytes, hex, bits and ints, plus `b64encode` / `b64decode`, `b64urlencode` / `b64urldecode`, `b32encode` / `b32decode` and `crc32`. See below. |
+| `utils` | `utils.datetime()`, the local time to the microsecond, as a string. |
 
 `spawn` takes a **named function that takes no arguments** — not a lambda, not a
 call. A closure over what it needs is how a script passes data in. The rule
@@ -221,10 +246,30 @@ import (
     _ "github.com/thebagchi/lark/runtime/plugin/jsonpath"
     _ "github.com/thebagchi/lark/runtime/plugin/time"
     _ "github.com/thebagchi/lark/runtime/plugin/math"
+    _ "github.com/thebagchi/lark/runtime/plugin/codec"
+    _ "github.com/thebagchi/lark/runtime/plugin/utils"
 )
 ```
 
 `cmd/lark` imports all of them, so every sample can use them.
+
+### Two naming styles in `codec`, and why
+
+The twelve the brief asks for are `x2y`: `bytes2hex`, `hex2bits`, `int2bytes`.
+The base encodings are `encode` and `decode`, because a name ending in a digit
+cannot take the `2` infix without reading as a number - `base642bytes` is "base
+642 bytes" to anyone who has not been told otherwise.
+
+```python
+hex = bytes2hex(data)              # the twelve, unchanged
+token = b64urlencode(payload)      # unpadded, which is what a JWT carries
+data = b64urldecode(token)         # padded or not, either way
+sum = crc32(chunk, sum)            # continues a checksum already started
+```
+
+Anything conceptually bytes takes a `str` too, so `b64encode("foobar")` works.
+Quoted-printable, uuencode and `crc_hqx` are deliberately absent: two are
+email-era formats and the third serves one obsolete protocol.
 
 ### Repeating, retrying and bounding
 
@@ -438,6 +483,74 @@ its own.
 joined is cancelled rather than waited for, so a forgotten `spawn` cannot hold a
 call open.
 
+## A bundle carries its own picture
+
+`-b` compiles without running and writes one file: which unit is the entry,
+every compiled unit in dependency order, and the graph a user interface draws
+it as.
+
+```
+lark -s build.star -b build.bin
+```
+
+The graph in a bundle carries **no function bodies**. The runnable program is
+already there, compiled, and a body beside it would be the same thing twice.
+Nothing regenerates a script from a bundle, because a bundle has one.
+
+It carries no status either, because a graph says what will happen. A reader
+draws it as a workflow that has not started:
+
+```go
+snap := runtime.Pending(artifact.Graph())   // every node PENDING
+```
+
+A script that compiles may still have parts no graph draws as steps, and
+`Unmodelled()` says which. That is not a loss: such a function is carried
+whole, as the body it was written as, and a graph containing one still
+regenerates its script exactly. When there is no graph at all, this is the
+only answer, so a bundle nobody could describe is never mistaken for one
+nobody described.
+
+When the graph came first, the bundle keeps that graph rather than deriving
+one from the script it generated:
+
+```
+lark -g graph.json -b build.bin
+```
+
+## Every run keeps its own transcript
+
+What a script prints goes where the caller says. `-l` keeps it as well, one
+file per run, each line behind the thread that wrote it:
+
+```
+lark -s build.star -l logs
+```
+
+```
+thread_0  from the spine
+thread_2  from beta
+thread_1  from alpha
+```
+
+The lane matters because a concurrent script interleaves: the three lines above
+arrived in that order on standard output too, and without the prefix the file
+could not say which thread said what.
+
+A host embedding the runtime asks a store for the same thing:
+
+```go
+id := store.Start(ctx, artifact, observe.WithLogs("/var/log/lark"))
+```
+
+**The file is the run's id with `.log` on the end, under the directory you
+named.** That rule is the whole of what a poller needs, which is why `Workflow`
+carries no path: you named the directory and you hold the id. Two runs of one
+artifact are two files, because an id is what tells them apart. The directory
+is created if it is not there, a run whose file cannot be opened fails before
+its script is evaluated, and the sweep that forgets a run after its
+time-to-live does not delete the file.
+
 ## Watching a run
 
 `Run` and `Invoke` block until the script is over. A long-running host — a
@@ -636,7 +749,9 @@ handle.Thread()   // its thread number
 - **A runaway recursive script will exhaust the stack and take the process
   down.** Recursion is enabled and nothing bounds a run. A panicking builtin is
   recovered and becomes an error; a stack overflow is not recoverable in Go.
-- **No sleep, timeout or retry builtins.** A script cannot wait.
+- **Nothing executes a graph directly.** A graph becomes a script and the
+  script runs; an interpreter that walks the graph itself is the brief's
+  largest unbuilt item.
 - **Nothing persists across process restart**, and nothing talks to a remote.
 
 ## Licence

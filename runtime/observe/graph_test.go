@@ -161,12 +161,21 @@ func _Lanes(id string, steps []*workflowpb.Step) []*workflowpb.Thread {
 
 // _Static is one authored thread: its id, what runs on it, and its steps.
 //
+// What runs on it is its first step, so an entry given here goes in front of
+// the rest.
+//
 // Revisions:
 //   - 2026-09-21 00:59: initial creation
+//   - 2026-09-21 23:53: puts the entry in the first step
 func _Static(id string, entry *workflowpb.Call, steps []*workflowpb.Step) *workflowpb.Thread {
+	if entry != nil {
+		steps = append([]*workflowpb.Step{
+			{Action: &workflowpb.Step_Call{Call: entry}},
+		}, steps...)
+	}
+
 	return &workflowpb.Thread{
-		Id:    id,
-		Entry: entry,
+		Id: id,
 		State: &workflowpb.Thread_Static{
 			Static: &workflowpb.Static{Steps: steps},
 		},

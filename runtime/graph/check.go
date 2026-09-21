@@ -23,8 +23,9 @@ var (
 	// and a position does not.
 	ErrParentage = errors.New("a thread id does not name its parent")
 
-	// ErrTwoSpines is returned when more than one thread omits its entry. An
-	// unset entry means the artifact's entry point, and there is one of those.
+	// ErrTwoSpines is returned when more than one thread claims the spine's
+	// id. The spine is thread_0 and there is one of those, since what runs
+	// there is the artifact's entry point.
 	ErrTwoSpines = errors.New("a graph has one entry point")
 
 	// ErrArity is returned for a Call passing more values than the function it
@@ -44,10 +45,23 @@ var (
 // caller's decision and this is the caller's check, so a host that has already
 // validated does not pay twice.
 //
+// Distinct is part of it, and was not until a host came to call this and had
+// to be told to call both. A sentence saying "what a graph must satisfy" is
+// either all of it or a trap: two functions named greet passed here and failed
+// only for whoever remembered the second call. Distinct stays exported, for a
+// user interface checking one edit rather than a whole graph.
+//
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 16:25: includes Distinct, which its own first line had always
+//     claimed
 func Check(graph *workflowpb.Graph) error {
-	err := _Spines(graph)
+	err := Distinct(graph)
+	if err != nil {
+		return err
+	}
+
+	err = _Spines(graph)
 	if err != nil {
 		return err
 	}
@@ -60,11 +74,16 @@ func Check(graph *workflowpb.Graph) error {
 	return _Arity(graph)
 }
 
-// _Spines checks that a graph carries authored threads and exactly one entry
-// point.
+// _Spines checks that a graph carries authored threads, that each says what it
+// runs, and that only one of them is the spine.
+//
+// A thread says what it runs in its first step, so a thread with no steps
+// names nothing and nothing can be generated for it.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 23:53: reads the first step rather than an entry field, and
+//     the spine is the thread whose id says so
 func _Spines(graph *workflowpb.Graph) error {
 	spines := 0
 
@@ -73,7 +92,11 @@ func _Spines(graph *workflowpb.Graph) error {
 			return fmt.Errorf("%s: %w", thread.GetId(), ErrLive)
 		}
 
-		if thread.GetEntry() != nil {
+		if _First(thread) == nil {
+			return fmt.Errorf("%s: %w", thread.GetId(), ErrNoEntry)
+		}
+
+		if thread.GetId() != SPINE {
 			continue
 		}
 
@@ -138,6 +161,7 @@ func _Ordinal(id string) string {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 23:53: the thread's own call is among its steps
 func _Arity(graph *workflowpb.Graph) error {
 	takes := make(map[string]int)
 
@@ -146,13 +170,10 @@ func _Arity(graph *workflowpb.Graph) error {
 	}
 
 	for _, thread := range graph.GetThreads() {
-		err := _Fits(takes, thread.GetEntry())
-		if err != nil {
-			return err
-		}
-
+		// Every step, the first included: what a thread runs is a call like
+		// any other, so nothing has to be checked twice.
 		for _, step := range thread.GetStatic().GetSteps() {
-			err = _Fits(takes, _Invoked(step))
+			err := _Fits(takes, _Invoked(step))
 			if err != nil {
 				return err
 			}

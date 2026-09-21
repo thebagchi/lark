@@ -1150,6 +1150,15 @@ func (x *Function) GetParams() []string {
 
 // Static is a thread as it was authored: what it will do, and nothing
 // about what happened.
+//
+// The first step is what the thread itself runs, and the rest are that
+// function's own body. A thread with one step is a fork pointing at a
+// leaf, whose body is carried as the function's text; a thread with more
+// describes what that function does.
+//
+// That is why nothing names a thread's function in a field of its own.
+// A fork names a thread, a thread's first step names a function, and one
+// of those two indirections would otherwise say the same thing twice.
 type Static struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Steps         []*Step                `protobuf:"bytes,1,rep,name=steps,proto3" json:"steps,omitempty"`
@@ -1265,15 +1274,12 @@ func (x *Live) GetNodes() []*Node {
 // numbers in the order spawns happen, and those disagree whenever a
 // spawned function spawns before its siblings start.
 //
-// entry is what runs on the thread, and sits outside the oneof because
-// it is true whether or not the thread has run. An unset entry is the
-// spine, and what runs there is the artifact's entry point, which the
-// runtime already fixes - a graph does not restate it. Every other
-// thread has one, since a spawn always names something.
+// What a thread runs is its first step, not a field: see Static. The
+// spine is the thread whose id is thread_0, and its first step is the
+// artifact's entry point like any other.
 type Thread struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Entry *Call                  `protobuf:"bytes,2,opt,name=entry,proto3" json:"entry,omitempty"`
 	// Types that are valid to be assigned to State:
 	//
 	//	*Thread_Static
@@ -1318,13 +1324,6 @@ func (x *Thread) GetId() string {
 		return x.Id
 	}
 	return ""
-}
-
-func (x *Thread) GetEntry() *Call {
-	if x != nil {
-		return x.Entry
-	}
-	return nil
 }
 
 func (x *Thread) GetState() isThread_State {
@@ -1816,10 +1815,9 @@ const file_workflow_proto_rawDesc = "" +
 	"\x05steps\x18\x01 \x03(\v2\x0e.workflow.StepR\x05steps\"R\n" +
 	"\x04Live\x12$\n" +
 	"\x05steps\x18\x01 \x03(\v2\x0e.workflow.StepR\x05steps\x12$\n" +
-	"\x05nodes\x18\x02 \x03(\v2\x0e.workflow.NodeR\x05nodes\"\x99\x01\n" +
+	"\x05nodes\x18\x02 \x03(\v2\x0e.workflow.NodeR\x05nodes\"s\n" +
 	"\x06Thread\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12$\n" +
-	"\x05entry\x18\x02 \x01(\v2\x0e.workflow.CallR\x05entry\x12*\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
 	"\x06static\x18\x03 \x01(\v2\x10.workflow.StaticH\x00R\x06static\x12$\n" +
 	"\x04live\x18\x04 \x01(\v2\x0e.workflow.LiveH\x00R\x04liveB\a\n" +
 	"\x05state\"\x80\x01\n" +
@@ -1924,24 +1922,23 @@ var file_workflow_proto_depIdxs = []int32{
 	14, // 23: workflow.Static.steps:type_name -> workflow.Step
 	14, // 24: workflow.Live.steps:type_name -> workflow.Step
 	19, // 25: workflow.Live.nodes:type_name -> workflow.Node
-	1,  // 26: workflow.Thread.entry:type_name -> workflow.Call
-	16, // 27: workflow.Thread.static:type_name -> workflow.Static
-	17, // 28: workflow.Thread.live:type_name -> workflow.Live
-	0,  // 29: workflow.Node.status:type_name -> workflow.Status
-	25, // 30: workflow.Constant.value:type_name -> google.protobuf.Value
-	1,  // 31: workflow.Constant.call:type_name -> workflow.Call
-	15, // 32: workflow.Graph.functions:type_name -> workflow.Function
-	18, // 33: workflow.Graph.threads:type_name -> workflow.Thread
-	24, // 34: workflow.Graph.constants:type_name -> workflow.Graph.ConstantsEntry
-	0,  // 35: workflow.Workflow.status:type_name -> workflow.Status
-	18, // 36: workflow.Workflow.threads:type_name -> workflow.Thread
-	22, // 37: workflow.Workflow.cause:type_name -> workflow.Cause
-	20, // 38: workflow.Graph.ConstantsEntry.value:type_name -> workflow.Constant
-	39, // [39:39] is the sub-list for method output_type
-	39, // [39:39] is the sub-list for method input_type
-	39, // [39:39] is the sub-list for extension type_name
-	39, // [39:39] is the sub-list for extension extendee
-	0,  // [0:39] is the sub-list for field type_name
+	16, // 26: workflow.Thread.static:type_name -> workflow.Static
+	17, // 27: workflow.Thread.live:type_name -> workflow.Live
+	0,  // 28: workflow.Node.status:type_name -> workflow.Status
+	25, // 29: workflow.Constant.value:type_name -> google.protobuf.Value
+	1,  // 30: workflow.Constant.call:type_name -> workflow.Call
+	15, // 31: workflow.Graph.functions:type_name -> workflow.Function
+	18, // 32: workflow.Graph.threads:type_name -> workflow.Thread
+	24, // 33: workflow.Graph.constants:type_name -> workflow.Graph.ConstantsEntry
+	0,  // 34: workflow.Workflow.status:type_name -> workflow.Status
+	18, // 35: workflow.Workflow.threads:type_name -> workflow.Thread
+	22, // 36: workflow.Workflow.cause:type_name -> workflow.Cause
+	20, // 37: workflow.Graph.ConstantsEntry.value:type_name -> workflow.Constant
+	38, // [38:38] is the sub-list for method output_type
+	38, // [38:38] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_workflow_proto_init() }
