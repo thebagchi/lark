@@ -128,12 +128,13 @@ func _Pause(sleep *workflowpb.Sleep) string {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 08:09: a number only; repeat(True, f) used to derive as 0
 func (r *_Reading) _Wrapper(name string, call *syntax.CallExpr) *workflowpb.Step {
 	if len(call.Args) != 2 {
 		return nil
 	}
 
-	bound, ok := _Arg(call.Args[0])
+	bound, ok := _Quantity(call.Args[0])
 	if !ok {
 		return nil
 	}
@@ -143,7 +144,7 @@ func (r *_Reading) _Wrapper(name string, call *syntax.CallExpr) *workflowpb.Step
 		return nil
 	}
 
-	count := int32(bound.GetNumberValue())
+	count := int32(bound)
 
 	switch name {
 	case REPEAT:
@@ -160,7 +161,7 @@ func (r *_Reading) _Wrapper(name string, call *syntax.CallExpr) *workflowpb.Step
 	return &workflowpb.Step{Action: &workflowpb.Step_Timeout{
 		Timeout: &workflowpb.Timeout{
 			Call:      site,
-			TimeoutMs: int32(bound.GetNumberValue() * MILLIS),
+			TimeoutMs: int32(bound * MILLIS),
 		},
 	}}
 }

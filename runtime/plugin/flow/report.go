@@ -14,19 +14,20 @@ import (
 // evaluation and ends the run. Guarding again would recover the same panic
 // twice and say nothing more.
 //
-// The lane is the caller's, not a new one: Detach inherits a thread's number
-// rather than taking one, so repeat(step, 3) is one entry on one lane advancing
-// 1, 2, 3 rather than three lanes.
+// The lane is the caller's, not a new one: an attempt runs on the lane that
+// made it, so repeat(3, step) is one entry on one lane advancing 1, 2, 3
+// rather than three lanes.
 //
 // Revisions:
 //   - 2026-09-20 01:40: initial creation
-func _Began(thread *starlark.Thread, name string, attempt int) {
+//   - 2026-09-21 08:09: takes the attempt in the reporter's own width
+func _Began(thread *starlark.Thread, name string, attempt int32) {
 	into := scheduler.Reporting(thread)
 	if into == nil {
 		return
 	}
 
-	into.Started(scheduler.Number(thread), name, int32(attempt))
+	into.Started(scheduler.Number(thread), name, attempt)
 }
 
 // _Finished tells whatever is watching how a wrapped function ended.

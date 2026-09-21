@@ -1,3 +1,5 @@
+// Package graph derives a workflow graph from a script, checks one a host
+// authored, and generates the script a graph describes.
 package graph
 
 import (
@@ -23,6 +25,14 @@ var (
 	// leaves every function that reads it failing with undefined, which is the
 	// bug Graph.constants exists to fix.
 	ErrConstant = errors.New("constant cannot be carried")
+
+	// ErrSignature is returned for a def whose signature a graph cannot carry:
+	// a default, a *args or a **kwargs. Function.params is a list of names,
+	// and emitting the bare names would generate a program the script was
+	// not - a call relying on the default would fail with an undefined name.
+	// Refused for the reason a constant is, rather than recorded and emitted
+	// wrong, which is what a giving-up used to do here.
+	ErrSignature = errors.New("signature cannot be carried")
 )
 
 // Report is the graph a script yielded, and what could not be carried into it.
@@ -41,7 +51,7 @@ type Report struct {
 // Separate from Report because a struct that is both the walk and its result
 // is one a caller can corrupt by reading it.
 type _Reading struct {
-	into      Source
+	source    Source
 	defs      map[string]*syntax.DefStmt
 	text      map[string]string
 	owner     map[string]string
@@ -58,22 +68,27 @@ type _Reading struct {
 //
 // Source rather than a tree, because a body is sliced out of the text it was
 // written in and a tree carries no text. Parsing goes through dialect.OPTIONS,
-// so this uses the dialect decision rather than owning one.
+// so this uses the dialect decision rather than owning one. A nil source reads
+// a module as a file beside the one that loaded it.
+//
+// Returns ErrNoMain for a module, ErrConstant and ErrSignature for what the
+// graph cannot carry, ErrCollision and ErrAlias for loads it cannot inline.
 //
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
-func Of(src []byte, from string, into Source) (*Report, error) {
+//   - 2026-09-21 08:09: names its source for what it is
+func Of(src []byte, from string, source Source) (*Report, error) {
 	tree, err := dialect.OPTIONS.Parse(from, src, 0)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", from, err)
 	}
 
-	if into == nil {
-		into = new(_Dir)
+	if source == nil {
+		source = new(_Dir)
 	}
 
 	reading := &_Reading{
-		into:      into,
+		source:    source,
 		defs:      make(map[string]*syntax.DefStmt),
 		text:      make(map[string]string),
 		owner:     make(map[string]string),
@@ -411,18 +426,19 @@ func _Defs(tree *syntax.File) []*syntax.DefStmt {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 08:09: a number only; sleep("1") used to derive as 0
 func _Pauses(call *syntax.CallExpr) *workflowpb.Step {
 	if len(call.Args) != 1 {
 		return nil
 	}
 
-	value, ok := _Arg(call.Args[0])
+	seconds, ok := _Quantity(call.Args[0])
 	if !ok {
 		return nil
 	}
 
 	return &workflowpb.Step{Action: &workflowpb.Step_Sleep{
-		Sleep: &workflowpb.Sleep{DurationMs: int32(value.GetNumberValue() * MILLIS)},
+		Sleep: &workflowpb.Sleep{DurationMs: int32(seconds * MILLIS)},
 	}}
 }
 
@@ -433,19 +449,16 @@ func _Pauses(call *syntax.CallExpr) *workflowpb.Step {
 // those steps, and sending its text as well would be one thing said twice in
 // two languages.
 //
-// A signature this cannot carry - a default, a *args, a **kwargs - is a
-// giving-up rather than a silent loss, because the generated def would drop it
-// and a call relying on it would raise instead of defaulting.
+// Every def reaching here has a plain signature: _Declare refused the others.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 08:09: no longer records a signature it cannot carry, since
+//     one never gets this far
 func (r *_Reading) _Function(def *syntax.DefStmt) *workflowpb.Function {
 	fn := &workflowpb.Function{Name: def.Name.Name}
 
-	names, plain := _Params(def)
-	if !plain {
-		r._Gave(def.Name.Name, "signature carries a default, *args or **kwargs")
-	}
+	names, _ := _Params(def)
 
 	fn.Params = names
 

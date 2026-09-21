@@ -1,6 +1,8 @@
 package observe_test
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -41,13 +43,19 @@ const (
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
+//   - 2026-09-21 08:09: logs how the run ended rather than discarding it
 func _Ran(t *testing.T, path string, opts ...observe.Option) *workflowpb.Workflow {
 	t.Helper()
 
 	store := observe.New()
 	id := store.Start(t.Context(), _Compile(t, path), opts...)
 
-	_, _ = store.Wait(t.Context(), id)
+	_, err := store.Wait(t.Context(), id)
+	if err != nil {
+		// How the run ended is what the snapshot below reports, and several
+		// of these scripts end badly on purpose.
+		t.Logf("%s ended with: %v", path, err)
+	}
 
 	snap, err := store.Status(id)
 	if err != nil {
@@ -306,7 +314,10 @@ func TestReport_CancelledIsNotFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _ = store.Wait(t.Context(), id)
+	_, err = store.Wait(t.Context(), id)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want the cancellation, got %v", err)
+	}
 
 	snap, err := store.Status(id)
 	if err != nil {
@@ -398,8 +409,15 @@ func TestReport_ACancellationCarriesNoMessage(t *testing.T) {
 	store := observe.New()
 	id := store.Start(t.Context(), _Compile(t, SLOW))
 
-	_ = store.Cancel(id)
-	_, _ = store.Wait(t.Context(), id)
+	err := store.Cancel(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = store.Wait(t.Context(), id)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want the cancellation, got %v", err)
+	}
 
 	snap, err := store.Status(id)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"github.com/thebagchi/lark/runtime"
 	"github.com/thebagchi/lark/runtime/artifact"
 	"github.com/thebagchi/lark/runtime/graph"
+	"github.com/thebagchi/lark/runtime/plugin/core"
 	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
@@ -245,9 +246,9 @@ func TestSteps_TheNamesMatchTheRuntime(t *testing.T) {
 	}{
 		{graph.ENTRY, artifact.ENTRY, "the entry point"},
 		{graph.SPINE, scheduler.SPINE, "the spine"},
-		{graph.SPAWN, scheduler.SPAWN, "spawn"},
-		{graph.JOIN, scheduler.JOIN, "join"},
-		{graph.CANCEL, scheduler.CANCEL, "cancel"},
+		{graph.SPAWN, core.SPAWN, "spawn"},
+		{graph.JOIN, core.JOIN, "join"},
+		{graph.CANCEL, core.CANCEL, "cancel"},
 	}
 
 	for _, item := range cases {

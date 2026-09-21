@@ -29,6 +29,11 @@ var (
 	// every body in that file says shout while the function is yell, and
 	// reconciling that means rewriting bodies.
 	ErrAlias = errors.New("a load that renames cannot be inlined")
+
+	// ErrModule is returned for a load whose module is not a string, which the
+	// parser does not produce; it exists so the assertion has a sentinel
+	// rather than borrowing one that means something else.
+	ErrModule = errors.New("a load names no module")
 )
 
 // Source is where a module's text comes from.
@@ -73,7 +78,7 @@ func (d *_Dir) Load(name string) ([]byte, error) {
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
 func (r *_Reading) _Module(from string, target string) error {
-	name, err := r.into.Resolve(from, target)
+	name, err := r.source.Resolve(from, target)
 	if err != nil {
 		return fmt.Errorf("%s: %w", target, err)
 	}
@@ -94,7 +99,7 @@ func (r *_Reading) _Module(from string, target string) error {
 		return nil
 	}
 
-	src, err := r.into.Load(name)
+	src, err := r.source.Load(name)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
@@ -143,6 +148,8 @@ func (r *_Reading) _Read(tree *syntax.File, name string, src string) error {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 08:09: names a module that is not a string with its own
+//     sentinel
 func (r *_Reading) _Loads(load *syntax.LoadStmt, from string) error {
 	for idx := range load.From {
 		if load.From[idx].Name != load.To[idx].Name {
@@ -152,19 +159,28 @@ func (r *_Reading) _Loads(load *syntax.LoadStmt, from string) error {
 
 	held, ok := load.Module.Value.(string)
 	if !ok {
-		return fmt.Errorf("%s: %w", from, ErrAlias)
+		return fmt.Errorf("%s: %w", from, ErrModule)
 	}
 
 	return r._Module(from, held)
 }
 
 // _Declare adds a function to the flat list, or says which other module
-// already has that name.
+// already has that name, or refuses a signature the graph cannot carry.
+//
+// Returns ErrCollision naming both modules, and ErrSignature naming the def.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 08:09: refuses a default, a *args or a **kwargs here, where
+//     a refusal is an error, rather than recording it and emitting the def
+//     without them
 func (r *_Reading) _Declare(def *syntax.DefStmt, module string, src string) error {
 	name := def.Name.Name
+
+	if _, plain := _Params(def); !plain {
+		return fmt.Errorf("%s in %s: %w", name, module, ErrSignature)
+	}
 
 	owner, known := r.owner[name]
 	if known && owner != module {

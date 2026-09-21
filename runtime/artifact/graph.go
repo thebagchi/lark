@@ -213,9 +213,7 @@ func (g *_Graph) _Reach(from string, target string) (string, error) {
 // env is the one the source was compiled against, passed in rather than rebuilt
 // here. A script resolved against one environment and initialised against
 // another is a script whose names exist at compile time and not at run time -
-// and a plugin holding state would hand out a different store to each. A script resolved against one environment and
-// initialised against another is a script whose names exist at compile time and
-// not at run time.
+// and a plugin holding state would hand out a different store to each.
 //
 // Revisions:
 //   - 2026-09-19 18:36: initial creation

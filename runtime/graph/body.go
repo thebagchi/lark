@@ -20,6 +20,7 @@ import (
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 08:09: dedents by the first line's actual indentation
 func _Body(src string, def *syntax.DefStmt) string {
 	body := _Trimmed(def.Body)
 	if len(body) == 0 {
@@ -36,7 +37,12 @@ func _Body(src string, def *syntax.DefStmt) string {
 		return ""
 	}
 
-	return _Dedent(src[from:to], int(first.Col)-1)
+	// The whitespace the first statement sits behind, whatever it is made
+	// of, is what every later line loses. Counting columns instead treated a
+	// tab as one space and left tab-indented bodies indented.
+	indent := src[_Offset(src, first.Line, 1):from]
+
+	return _Dedent(src[from:to], indent)
 }
 
 // _Trimmed is a body without the pass the generator closes every def with.
@@ -64,13 +70,14 @@ func _Trimmed(body []syntax.Stmt) []syntax.Stmt {
 	return body
 }
 
-// _Dedent removes that many leading spaces from every line but the first,
-// which has already lost them to where its span began.
+// _Dedent removes indent from the front of every line but the first, which
+// has already lost it to where its span began.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
-func _Dedent(body string, depth int) string {
-	prefix := strings.Repeat(" ", depth)
+//   - 2026-09-21 08:09: takes the indentation itself rather than a count of
+//     spaces
+func _Dedent(body string, indent string) string {
 	lines := strings.Split(body, "\n")
 
 	for i := 1; i < len(lines); i++ {
@@ -80,7 +87,7 @@ func _Dedent(body string, depth int) string {
 			continue
 		}
 
-		lines[i] = strings.TrimPrefix(lines[i], prefix)
+		lines[i] = strings.TrimPrefix(lines[i], indent)
 	}
 
 	return strings.Join(lines, "\n")

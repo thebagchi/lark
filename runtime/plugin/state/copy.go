@@ -43,17 +43,19 @@ func _Copy(value starlark.Value) (starlark.Value, error) {
 // script that reads back a structure with two paths to one list still has two
 // paths to one list.
 //
+// Only the three mutable containers consult the map, each in its own copier.
+// They are the only values that can alias or cycle, and they are pointers,
+// which a Go map can hash. A tuple is a slice, which a Go map cannot: looking
+// every value up here panicked on the first tuple a script stored.
+//
 // Revisions:
 //   - 2026-09-20 00:43: initial creation
+//   - 2026-09-21 08:09: consults seen only for a container, so a tuple never
+//     reaches a map that cannot hash it
 func _CopyInto(
 	value starlark.Value,
 	seen map[starlark.Value]starlark.Value,
 ) (starlark.Value, error) {
-	made, found := seen[value]
-	if found {
-		return made, nil
-	}
-
 	switch original := value.(type) {
 	case *starlark.List:
 		return _CopyList(original, seen)
@@ -77,7 +79,13 @@ func _CopyInto(
 //
 // Revisions:
 //   - 2026-09-20 00:44: initial creation
+//   - 2026-09-21 08:09: reuses a copy already made
 func _CopyList(original *starlark.List, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+	copied, found := seen[original]
+	if found {
+		return copied, nil
+	}
+
 	made := starlark.NewList(make([]starlark.Value, 0, original.Len()))
 
 	seen[original] = made
@@ -103,7 +111,13 @@ func _CopyList(original *starlark.List, seen map[starlark.Value]starlark.Value) 
 //
 // Revisions:
 //   - 2026-09-20 00:45: initial creation
+//   - 2026-09-21 08:09: reuses a copy already made
 func _CopyDict(original *starlark.Dict, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+	copied, found := seen[original]
+	if found {
+		return copied, nil
+	}
+
 	made := starlark.NewDict(original.Len())
 
 	seen[original] = made
@@ -158,7 +172,13 @@ func _CopyTuple(original starlark.Tuple, seen map[starlark.Value]starlark.Value)
 //
 // Revisions:
 //   - 2026-09-20 00:47: initial creation
+//   - 2026-09-21 08:09: reuses a copy already made
 func _CopySet(original *starlark.Set, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+	copied, found := seen[original]
+	if found {
+		return copied, nil
+	}
+
 	made := starlark.NewSet(original.Len())
 
 	seen[original] = made

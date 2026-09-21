@@ -24,7 +24,7 @@ const SCRIPT = "jsonpath_test.star"
 func _Eval(t *testing.T, expression string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.Environment()
+	env, err := plugin.DEFAULT.Environment()
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -90,8 +90,9 @@ func TestPointer_ResolvesRFC6901(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-20 01:26: initial creation
+//   - 2026-09-21 08:09: a signed index is not one either
 func TestPointer_RefusesWhatIsNotAPointer(t *testing.T) {
-	for _, pointer := range []string{`"a/b"`, `"/a/01"`, `"/a/"`} {
+	for _, pointer := range []string{`"a/b"`, `"/a/01"`, `"/a/"`, `"/a/+0"`, `"/a/-1"`} {
 		_, err := _Eval(t, `extract_json({"a": [1]}, `+pointer+`)`)
 		if err == nil {
 			t.Fatalf("%s was accepted as a pointer", pointer)
@@ -104,6 +105,7 @@ func TestPointer_RefusesWhatIsNotAPointer(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-20 01:27: initial creation
+//   - 2026-09-21 08:09: a move onto itself, which the specification allows
 func TestPatch_AppliesRFC6902(t *testing.T) {
 	_Check(t, []struct{ name, expression, want string }{
 		{
@@ -150,6 +152,11 @@ func TestPatch_AppliesRFC6902(t *testing.T) {
 			"test that passes leaves the document",
 			`patch_json({"a": 1}, [{"op": "test", "path": "/a", "value": 1}])`,
 			`{"a": 1}`,
+		},
+		{
+			"move onto itself changes nothing",
+			`patch_json({"a": {"b": 1}}, [{"op": "move", "from": "/a", "path": "/a"}])`,
+			`{"a": {"b": 1}}`,
 		},
 		{
 			"operations apply in order",
@@ -206,7 +213,7 @@ before = {"a": [1, 2]}
 after = patch_json(before, [{"op": "add", "path": "/a/-", "value": 3}])
 `
 
-	env, err := plugin.Environment()
+	env, err := plugin.DEFAULT.Environment()
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}

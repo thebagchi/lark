@@ -12,6 +12,8 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/thebagchi/lark/runtime"
+	"github.com/thebagchi/lark/runtime/plugin"
+	"github.com/thebagchi/lark/runtime/plugin/core"
 	_ "github.com/thebagchi/lark/runtime/plugin/flow"
 	_ "github.com/thebagchi/lark/runtime/plugin/state"
 	"github.com/thebagchi/lark/runtime/scheduler"
@@ -20,6 +22,13 @@ import (
 const (
 	FIXTURE_DIR = "testdata"
 	BUDGET      = 5 * time.Second
+
+	// PROMPT is how long a run that should end at once may take on a loaded
+	// machine before it is called hung.
+	PROMPT = 1500 * time.Millisecond
+
+	// PANIC_TEXT is what the exploding builtin panics with.
+	PANIC_TEXT = "a plugin blew up"
 
 	// ZERO asks a wrapper for no calls at all, and LAMBDAS wraps an anonymous
 	// function, which is what a compiler emits for a site that passes
@@ -30,6 +39,43 @@ const (
 
 // _Disk is a Loader over testdata.
 type _Disk struct{}
+
+// _Exploding is a plugin whose one builtin panics, which is what a buggy
+// plugin does.
+type _Exploding struct{}
+
+// Name is what this plugin is called.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func (e *_Exploding) Name() string {
+	return "exploding"
+}
+
+// Values returns a builtin that panics when a script calls it.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func (e *_Exploding) Values() starlark.StringDict {
+	return starlark.StringDict{
+		"explode": starlark.NewBuiltin("explode", func(
+			thread *starlark.Thread,
+			fn *starlark.Builtin,
+			args starlark.Tuple,
+			kwargs []starlark.Tuple,
+		) (starlark.Value, error) {
+			panic(PANIC_TEXT)
+		}),
+	}
+}
+
+// init installs the exploding plugin beside the real ones.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func init() {
+	plugin.Register(&_Exploding{})
+}
 
 // Resolve reads target as a file beside from.
 //
@@ -47,11 +93,11 @@ func (d *_Disk) Load(name string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(FIXTURE_DIR, name))
 }
 
-// _Run compiles and runs the named fixture.
+// _Built compiles the named fixture or ends the test.
 //
 // Revisions:
-//   - 2026-09-20 01:36: initial creation
-func _Run(t *testing.T, name string) (starlark.Value, error) {
+//   - 2026-09-21 08:09: initial creation
+func _Built(t *testing.T, name string) *runtime.Artifact {
 	t.Helper()
 
 	src, err := os.ReadFile(filepath.Join(FIXTURE_DIR, name))
@@ -64,7 +110,18 @@ func _Run(t *testing.T, name string) (starlark.Value, error) {
 		t.Fatalf("compile %s: %v", name, err)
 	}
 
-	return built.Run(t.Context())
+	return built
+}
+
+// _Run compiles and runs the named fixture.
+//
+// Revisions:
+//   - 2026-09-20 01:36: initial creation
+//   - 2026-09-21 08:09: compiles through _Built
+func _Run(t *testing.T, name string) (starlark.Value, error) {
+	t.Helper()
+
+	return _Built(t, name).Run(t.Context())
 }
 
 // _Value runs a fixture that is expected to succeed.
@@ -126,7 +183,7 @@ func TestRetry_StopsAtTheFirstSuccess(t *testing.T) {
 //   - 2026-09-20 01:40: initial creation
 func TestRetry_PropagatesTheLastAssertion(t *testing.T) {
 	_, err := _Run(t, "retry_gives_up.star")
-	if !errors.Is(err, scheduler.ErrAssert) {
+	if !errors.Is(err, core.ErrAssert) {
 		t.Fatalf("got %v, want ErrAssert", err)
 	}
 
@@ -241,5 +298,80 @@ func TestFactories_TakeALambda(t *testing.T) {
 
 	if value.String() != "1" {
 		t.Fatalf("want the lambda's own result, got %s", value)
+	}
+}
+
+// TestTimeout_APanicInsideItFailsTheRunNotTheProcess is review defect A.
+//
+// A wrapper used to call starlark.Call on an unguarded goroutine, where a
+// panic cannot be recovered from outside - so this script killed the host.
+// Without the guard this test does not fail; it takes the test binary down.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func TestTimeout_APanicInsideItFailsTheRunNotTheProcess(t *testing.T) {
+	_, err := _Run(t, "explodes_inside_timeout.star")
+	if err == nil || !strings.Contains(err.Error(), PANIC_TEXT) {
+		t.Fatalf("want the panic as the run's failure, got %v", err)
+	}
+}
+
+// TestTimeout_CutsAJoinShort is review defect C: a timeout used to wait a
+// join out, because the spawn inside derived from the run rather than from
+// the bounded evaluation and the join watched nothing but the handle.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func TestTimeout_CutsAJoinShort(t *testing.T) {
+	started := time.Now()
+
+	_, err := _Run(t, "timeout_over_join.star")
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("got %v, want a timeout", err)
+	}
+
+	if time.Since(started) > PROMPT {
+		t.Fatalf("a 0.2 second timeout took %s", time.Since(started))
+	}
+}
+
+// TestRetry_AnExhaustedInnerRetryIsOneFailedAttemptOfTheOuter is review
+// defect D: giving up used to end the run outright, so an outer retry made one
+// attempt where it should have made three.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func TestRetry_AnExhaustedInnerRetryIsOneFailedAttemptOfTheOuter(t *testing.T) {
+	built := _Built(t, "nested_retry.star")
+
+	_, err := built.Run(t.Context())
+	if !errors.Is(err, core.ErrAssert) {
+		t.Fatalf("want the last assertion to end the run, got %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "retry(3, inner) gave up after 3 attempts") {
+		t.Fatalf("want three outer attempts, got %v", err)
+	}
+}
+
+// TestRetry_AThreadSpawnedInsideAnAttemptIsInsideIt is review defect I: n()
+// used to fail in a spawned thread, and an assertion there ended the run.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func TestRetry_AThreadSpawnedInsideAnAttemptIsInsideIt(t *testing.T) {
+	if got := _Value(t, "spawn_inside_retry.star"); got != "2" {
+		t.Fatalf("want the spawned check to succeed on attempt 2, got %s", got)
+	}
+}
+
+// TestSleep_RefusesWhatNoTimerHolds is review defect J.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func TestSleep_RefusesWhatNoTimerHolds(t *testing.T) {
+	_, err := _Run(t, "huge_sleep.star")
+	if !errors.Is(err, scheduler.ErrDuration) {
+		t.Fatalf("want ErrDuration, got %v", err)
 	}
 }

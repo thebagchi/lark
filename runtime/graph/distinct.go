@@ -1,9 +1,7 @@
-// Package graph checks an authored Graph.
-//
 // Distinct is why a UI that sends two Function entries named greet is
-// refused before anything compiles them: two bodies cannot both be the
-// one a Call names. Nodes may repeat a name across threads; functions
-// may not.
+// refused before anything compiles them: two bodies cannot both be the one a
+// Call names. Nodes may repeat a name across threads; functions may not.
+
 package graph
 
 import (

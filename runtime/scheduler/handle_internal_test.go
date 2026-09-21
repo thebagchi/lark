@@ -1,14 +1,11 @@
 // This file is the internal test form, which .guidelines/conventions/go.md
 // allows only when the thing under test is unexported and the file says why.
 //
-// Why: nothing constructs a Handle until phase 4's spawn, so a test of what a
-// handle *is* has to build one directly from its fields. The alternative was to
-// ship a constructor this phase has no caller for, which CLAUDE.md's dead-code
-// rule forbids. The frozen phase named this cost before the code was written.
+// Why: a test of what a handle *is* builds one directly from its fields, so
+// that what a script sees is checked apart from what a spawn does.
 package scheduler
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -34,8 +31,7 @@ func _Handle() *Handle {
 }
 
 // TestHandle_IsAStarlarkValue proves the type satisfies the interface, at
-// compile time rather than by hoping. A type implementing six of the five
-// required methods is not a value and cannot be put in a script at all.
+// compile time rather than by hoping.
 //
 // Revisions:
 //   - 2026-09-19 21:52: initial creation
@@ -61,8 +57,6 @@ func TestHandle_StringNamesTheFunctionAndTheThread(t *testing.T) {
 			t.Fatalf("String is %q, which does not carry %q", got, want)
 		}
 	}
-
-	t.Logf("a script printing a handle sees: %s", got)
 }
 
 // TestHandle_IsAlwaysTrue proves `if h:` tests presence rather than outcome. A
@@ -91,13 +85,10 @@ func TestHandle_RefusesToHash(t *testing.T) {
 	if !strings.Contains(err.Error(), UNHASHABLE) {
 		t.Fatalf("refusal does not say why: %v", err)
 	}
-
-	t.Logf("refused: %v", err)
 }
 
 // TestHandle_FreezeChangesNothing proves freezing is not silently dropping a
-// mutation: a handle exposes nothing a script can mutate, so there is nothing
-// for freezing to make safe.
+// mutation: a handle exposes nothing a script can mutate.
 //
 // Revisions:
 //   - 2026-09-19 21:54: initial creation
@@ -109,75 +100,5 @@ func TestHandle_FreezeChangesNothing(t *testing.T) {
 
 	if handle.String() != before || handle.Name() != WORKER_NAME || handle.Thread() != WORKER_THREAD {
 		t.Fatal("freezing a handle changed it")
-	}
-}
-
-// TestHandle_ReportsItsNameAndThread proves the two accessors a workflow schema
-// reads: a thread's index, and which function is running on it.
-//
-// Revisions:
-//   - 2026-09-19 21:54: initial creation
-func TestHandle_ReportsItsNameAndThread(t *testing.T) {
-	handle := _Handle()
-
-	if handle.Name() != WORKER_NAME {
-		t.Fatalf("name is %q, want %q", handle.Name(), WORKER_NAME)
-	}
-
-	if handle.Thread() != WORKER_THREAD {
-		t.Fatalf("thread is %s, want %s", handle.Thread(), WORKER_THREAD)
-	}
-}
-
-// TestHandle_HoldsWhatSpawnWillWrite proves the fields a later phase fills are
-// present and start empty: value and err, which spawn writes and join reads,
-// and stop, which spawn sets and cancel calls.
-//
-// Nothing here reads value or err after a write by another goroutine, because
-// until the done channel closes there is no happens-before edge and such a read
-// would be a race the detector will find.
-//
-// stop is covered here for the same reason as the rest, and it has a second
-// effect worth naming: no code in this phase touches that field, so without
-// this test the linter reports it as unused. The field is not speculative - the
-// frozen phase declares it - but a reader should know the test is the only
-// thing referring to it until phase 4.
-//
-// Revisions:
-//   - 2026-09-19 21:55: initial creation
-func TestHandle_HoldsWhatSpawnWillWrite(t *testing.T) {
-	handle := _Handle()
-
-	if handle.value != nil || handle.err != nil {
-		t.Fatal("a fresh handle already carries a result")
-	}
-
-	if handle.done == nil {
-		t.Fatal("a handle has no channel to publish through")
-	}
-
-	if handle.stop != nil {
-		t.Fatal("a fresh handle already carries a cancel")
-	}
-
-	stopped := false
-
-	handle.stop = func() {
-		stopped = true
-	}
-
-	handle.stop()
-
-	if !stopped {
-		t.Fatal("the cancel a handle carries did not run")
-	}
-
-	handle.err = errors.New("scheduler: a spawned failure")
-
-	close(handle.done)
-	<-handle.done
-
-	if handle.err == nil {
-		t.Fatal("the failure did not survive the publish")
 	}
 }

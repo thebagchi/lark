@@ -66,6 +66,14 @@ func (c *_Counter) Ended(thread string, name string, err error) {
 	c.ended[name]++
 }
 
+// Printed is empty: a counter counts starts and ends.
+//
+// Revisions:
+//   - 2026-09-21 09:46: initial creation
+func (c *_Counter) Printed(thread string, msg string) {
+	// Empty
+}
+
 // _Tally is how many times a function began and ended.
 //
 // Revisions:
@@ -149,6 +157,14 @@ func (e *_Exploding) Started(thread string, name string, attempt int32) {
 //   - 2026-09-20 12:01: initial creation
 func (e *_Exploding) Ended(thread string, name string, err error) {
 	e._Maybe(ENDED)
+}
+
+// Printed is empty: no test here prints.
+//
+// Revisions:
+//   - 2026-09-21 09:46: initial creation
+func (e *_Exploding) Printed(thread string, msg string) {
+	// Empty
 }
 
 // _Maybe raises when the moment is this one.

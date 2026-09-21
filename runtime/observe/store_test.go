@@ -13,7 +13,7 @@ import (
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/runtime/artifact"
 	"github.com/thebagchi/lark/runtime/observe"
-	"github.com/thebagchi/lark/runtime/scheduler"
+	"github.com/thebagchi/lark/runtime/plugin/core"
 )
 
 const (
@@ -371,7 +371,7 @@ func TestWait_CarriesTheRunsOwnFailure(t *testing.T) {
 	id := store.Start(t.Context(), _Compile(t, FAILING))
 
 	_, err := store.Wait(t.Context(), id)
-	if !errors.Is(err, scheduler.ErrAssert) {
+	if !errors.Is(err, core.ErrAssert) {
 		t.Fatalf("want an assertion, got %v", err)
 	}
 }

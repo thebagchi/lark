@@ -649,21 +649,55 @@ func TestOf_CarriesParameters(t *testing.T) {
 	t.Fatal("want record among the functions")
 }
 
-// TestOf_GivesUpOnASignatureItCannotCarry records the one shape params cannot
+// TestOf_RefusesASignatureItCannotCarry records the one shape params cannot
 // hold. Carrying the bare name would change the program: a call relying on the
-// default would raise instead of defaulting.
+// default would raise instead of defaulting - which is what a giving-up used to
+// do, emitting def greet() over a body that read who.
 //
 // Revisions:
-//   - 2026-09-21 01:32: initial creation
-func TestOf_GivesUpOnASignatureItCannotCarry(t *testing.T) {
-	report := _Derived(t, "def main(x = 1):\n    print(x)\n")
+//   - 2026-09-21 01:32: initial creation, as TestOf_GivesUpOnASignatureItCannotCarry
+//   - 2026-09-21 08:09: a refusal, since the graph it recorded generated a
+//     program the script was not
+func TestOf_RefusesASignatureItCannotCarry(t *testing.T) {
+	for _, def := range []string{"def main(x = 1):", "def main(*rest):", "def main(**named):"} {
+		t.Run(def, func(t *testing.T) {
+			_, err := graph.Of([]byte(def+"\n    print(1)\n"), SOURCED, nil)
+			if !errors.Is(err, graph.ErrSignature) {
+				t.Fatalf("want ErrSignature, got %v", err)
+			}
 
-	if len(report.Unknown) != 1 {
-		t.Fatalf("want a giving-up, got %v", report.Unknown)
+			if !strings.Contains(err.Error(), "main") {
+				t.Fatalf("want the function named, got %v", err)
+			}
+		})
 	}
+}
 
-	if !strings.Contains(report.Unknown[0], "main") {
-		t.Fatalf("want the function named, got %v", report.Unknown)
+// TestOf_ATabIndentedBodyIsDedented records that a body loses whatever its
+// def indented it with, not a count of spaces.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func TestOf_ATabIndentedBodyIsDedented(t *testing.T) {
+	report := _Derived(t, "def main():\n\ttotal = 0\n\tfor i in range(2):\n\t\ttotal += i\n\tprint(total)\n")
+
+	want := "total = 0\nfor i in range(2):\n\ttotal += i\nprint(total)"
+
+	if got := _Written(report, "main"); got != want {
+		t.Fatalf("want\n%q\ngot\n%q", want, got)
+	}
+}
+
+// TestOf_ASleepNeedsANumber records that sleep("1") states no duration, and
+// is carried in the body rather than modelled as a sleep of nothing.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func TestOf_ASleepNeedsANumber(t *testing.T) {
+	report := _Derived(t, "def step():\n    return 1\n\ndef main():\n    sleep(\"1\")\n    repeat(True, step)\n")
+
+	if got := _Spun(report); len(got) != 0 {
+		t.Fatalf("want neither statement modelled, got %v", got)
 	}
 }
 

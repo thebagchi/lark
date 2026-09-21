@@ -379,7 +379,15 @@ artifact, err := compiler.Compile("entry.star", src)   // entry + every module i
 value, err := artifact.Run(ctx)                        // calls main
 value, err := artifact.Invoke(ctx, "other")            // calls any top-level function
 units, err := artifact.Save()                          // the compiled units, as bytes
+
+ctx = runtime.WithPrinter(ctx, func(line string) { ... })   // where print goes
+ctx = runtime.WithReporter(ctx, reporter)                   // starts, ends and prints
 ```
+
+What a script prints goes to standard error unless the context says otherwise.
+`WithPrinter` collects only the lines; `WithReporter` takes a `runtime.Reporter`,
+which is told when each function starts and ends as well. One reporter per run:
+the later of the two wins.
 
 `Compile` builds the whole load graph **before anything executes**. A cycle or a
 missing entry point is refused without a single top-level statement having run,
@@ -406,8 +414,15 @@ Each is reachable with `errors.Is`, through whatever wrapping carried it.
 | `runtime.ErrNotACondition` | `assert` was given only a message |
 | `runtime.ErrCancelled` | A joined handle was cancelled |
 | `runtime.ErrNotAName` | `spawn` got something other than a zero-argument function |
+| `runtime.ErrNotAHandle` | `join` or `cancel` got something other than a handle |
+| `runtime.ErrInterrupted` | A `sleep` was cut short by the run ending |
+| `runtime.ErrDuration` | `sleep` or `timeout` got something no timer can hold |
+| `runtime.ErrNested` | `state.update` was called from inside an update, on any thread it started |
 | `runtime.ErrConflict` | Two plugins supply one name |
 | `runtime.ErrUnknown` | No run answers to that id |
+
+Every sentinel of every package the facade wraps is here. A plugin you import
+yourself - `flow`, `state`, `jsonpath` - keeps its own.
 
 ### Cancellation
 
@@ -580,8 +595,17 @@ Two plugins supplying one name is refused when a compile builds its environment,
 naming both — a shadowed builtin is a defect that otherwise surfaces much later
 as wrong behaviour somewhere else.
 
-**Registration is process-wide.** A plugin installs its names for every script
-compiled in the binary, including by code that never asked for it.
+**Registration by import is process-wide.** A plugin that registers itself from
+its `init` installs its names into the default registry, which every compiler
+uses unless told otherwise. A compiler that should see a set of its own is given
+one:
+
+```go
+mine := runtime.NewRegistry()
+mine.Register(&plugin{})
+
+compiler := runtime.NewCompiler(runtime.WithPlugins(mine))
+```
 
 ## The dialect
 

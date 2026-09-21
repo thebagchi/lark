@@ -1,9 +1,10 @@
 package graph_test
 
 import (
-	"io"
+	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/thebagchi/lark/runtime"
@@ -19,52 +20,44 @@ type _Said struct {
 	failure string
 }
 
-// _Run compiles a script and runs it, capturing what it printed.
-//
-// print has no hook in this runtime, so it reaches os.Stderr through
-// go.starlark.net's default. Capturing it means replacing that file for the
-// length of the call, which is safe here because these tests do not run in
-// parallel with each other.
+// _Run compiles a script and runs it, capturing what it printed through the
+// printer the runtime carries on its context.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 08:09: collects print through WithPrinter rather than by
+//     swapping the process's standard error
 func _Run(t *testing.T, path string, src []byte) *_Said {
 	t.Helper()
 
-	read, write, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
+	var (
+		guard   sync.Mutex
+		printed []string
+	)
 
-	held := os.Stderr
-	os.Stderr = write
+	ctx := runtime.WithPrinter(t.Context(), func(msg string) {
+		guard.Lock()
+		defer guard.Unlock()
 
-	done := make(chan string)
-
-	go func() {
-		printed, _ := io.ReadAll(read)
-		done <- string(printed)
-	}()
+		printed = append(printed, msg)
+	})
 
 	art, err := runtime.NewCompiler().Compile(path, src)
 
 	var failure string
 
 	if err == nil {
-		_, err = art.Run(t.Context())
+		_, err = art.Run(ctx)
 	}
 
 	if err != nil {
 		failure = _Unplaced(err.Error())
 	}
 
-	os.Stderr = held
+	guard.Lock()
+	defer guard.Unlock()
 
-	if err := write.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	return &_Said{printed: <-done, failure: failure}
+	return &_Said{printed: strings.Join(printed, "\n"), failure: failure}
 }
 
 // _Unplaced is a failure without the position it happened at.
@@ -113,9 +106,15 @@ func TestRoundTrip_EverySampleDerivesRegeneratesAndBehaves(t *testing.T) {
 
 			report, err := graph.Of(src, SAMPLES+name, nil)
 			if err != nil {
+				// A refusal is an answer, not a skip: it is asserted against
+				// the known set below, and here for its sentinel.
+				if !errors.Is(err, graph.ErrConstant) {
+					t.Fatalf("refused for an unexpected reason: %v", err)
+				}
+
 				refused[name] = true
 
-				t.Skipf("refused: %v", err)
+				return
 			}
 
 			if err := graph.Check(report.Graph); err != nil {
@@ -199,7 +198,9 @@ func TestRoundTrip_ASecondPassChangesNothing(t *testing.T) {
 			}
 
 			if _Uncarried(name) {
-				t.Skip("carries a dict the schema cannot order")
+				// Refused rather than derived, which the round trip asserts
+				// by sentinel; there is no second pass to compare.
+				return
 			}
 
 			once := _Emitted(t, src, SAMPLES+name)

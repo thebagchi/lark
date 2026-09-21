@@ -127,12 +127,15 @@ func _Step(at starlark.Value, step string) (starlark.Value, error) {
 //
 // Leading zeros are refused because the specification spells an index as a
 // digit sequence with no leading zero, so "01" is not 1 - it is not an index at
-// all, and treating it as one would let two spellings name one element.
+// all, and treating it as one would let two spellings name one element. A sign
+// is refused for the same reason: strconv accepts "+1", and the specification
+// does not.
 //
 // Revisions:
 //   - 2026-09-20 00:50: initial creation
+//   - 2026-09-21 08:09: digits only, so a signed step is not an index
 func _Index(step string, length int) (int, error) {
-	if step == "" || (len(step) > 1 && strings.HasPrefix(step, "0")) {
+	if !_Digits(step) || (len(step) > 1 && strings.HasPrefix(step, "0")) {
 		return 0, fmt.Errorf("%q is not an index: %w", step, ErrPointer)
 	}
 
@@ -141,9 +144,27 @@ func _Index(step string, length int) (int, error) {
 		return 0, fmt.Errorf("%q is not an index: %w", step, ErrPointer)
 	}
 
-	if index < 0 || index >= length {
+	if index >= length {
 		return 0, fmt.Errorf("%d is outside a list of %d: %w", index, length, ErrMissing)
 	}
 
 	return index, nil
+}
+
+// _Digits reports whether step is one or more decimal digits.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func _Digits(step string) bool {
+	if step == "" {
+		return false
+	}
+
+	for _, char := range step {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+
+	return true
 }

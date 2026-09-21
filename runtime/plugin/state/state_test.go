@@ -1,15 +1,18 @@
 package state_test
 
 import (
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"go.starlark.net/starlark"
 
 	"github.com/thebagchi/lark/runtime"
+	_ "github.com/thebagchi/lark/runtime/plugin/flow"
 	_ "github.com/thebagchi/lark/runtime/plugin/state"
 )
 
@@ -27,6 +30,10 @@ const (
 	MISSING_SCRIPT     = "missing.star"
 	EXPECTED_TOTAL     = "800"
 	FIRST_RUN          = "1"
+
+	// PROMPT is how long a run that should end at once may take on a loaded
+	// machine before it is called hung.
+	PROMPT = 1500 * time.Millisecond
 )
 
 // _Disk is a Loader over testdata.
@@ -207,20 +214,71 @@ func TestUpdate_SeesNoneWhenNothingIsStored(t *testing.T) {
 //   - 2026-09-20 00:48: initial creation
 //   - 2026-09-20 00:52: covers nesting the same name, which is the case that
 //     hangs rather than merely risking it
+//   - 2026-09-21 08:09: covers nesting through a spawn and through a timeout,
+//     which used to hang forever, and matches the sentinel
 func TestUpdate_RefusesToNest(t *testing.T) {
-	for _, script := range []string{NESTED_SCRIPT, SAMEKEY_SCRIPT} {
+	scripts := []string{
+		NESTED_SCRIPT,
+		SAMEKEY_SCRIPT,
+		"nested_through_spawn.star",
+		"nested_through_timeout.star",
+	}
+
+	for _, script := range scripts {
 		t.Run(script, func(t *testing.T) {
+			started := time.Now()
+
 			_, err := _Built(t, script).Run(t.Context())
-			if err == nil {
-				t.Fatal("an update started another")
+			if !errors.Is(err, runtime.ErrNested) {
+				t.Fatalf("want ErrNested, got %v", err)
 			}
 
 			if !strings.Contains(err.Error(), "cannot start another") {
-				t.Fatalf("refused for some other reason: %v", err)
+				t.Fatalf("refused without saying so: %v", err)
 			}
 
-			t.Logf("refused: %v", err)
+			if time.Since(started) > PROMPT {
+				t.Fatalf("a refusal took %s", time.Since(started))
+			}
 		})
+	}
+}
+
+// TestUpdate_AContendedNameEndsWithTheRun is review defect E's other half: a
+// thread waiting for a name another thread holds must wake when the run
+// ends, which a mutex cannot do.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func TestUpdate_AContendedNameEndsWithTheRun(t *testing.T) {
+	started := time.Now()
+
+	_, err := _Built(t, "contended.star").Run(t.Context())
+	if !errors.Is(err, runtime.ErrAssert) {
+		t.Fatalf("want the assertion, got %v", err)
+	}
+
+	if time.Since(started) > PROMPT {
+		t.Fatalf("a run with a thread blocked on a lock took %s to end", time.Since(started))
+	}
+}
+
+// TestState_CopiesATuple is review defect B: a stored value holding a tuple
+// could not be read back, because the copy looked every value up in a Go map
+// and a tuple is a slice.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func TestState_CopiesATuple(t *testing.T) {
+	value, err := _Built(t, "tuple.star").Run(t.Context())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	want := `[(1, 2), [("a", 1), {"k": ("b", 2)}]]`
+
+	if value.String() != want {
+		t.Fatalf("got %s, want %s", value.String(), want)
 	}
 }
 

@@ -6,16 +6,40 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// _Set returns doc with the value at steps replaced, or inserted when insert is
-// true and the last step names a list position.
+// _Insert returns doc with value added at steps: a new member of a dict, or
+// an element inserted before a list position, "-" meaning after the last.
 //
 // Nothing is mutated. Every container along the path is copied and the rest is
 // shared, so a document that is frozen, or reachable from another thread, is
 // safe to patch.
 //
 // Revisions:
-//   - 2026-09-20 01:03: initial creation
-func _Set(doc starlark.Value, steps []string, value starlark.Value, insert bool) (starlark.Value, error) {
+//   - 2026-09-20 01:03: initial creation, as _Set with a flag
+//   - 2026-09-21 08:09: one of two functions where a flag chose between them
+func _Insert(doc starlark.Value, steps []string, value starlark.Value) (starlark.Value, error) {
+	return _Descend(doc, steps, value, _PlaceNew)
+}
+
+// _Replace returns doc with the value at steps replaced. The path must exist,
+// which the caller has checked.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func _Replace(doc starlark.Value, steps []string, value starlark.Value) (starlark.Value, error) {
+	return _Descend(doc, steps, value, _PlaceOver)
+}
+
+// _Descend copies the containers along steps and lets place decide what the
+// last one does with value; every container above it has its child replaced.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func _Descend(
+	doc starlark.Value,
+	steps []string,
+	value starlark.Value,
+	place func(starlark.Value, string, starlark.Value) (starlark.Value, error),
+) (starlark.Value, error) {
 	if len(steps) == 0 {
 		return value, nil
 	}
@@ -23,7 +47,7 @@ func _Set(doc starlark.Value, steps []string, value starlark.Value, insert bool)
 	step := steps[0]
 
 	if len(steps) == 1 {
-		return _Place(doc, step, value, insert)
+		return place(doc, step, value)
 	}
 
 	child, err := _Step(doc, step)
@@ -31,25 +55,44 @@ func _Set(doc starlark.Value, steps []string, value starlark.Value, insert bool)
 		return nil, fmt.Errorf("%s: %w", step, err)
 	}
 
-	replaced, err := _Set(child, steps[1:], value, insert)
+	replaced, err := _Descend(child, steps[1:], value, place)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Place(doc, step, replaced, false)
+	return _PlaceOver(doc, step, replaced)
 }
 
-// _Place returns a copy of holder with step set to value.
+// _PlaceNew returns a copy of holder with value added under step: a member
+// set, or an element inserted.
 //
 // Revisions:
-//   - 2026-09-20 01:04: initial creation
-func _Place(holder starlark.Value, step string, value starlark.Value, insert bool) (starlark.Value, error) {
+//   - 2026-09-20 01:04: initial creation, as _Place with a flag
+//   - 2026-09-21 08:09: the inserting half
+func _PlaceNew(holder starlark.Value, step string, value starlark.Value) (starlark.Value, error) {
 	switch container := holder.(type) {
 	case *starlark.Dict:
 		return _Put(container, step, value)
 
 	case *starlark.List:
-		return _Splice(container, step, value, insert)
+		return _SpliceIn(container, step, value)
+
+	default:
+		return nil, fmt.Errorf("%s %w", holder.Type(), ErrKind)
+	}
+}
+
+// _PlaceOver returns a copy of holder with what step names replaced by value.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func _PlaceOver(holder starlark.Value, step string, value starlark.Value) (starlark.Value, error) {
+	switch container := holder.(type) {
+	case *starlark.Dict:
+		return _Put(container, step, value)
+
+	case *starlark.List:
+		return _SpliceOver(container, step, value)
 
 	default:
 		return nil, fmt.Errorf("%s %w", holder.Type(), ErrKind)
@@ -78,44 +121,36 @@ func _Put(holder *starlark.Dict, step string, value starlark.Value) (starlark.Va
 	return made, nil
 }
 
-// _Splice returns a copy of the list with one element replaced, or with value
-// inserted at that position when insert is true.
-//
-// The step "-" names the position after the last element, which is how RFC 6901
-// spells "append" - and it is only meaningful when inserting, because there is
-// nothing there to replace.
+// _Elements is a list's elements in a slice with room for one more.
 //
 // Revisions:
-//   - 2026-09-20 01:06: initial creation
-func _Splice(holder *starlark.List, step string, value starlark.Value, insert bool) (starlark.Value, error) {
+//   - 2026-09-21 08:09: initial creation
+func _Elements(holder *starlark.List) []starlark.Value {
 	elements := make([]starlark.Value, 0, holder.Len()+1)
 
 	for index := range holder.Len() {
 		elements = append(elements, holder.Index(index))
 	}
 
-	if step == APPEND {
-		if !insert {
-			return nil, fmt.Errorf("%q names no element: %w", APPEND, ErrMissing)
-		}
+	return elements
+}
 
+// _SpliceIn returns a copy of the list with value inserted at step, which may
+// be "-": RFC 6901's spelling of the position after the last element.
+//
+// Revisions:
+//   - 2026-09-20 01:06: initial creation, as _Splice with a flag
+//   - 2026-09-21 08:09: the inserting half
+func _SpliceIn(holder *starlark.List, step string, value starlark.Value) (starlark.Value, error) {
+	elements := _Elements(holder)
+
+	if step == APPEND {
 		return starlark.NewList(append(elements, value)), nil
 	}
 
-	length := holder.Len()
-	if insert {
-		length++
-	}
-
-	index, err := _Index(step, length)
+	index, err := _Index(step, holder.Len()+1)
 	if err != nil {
 		return nil, err
-	}
-
-	if !insert {
-		elements[index] = value
-
-		return starlark.NewList(elements), nil
 	}
 
 	elements = append(elements, nil)
@@ -125,10 +160,33 @@ func _Splice(holder *starlark.List, step string, value starlark.Value, insert bo
 	return starlark.NewList(elements), nil
 }
 
+// _SpliceOver returns a copy of the list with the element at step replaced.
+//
+// "-" names no element, so it is refused: there is nothing there to replace.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func _SpliceOver(holder *starlark.List, step string, value starlark.Value) (starlark.Value, error) {
+	if step == APPEND {
+		return nil, fmt.Errorf("%q names no element: %w", APPEND, ErrMissing)
+	}
+
+	index, err := _Index(step, holder.Len())
+	if err != nil {
+		return nil, err
+	}
+
+	elements := _Elements(holder)
+	elements[index] = value
+
+	return starlark.NewList(elements), nil
+}
+
 // _Delete returns doc without whatever steps names.
 //
 // Revisions:
 //   - 2026-09-20 01:07: initial creation
+//   - 2026-09-21 08:09: replaces the shortened child through _PlaceOver
 func _Delete(doc starlark.Value, steps []string) (starlark.Value, error) {
 	step := steps[0]
 
@@ -146,7 +204,7 @@ func _Delete(doc starlark.Value, steps []string) (starlark.Value, error) {
 		return nil, err
 	}
 
-	return _Place(doc, step, shortened, false)
+	return _PlaceOver(doc, step, shortened)
 }
 
 // _Drop returns a copy of holder without step.
@@ -194,45 +252,16 @@ func _Drop(holder starlark.Value, step string) (starlark.Value, error) {
 	}
 }
 
-// _Equal reports whether two values are deeply equal, comparing an int and a
-// float of the same magnitude as equal.
+// _Equal reports whether two values are deeply equal.
 //
-// RFC 6902's test operation compares JSON values, where 1 and 1.0 are one
-// number. Starlark keeps them apart, so a document decoded from JSON and a
-// literal written in a script would otherwise fail to match for a reason that
-// has nothing to do with the script.
+// The interpreter's own equality, which already treats 1 and 1.0 as one
+// number at any depth - measured 2026-09-21: 1 == 1.0, [1] == [1.0] and
+// {"a": 1} == {"a": 1.0} are all True. A special case for numbers used to sit
+// here and duplicated that.
 //
 // Revisions:
 //   - 2026-09-20 01:09: initial creation
+//   - 2026-09-21 08:09: the interpreter's equality alone
 func _Equal(left starlark.Value, right starlark.Value) (bool, error) {
-	_, leftNumber := _Float(left)
-	_, rightNumber := _Float(right)
-
-	if leftNumber && rightNumber {
-		first, _ := _Float(left)
-		second, _ := _Float(right)
-
-		return first == second, nil
-	}
-
 	return starlark.EqualDepth(left, right, starlark.CompareLimit)
-}
-
-// _Float returns a value as a float when it is a number.
-//
-// Revisions:
-//   - 2026-09-20 01:10: initial creation
-func _Float(value starlark.Value) (float64, bool) {
-	switch number := value.(type) {
-	case starlark.Int:
-		got, _ := starlark.AsFloat(number)
-
-		return got, true
-
-	case starlark.Float:
-		return float64(number), true
-
-	default:
-		return 0, false
-	}
 }

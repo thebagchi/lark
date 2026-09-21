@@ -1,6 +1,8 @@
 package observe
 
 import (
+	"fmt"
+	"os"
 	"sort"
 	"sync"
 
@@ -25,6 +27,8 @@ type _Recorder struct {
 	order []_Where
 	lanes map[string]bool
 	cause *workflowpb.Cause
+
+	print func(string)
 }
 
 // _Where is a node's identity: which function, on which thread.
@@ -38,15 +42,45 @@ type _Where struct {
 	name   string
 }
 
-// _NewRecorder returns a recorder that has been told nothing.
+// _NewRecorder returns a recorder that has been told nothing, and that hands
+// what a script prints to standard error until a host says otherwise.
+//
+// Standard error because that is where the interpreter's own default writes,
+// so a host that says nothing sees what it always saw.
 //
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
+//   - 2026-09-21 09:46: prints to standard error by default
 func _NewRecorder() *_Recorder {
 	return &_Recorder{
 		nodes: make(map[_Where]*workflowpb.Node),
 		lanes: make(map[string]bool),
+		print: _Stderr,
 	}
+}
+
+// _Stderr writes one printed line where the interpreter's default would.
+//
+// Revisions:
+//   - 2026-09-21 09:46: initial creation
+func _Stderr(msg string) {
+	_, err := fmt.Fprintln(os.Stderr, msg)
+	if err != nil {
+		// Nothing further to tell: the channel that failed is the one a
+		// failure would be told on.
+		return
+	}
+}
+
+// Printed hands a script's line to whatever the host asked for.
+//
+// Not recorded in the snapshot: a Workflow carries statuses, and where a run's
+// log lives is another increment. This is the hook it will hang on.
+//
+// Revisions:
+//   - 2026-09-21 09:46: initial creation
+func (r *_Recorder) Printed(thread string, msg string) {
+	r.print(msg)
 }
 
 // _Resolve is the name to report for a function on a thread.
@@ -130,7 +164,7 @@ func (r *_Recorder) Ended(thread string, name string, err error) {
 	node.Status = _Became(err)
 	node.Failure = _Why(err)
 
-	r._Blame(where, node)
+	r._Blame(&where, node)
 }
 
 // _Blame remembers the first function to fail, which is the one that ended the
@@ -149,7 +183,8 @@ func (r *_Recorder) Ended(thread string, name string, err error) {
 //   - 2026-09-20 11:39: initial creation
 //   - 2026-09-21 01:21: takes the node's identity, which the key holds, so the
 //     message needs no thread of its own
-func (r *_Recorder) _Blame(where _Where, node *workflowpb.Node) {
+//   - 2026-09-21 08:09: reached through a pointer, as every struct here is
+func (r *_Recorder) _Blame(where *_Where, node *workflowpb.Node) {
 	if r.cause != nil || node.GetStatus() != workflowpb.Status_STATUS_FAILED {
 		return
 	}
@@ -354,6 +389,8 @@ func _Names(step *workflowpb.Step) string {
 //
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
+//   - 2026-09-21 08:09: clones through the typed clone, so nothing is
+//     silently dropped on a failed assertion that cannot fail
 func (r *_Recorder) _Threads() []*workflowpb.Thread {
 	r.guard.Lock()
 	defer r.guard.Unlock()
@@ -381,15 +418,10 @@ func (r *_Recorder) _Threads() []*workflowpb.Thread {
 
 		// Cloned, not aliased. The recorder keeps writing to its nodes after a
 		// snapshot is handed out, so sharing one would let a finished report
-		// change under whoever is reading it. proto.Clone rather than copying
+		// change under whoever is reading it. A clone rather than a copy of
 		// the fields, because a field added to Node later would be dropped by
 		// a copy and nothing would say so.
-		copied, ok := proto.Clone(node).(*workflowpb.Node)
-		if !ok {
-			continue
-		}
-
-		live.Nodes = append(live.Nodes, copied)
+		live.Nodes = append(live.Nodes, proto.CloneOf(node))
 	}
 
 	sort.Slice(numbers, func(i, j int) bool {

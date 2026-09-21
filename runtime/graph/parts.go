@@ -186,3 +186,25 @@ func _Pairs(items []syntax.Expr) (*structpb.Value, bool) {
 
 	return structpb.NewStructValue(fields), true
 }
+
+// _Quantity is the number an expression states, and whether it states one.
+//
+// A sleep or a wrapper wants a number, and _Arg answers for any literal: read
+// through GetNumberValue a string or a bool is a zero, so sleep("1") became a
+// sleep of nothing rather than a statement the graph does not model.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+func _Quantity(expr syntax.Expr) (float64, bool) {
+	value, ok := _Arg(expr)
+	if !ok {
+		return 0, false
+	}
+
+	number, ok := value.GetKind().(*structpb.Value_NumberValue)
+	if !ok {
+		return 0, false
+	}
+
+	return number.NumberValue, true
+}

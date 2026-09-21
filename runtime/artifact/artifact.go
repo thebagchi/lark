@@ -13,7 +13,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	artifactpb "github.com/thebagchi/lark/proto/gen/artifact"
-	"github.com/thebagchi/lark/runtime/guard"
 	"github.com/thebagchi/lark/runtime/plugin"
 	"github.com/thebagchi/lark/runtime/scheduler"
 )
@@ -37,9 +36,12 @@ type Option func(c *Compiler)
 
 // Compiler builds artifacts. The loader it holds is how every compile it runs
 // reaches a module; a Compiler without one resolves modules against the
-// directory of the file that loaded them.
+// directory of the file that loaded them. The registry is where its scripts'
+// names come from; without one it is the default, which every plugin's init
+// registers into.
 type Compiler struct {
-	loader Loader
+	loader   Loader
+	registry *plugin.Registry
 }
 
 // _Unit is one compiled file inside an artifact.
@@ -78,9 +80,11 @@ type Artifact struct {
 //
 // Revisions:
 //   - 2026-09-19 20:15: initial creation
+//   - 2026-09-21 09:46: starts from the default registry
 func NewCompiler(opts ...Option) *Compiler {
 	compiler := &Compiler{
-		loader: &_Dir{},
+		loader:   &_Dir{},
+		registry: plugin.DEFAULT,
 	}
 
 	for _, opt := range opts {
@@ -97,6 +101,20 @@ func NewCompiler(opts ...Option) *Compiler {
 func WithLoader(loader Loader) Option {
 	return func(c *Compiler) {
 		c.loader = loader
+	}
+}
+
+// WithPlugins makes a Compiler give its scripts the names in registry rather
+// than the default one's.
+//
+// Two compilers in one process can then see different plugins, and a test can
+// build an environment without touching what every other test sees.
+//
+// Revisions:
+//   - 2026-09-21 09:46: initial creation
+func WithPlugins(registry *plugin.Registry) Option {
+	return func(c *Compiler) {
+		c.registry = registry
 	}
 }
 
@@ -117,12 +135,13 @@ func WithLoader(loader Loader) Option {
 //   - 2026-09-19 18:26: initial creation
 //   - 2026-09-19 20:16: a method on Compiler, which holds the loader, so a host
 //     configures reaching modules once rather than at every call
+//   - 2026-09-21 09:46: reads the environment from the registry it holds
 func (c *Compiler) Compile(name string, src []byte) (*Artifact, error) {
 	// Built once, here, and used for every unit and for linking. Rebuilding it
 	// per unit would let a plugin hand each unit a different value under one
 	// name, and would resolve a script against one environment while
 	// initialising it against another.
-	env, err := plugin.Environment()
+	env, err := c.registry.Environment()
 	if err != nil {
 		return nil, fmt.Errorf("compile %s: %w", name, err)
 	}
@@ -142,29 +161,29 @@ func (c *Compiler) Compile(name string, src []byte) (*Artifact, error) {
 	return _Link(name, env, graph.units, graph.order)
 }
 
-// Invoke calls the global named fn on an interpreter thread of its own and
-// returns what it produced, once everything it spawned has stopped.
+// Invoke calls the global named fn as a run of its own and returns what it
+// produced, once everything it spawned has stopped.
 //
 // Every invocation is a run of its own: it numbers its own spine 0 and its
 // spawns from 1, so two invocations of one artifact produce two independent
 // numberings. That is what makes a recorded graph comparable with a later run
 // of the same function.
 //
-// It does not return until every thread it started has stopped. A handle
-// nobody joined is cancelled rather than waited for, so a forgotten spawn
-// cannot hold a call open.
+// What a run produced, and how a failure is reported, are the scheduler's
+// rules and are applied by Evaluate; this only finds the function.
 //
 // Returns ErrNoGlobal if fn names nothing, ErrNotCallable if it names something
-// that is not a function, and wraps whatever the script raised otherwise -
-// including a failure re-raised from a join, and the interpreter's own message
-// when ctx ended the call. A failure arriving with ctx already done also wraps
-// ctx's own error, so a caller who stopped the run can say that is why.
+// that is not a function, and otherwise whatever Evaluate returns.
 //
 // Revisions:
 //   - 2026-09-19 22:40: initial creation
 //   - 2026-09-20 01:41: wraps the context's error when a failure arrives with
 //     it already done, so a cancelled run is identifiable wherever the cancel
 //     happened to land
+//   - 2026-09-21 08:09: drops a branch nothing could reach, since both
+//     sentinels it matched are returned before the call is made
+//   - 2026-09-21 09:46: the run itself moved to scheduler.Evaluate, which owns
+//     the rules it applies
 func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error) {
 	value, found := a.globals[fn]
 	if !found {
@@ -176,62 +195,7 @@ func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error
 		return nil, fmt.Errorf("invoke %s: %w", fn, ErrNotCallable)
 	}
 
-	thread := &starlark.Thread{Name: fn}
-
-	finish := scheduler.Begin(ctx, thread, fn)
-
-	var (
-		result starlark.Value
-		err    error
-	)
-
-	guard.WithRecover(
-		&result,
-		&err,
-		func() (starlark.Value, error) {
-			return starlark.Call(thread, target, nil, nil)
-		},
-	)
-
-	// Ended before the cause is read, not deferred. Ending a run waits for
-	// every thread it started, and a thread still running is a thread that can
-	// still assert. Reading the cause first let a run that had been stopped
-	// report success, because the spine happened to return before the
-	// assertion landed.
-	finish()
-
-	// The run's outcome is the answer when there is one, whatever this call
-	// returned. A script that asserted in a thread nobody joined still failed;
-	// a spine that returned a value while the run was being torn down did not
-	// succeed.
-	outcome := scheduler.Outcome(thread)
-	if outcome != nil {
-		return nil, outcome
-	}
-
-	if err != nil {
-		// A caller who stopped this run should be able to say so, and could
-		// not. The interpreter raises its own cancellation as text - it is
-		// handed a reason string, not an error - so a cancel landing on the
-		// spine produced a failure nothing could match against, while the same
-		// cancel landing on a spawned thread produced one that could. Measured
-		// at 7 runs in 40 taking the unmatchable path.
-		if ctx.Err() != nil && !errors.Is(err, ctx.Err()) {
-			return nil, fmt.Errorf("%w: %w", err, ctx.Err())
-		}
-
-		// Wrapped with the function only when something above would otherwise
-		// not say which one ran. A Starlark error carries its own backtrace,
-		// and a re-raised join failure already names the thread that failed,
-		// so "invoke main:" in front of either is a clause that adds nothing.
-		if errors.Is(err, ErrNoGlobal) || errors.Is(err, ErrNotCallable) {
-			return nil, fmt.Errorf("%s: %w", fn, err)
-		}
-
-		return nil, err
-	}
-
-	return result, nil
+	return scheduler.Evaluate(ctx, fn, target)
 }
 
 // Run calls the entry point.

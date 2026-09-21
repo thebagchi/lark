@@ -43,6 +43,7 @@ const (
 //
 // Revisions:
 //   - 2026-09-20 00:53: initial creation
+//   - 2026-09-21 08:09: one keyword per case
 func _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 	kind, err := _Field(op, OP)
 	if err != nil {
@@ -50,7 +51,9 @@ func _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 	}
 
 	switch kind {
-	case ADD, REPLACE:
+	case ADD:
+		fallthrough
+	case REPLACE:
 		return _Write(doc, op, kind)
 
 	case REMOVE:
@@ -61,7 +64,9 @@ func _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 
 		return _Remove(doc, path)
 
-	case MOVE, COPY:
+	case MOVE:
+		fallthrough
+	case COPY:
 		return _Relocate(doc, op, kind)
 
 	case TEST:
@@ -111,6 +116,8 @@ func _Value(op *starlark.Dict) (starlark.Value, error) {
 //
 // Revisions:
 //   - 2026-09-20 00:56: initial creation
+//   - 2026-09-21 08:09: inserts or replaces through two functions rather than
+//     one with a flag
 func _Write(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Value, error) {
 	path, err := _Field(op, PATH)
 	if err != nil {
@@ -127,14 +134,16 @@ func _Write(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Value,
 		return nil, err
 	}
 
-	if kind == REPLACE {
-		_, err = _Walk(doc, steps)
-		if err != nil {
-			return nil, err
-		}
+	if kind == ADD {
+		return _Insert(doc, steps, value)
 	}
 
-	return _Set(doc, steps, value, kind == ADD)
+	_, err = _Walk(doc, steps)
+	if err != nil {
+		return nil, err
+	}
+
+	return _Replace(doc, steps, value)
 }
 
 // _Remove deletes what path names.
@@ -163,10 +172,13 @@ func _Remove(doc starlark.Value, path string) (starlark.Value, error) {
 //
 // A move out of a path into its own child is refused: the source would have to
 // exist inside the value being moved, and RFC 6902 names this as an error
-// rather than leaving the result to an implementation.
+// rather than leaving the result to an implementation. A move onto itself is
+// allowed, as the specification allows it, and changes nothing.
 //
 // Revisions:
 //   - 2026-09-20 00:58: initial creation
+//   - 2026-09-21 08:09: inserts through _Insert; a move onto itself is a no-op
+//     rather than a refusal
 func _Relocate(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Value, error) {
 	from, err := _Field(op, FROM)
 	if err != nil {
@@ -204,15 +216,19 @@ func _Relocate(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Val
 		}
 	}
 
-	return _Set(doc, target, value, true)
+	return _Insert(doc, target, value)
 }
 
-// _Inside reports whether target is at or below source.
+// _Inside reports whether target is strictly below source.
+//
+// Strictly: RFC 6902 forbids a "from" that is a proper prefix of "path", and
+// says nothing against the two being equal.
 //
 // Revisions:
 //   - 2026-09-20 00:59: initial creation
+//   - 2026-09-21 08:09: a path equal to its source is not inside it
 func _Inside(source []string, target []string) bool {
-	if len(target) < len(source) {
+	if len(target) <= len(source) {
 		return false
 	}
 

@@ -7,15 +7,14 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/thebagchi/lark/runtime/plugin/core"
 	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
 // ErrTimeout is returned when a bounded call runs out of time.
 var ErrTimeout = errors.New("timed out")
 
-const SECOND = float64(time.Second)
-
-// _Retry returns a callable that calls its target until one attempt succeeds.
+// _Retry calls its target until one attempt succeeds.
 //
 // It retries **only** an assertion. Anything else - a fail(), a cancelled
 // handle, a builtin that refused - propagates at once and is not attempted
@@ -24,21 +23,22 @@ const SECOND = float64(time.Second)
 // cannot work".
 //
 // An assertion normally ends the whole run. Inside here it ends only the
-// attempt, because the thread each attempt runs on is marked as catching. An unhandled failure stops everything; a handled one does not, which is
-// what an exception language would call catching without a script gaining try.
-//
-// After the last attempt the assertion propagates as it would have anyway, so a
-// retry that never succeeds ends the run exactly as a bare assertion does.
+// attempt, because each attempt runs as an evaluation that is catching. After
+// the last attempt the assertion fails through the scheduler as any assertion
+// does - so a retry that never succeeds ends the run exactly as a bare
+// assertion would, and inside an outer retry it is one failed attempt of that.
 //
 // Revisions:
 //   - 2026-09-20 01:16: initial creation
+//   - 2026-09-21 08:09: each attempt is Beside, catching, on the caller's lane;
+//     giving up fails through Fail rather than ending the run outright
 func _Retry(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	target, attempts, err := _Named(fn.Name(), args, kwargs)
+	target, attempts, err := _Counted(fn.Name(), args, kwargs)
 	if err != nil {
 		return nil, err
 	}
@@ -47,15 +47,15 @@ func _Retry(
 
 	var last error
 
-	for attempt := ONCE; attempt <= attempts; attempt++ {
-		value, err := _Await(thread, target, attempt, true, nil, nil)
+	for attempt := int32(ONCE); attempt <= attempts; attempt++ {
+		value, err := _Attempted(thread, target, attempt, scheduler.Catching())
 		if err == nil {
 			_Finished(thread, target.Name(), nil)
 
 			return value, nil
 		}
 
-		if !errors.Is(err, scheduler.ErrAssert) {
+		if !errors.Is(err, core.ErrAssert) {
 			failed := fmt.Errorf("%s attempt %d: %w", name, attempt, err)
 
 			_Finished(thread, target.Name(), failed)
@@ -66,50 +66,26 @@ func _Retry(
 		last = err
 	}
 
-	exhausted := _Exhausted(thread, name, attempts, last)
+	exhausted := fmt.Errorf("%s gave up after %d attempts: %w", name, attempts, last)
 
 	_Finished(thread, target.Name(), exhausted)
 
-	return nil, exhausted
+	return nil, scheduler.Fail(thread, exhausted)
 }
 
-// _Exhausted reports the last assertion after every attempt has failed, and
-// lets it end the run.
+// _Timeout gives its target a limited time to finish.
 //
-// The attempts were caught so that each could fail alone. The last one is not:
-// a retry that never succeeded is a failure nothing handled, and must behave
-// like the bare assertion it started as.
-//
-// Revisions:
-//   - 2026-09-20 01:19: initial creation
-func _Exhausted(
-	thread *starlark.Thread,
-	who string,
-	attempts int,
-	last error,
-) error {
-	failure := fmt.Errorf("%s gave up after %d attempts: %w", who, attempts, last)
-
-	scheduler.End(thread, failure)
-
-	return failure
-}
-
-// _Timeout returns a callable that gives its target a limited time to finish.
-//
-// The target runs on a goroutine and an interpreter thread of its own, because
-// the caller has to be able to stop waiting - and a Starlark thread cannot be
-// shared across goroutines. When the time runs out the child is cancelled, and
-// this waits for it to actually stop before returning.
-//
-// Waiting is the part worth stating. A cancelled evaluation stops at its next
-// instruction, so returning as soon as the clock ran out would let the child go
-// on writing state after its caller had been told the call failed. Waiting
-// costs nothing when the child is Starlark - a cancel reaches it at once - and
-// is bounded by the same rule every blocking builtin here follows.
+// The target runs beside the caller on the caller's own lane, because the
+// caller has to be able to stop waiting. When the time runs out the evaluation
+// is cancelled, and this waits for it to actually stop before returning: a
+// cancelled evaluation stops at its next instruction, so returning as soon as
+// the clock ran out would let it go on writing state after its caller had
+// been told the call failed. Everything blocking inside it observes the same
+// cancel, join included, so the wait is short.
 //
 // Revisions:
 //   - 2026-09-20 01:21: initial creation
+//   - 2026-09-21 08:09: Beside, inline; reads its budget through Duration
 func _Timeout(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -126,74 +102,67 @@ func _Timeout(
 		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
 	}
 
-	// A number, not a float, so timeout(fn, 5) works as well as timeout(fn, 0.5).
-	seconds, ok := starlark.AsFloat(given)
-	if !ok {
-		return nil, fmt.Errorf("%s got %s: %w", fn.Name(), given.Type(), ErrCount)
+	budget, err := scheduler.Duration(given)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
 	}
 
-	if seconds <= 0 {
-		return nil, fmt.Errorf("%s got %g seconds: %w", fn.Name(), seconds, ErrCount)
+	name := fmt.Sprintf("%s(%s, %s)", TIMEOUT, given.String(), target.Name())
+
+	value, err := _Bounded(thread, target, budget)
+	if err != nil {
+		failed := fmt.Errorf("%s: %w", name, err)
+
+		_Finished(thread, target.Name(), failed)
+
+		return nil, failed
 	}
 
-	name := fmt.Sprintf("%s(%g, %s)", TIMEOUT, seconds, target.Name())
+	_Finished(thread, target.Name(), nil)
 
-	return _Bounded(thread, name, target, seconds, nil, nil)
+	return value, nil
 }
 
-// _Bounded runs target beside the caller and gives it seconds to finish.
+// _Bounded runs target beside the caller and gives it budget to finish.
+//
+// Three ways out. The evaluation ends on its own and its result is returned.
+// The clock runs out, the evaluation is stopped and waited for, and the
+// failure is ErrTimeout. The caller's own evaluation is cancelled, which the
+// bounded one descends from, so it ends too and Wait says why.
 //
 // Revisions:
 //   - 2026-09-20 01:23: initial creation
-//   - 2026-09-20 01:29: shares _Aside with repeat and retry, which differ from
-//     this only in having no deadline to wait against
+//   - 2026-09-21 08:09: Beside and Wait, taking a duration already read
 func _Bounded(
 	thread *starlark.Thread,
-	who string,
 	target *starlark.Function,
-	seconds float64,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
+	budget time.Duration,
 ) (starlark.Value, error) {
-	// UNCOUNTED, not ONCE: a timeout makes one call rather than attempts, and
-	// its progress is time against a budget, which nothing here reports. A
-	// timeout node is indistinguishable from a plain call, which is right - the
-	// wrapping is the caller's business, not the function's.
-	done, stop, err := _Aside(thread, target, UNCOUNTED, false, args, kwargs)
+	handle, err := scheduler.Beside(thread, target, scheduler.Inline())
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", who, err)
+		return nil, err
 	}
 
-	defer stop()
+	_Began(thread, target.Name(), scheduler.NO_ATTEMPT)
 
-	timer := time.NewTimer(time.Duration(seconds * SECOND))
+	ctx, err := scheduler.Context(thread)
+	if err != nil {
+		return nil, err
+	}
+
+	timer := time.NewTimer(budget)
 	defer timer.Stop()
 
 	select {
-	case got := <-done:
-		if got.err != nil {
-			failed := fmt.Errorf("%s: %w", who, got.err)
-
-			_Finished(thread, target.Name(), failed)
-
-			return nil, failed
-		}
-
-		_Finished(thread, target.Name(), nil)
-
-		return got.value, nil
-
+	case <-handle.Done():
+	case <-ctx.Done():
 	case <-timer.C:
-		stop()
+		handle.Stop()
 
-		// Waited for, not merely cancelled: a child that stops at its next
-		// instruction could otherwise still write state after this returned.
-		<-done
+		<-handle.Done()
 
-		expired := fmt.Errorf("%s: %w", who, ErrTimeout)
-
-		_Finished(thread, target.Name(), expired)
-
-		return nil, expired
+		return nil, ErrTimeout
 	}
+
+	return scheduler.Wait(thread, handle)
 }

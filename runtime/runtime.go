@@ -4,9 +4,9 @@
 // artifact, a handle - are the subpackages' own types under another name, so a
 // value crosses this boundary without conversion.
 //
-// Importing this package is also what gives a script spawn, join, cancel and
-// assert: the init below registers them, and it is the only place that can,
-// being the only package that imports both the scheduler and the registry.
+// Importing this package is also what gives a script spawn, join, cancel,
+// assert and sleep: it imports the core plugin, which registers them the way
+// every plugin registers itself.
 package runtime
 
 import (
@@ -18,6 +18,7 @@ import (
 	"github.com/thebagchi/lark/runtime/artifact"
 	"github.com/thebagchi/lark/runtime/observe"
 	"github.com/thebagchi/lark/runtime/plugin"
+	"github.com/thebagchi/lark/runtime/plugin/core"
 	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
@@ -25,21 +26,30 @@ import (
 // runtime.Artifact and an artifact.Artifact are the same type, so nothing has
 // to be converted at this boundary and a host never holds two names for one
 // thing.
+//
+// CompilerOption is named for what it configures, because observe has an
+// Option of its own and a bare Option here would claim to be the only one.
 type (
-	Artifact = artifact.Artifact
-	Compiler = artifact.Compiler
-	Loader   = artifact.Loader
-	Option   = artifact.Option
-	Handle   = scheduler.Handle
-	Plugin   = plugin.Plugin
-	Store    = observe.Store
-	Workflow = workflowpb.Workflow
-	Graph    = workflowpb.Graph
+	Artifact       = artifact.Artifact
+	Compiler       = artifact.Compiler
+	Loader         = artifact.Loader
+	CompilerOption = artifact.Option
+	Handle         = scheduler.Handle
+	Reporter       = scheduler.Reporter
+	Plugin         = plugin.Plugin
+	Registry       = plugin.Registry
+	Store          = observe.Store
+	Workflow       = workflowpb.Workflow
+	Graph          = workflowpb.Graph
 )
 
 // The failures a host can act on. Each is the subpackage's own value, so
 // errors.Is matches whether a host names it through this package or through
 // the one that raised it.
+//
+// The rule for what is here: every sentinel of every package this file
+// imports. A plugin a host chooses to import - flow, state, jsonpath - keeps
+// its own, because the host already names that package.
 var (
 	ErrCycle         = artifact.ErrCycle
 	ErrNoGlobal      = artifact.ErrNoGlobal
@@ -47,12 +57,16 @@ var (
 	ErrNoMain        = artifact.ErrNoMain
 	ErrNoUnit        = artifact.ErrNoUnit
 	ErrNotCallable   = artifact.ErrNotCallable
-	ErrAssert        = scheduler.ErrAssert
-	ErrNotACondition = scheduler.ErrNotACondition
+	ErrAssert        = core.ErrAssert
+	ErrNotACondition = core.ErrNotACondition
+	ErrNotAHandle    = core.ErrNotAHandle
+	ErrNotAName      = core.ErrNotAName
+	ErrInterrupted   = core.ErrInterrupted
 	ErrCancelled     = scheduler.ErrCancelled
-	ErrNotAHandle    = scheduler.ErrNotAHandle
-	ErrNotAName      = scheduler.ErrNotAName
 	ErrNoRun         = scheduler.ErrNoRun
+	ErrNotLocal      = scheduler.ErrNotLocal
+	ErrNested        = scheduler.ErrNested
+	ErrDuration      = scheduler.ErrDuration
 	ErrConflict      = plugin.ErrConflict
 	ErrUnknown       = observe.ErrUnknown
 )
@@ -73,27 +87,15 @@ var STORE = observe.New()
 // ENTRY is the one top-level function a script a host runs must define.
 const ENTRY = artifact.ENTRY
 
-// init registers the scheduler's builtins, which is what makes spawn, join,
-// cancel and assert exist for every script compiled in this process.
-//
-// It lives here because it can live nowhere else. The artifact package imports
-// the scheduler, so the scheduler cannot import the registry without a cycle;
-// it satisfies the plugin interface structurally and waits for somebody to
-// install it. This package imports all three and is that somebody.
-//
-// Revisions:
-//   - 2026-09-19 23:29: initial creation
-func init() {
-	plugin.Register(&scheduler.Builtins{})
-}
-
 // NewCompiler returns a Compiler configured by opts.
 //
-// Without options it resolves a module as a file beside the one that loaded it.
+// Without options it resolves a module as a file beside the one that loaded
+// it, and gives a script every plugin registered by import.
 //
 // Revisions:
 //   - 2026-09-19 23:29: initial creation
-func NewCompiler(opts ...Option) *Compiler {
+//   - 2026-09-21 09:46: the option type is named for what it configures
+func NewCompiler(opts ...CompilerOption) *Compiler {
 	return artifact.NewCompiler(opts...)
 }
 
@@ -101,8 +103,26 @@ func NewCompiler(opts ...Option) *Compiler {
 //
 // Revisions:
 //   - 2026-09-19 23:29: initial creation
-func WithLoader(loader Loader) Option {
+func WithLoader(loader Loader) CompilerOption {
 	return artifact.WithLoader(loader)
+}
+
+// WithPlugins makes a Compiler give its scripts the names in registry rather
+// than those every plugin registered by import.
+//
+// Revisions:
+//   - 2026-09-21 09:46: initial creation
+func WithPlugins(registry *Registry) CompilerOption {
+	return artifact.WithPlugins(registry)
+}
+
+// NewRegistry returns a registry holding no plugins, for a host that wants a
+// compiler to see a set of its own.
+//
+// Revisions:
+//   - 2026-09-21 09:46: initial creation
+func NewRegistry() *Registry {
+	return plugin.New()
 }
 
 // Register installs a plugin of the host's own, adding its names to every
@@ -144,6 +164,32 @@ func Start(ctx context.Context, art *Artifact, opts ...observe.Option) string {
 //   - 2026-09-20 19:55: initial creation
 func WithGraph(graph *Graph) observe.Option {
 	return observe.WithGraph(graph)
+}
+
+// WithReporter returns a context carrying what a run tells its host: every
+// function starting and ending, and every line printed.
+//
+// Here as well as on scheduler for the reason WithGraph is: a feature
+// reachable only by abandoning the facade is one the facade does not have.
+//
+// Revisions:
+//   - 2026-09-21 09:46: initial creation
+func WithReporter(ctx context.Context, into Reporter) context.Context {
+	return scheduler.WithReporter(ctx, into)
+}
+
+// WithPrinter returns a context carrying a reporter that only prints, for a
+// host that wants a script's output and nothing else.
+//
+// One reporter per run: this and WithReporter set the same thing. Without
+// either the interpreter's default stands, which writes to standard error.
+//
+// Revisions:
+//   - 2026-09-21 08:09: initial creation
+//   - 2026-09-21 09:46: a reporter that prints, since a run tells its host one
+//     thing
+func WithPrinter(ctx context.Context, print func(string)) context.Context {
+	return scheduler.WithPrinter(ctx, print)
 }
 
 // Status returns how the run with this id is doing, and forgets it if that

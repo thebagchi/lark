@@ -26,7 +26,10 @@ import (
 // Option is something a run is started with.
 //
 // An option rather than a parameter, so a call that was written before any of
-// these existed still compiles.
+// these existed still compiles. It reaches an unexported recorder, so only
+// this package can write one: what a run is started with is this package's
+// business, and a host chooses among the options here rather than adding its
+// own.
 type Option func(into *_Recorder)
 
 // WithGraph tells a run what its script could do, so a report can say what has
@@ -50,6 +53,19 @@ func WithGraph(graph *workflowpb.Graph) Option {
 		}
 
 		into._Seed(graph)
+	}
+}
+
+// WithPrinter tells a run where what its script prints goes.
+//
+// Without it a line goes to standard error, which is where the interpreter's
+// default would have put it.
+//
+// Revisions:
+//   - 2026-09-21 09:46: initial creation
+func WithPrinter(print func(string)) Option {
+	return func(into *_Recorder) {
+		into.print = print
 	}
 }
 
