@@ -743,9 +743,9 @@ handle.Thread()   // its thread number
 
 ## What this does not do
 
-- **Nothing reads a saved artifact back.** `Save` hands out what a container
-  format needs — per unit a name, its compiled code, and what each `load`
-  spelling resolved to — but there is no `Restore` yet.
+- **Nothing rebuilds a runnable artifact from a bundle.** A bundle is written
+  to be shown: a reader decodes it, draws the graph it carries and renders
+  status from that. Running comes from the script or the graph.
 - **A runaway recursive script will exhaust the stack and take the process
   down.** Recursion is enabled and nothing bounds a run. A panicking builtin is
   recovered and becomes an error; a stack overflow is not recoverable in Go.
