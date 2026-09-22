@@ -18,6 +18,9 @@ const (
 	SPINS_FIXTURE       = "spins.star"
 	MAINARGS_FIXTURE    = "mainargs.star"
 	MAINDEFAULT_FIXTURE = "maindefault.star"
+	BREAKS_FIXTURE      = "breaks.star"
+	BREAKS_TEXT         = "module level"
+	RUNS_OF_ONE         = 2
 	EXPECTED_SUM        = 10
 	EXPECTED_DEFAULT    = 1
 	EXPECTED_DONE       = "done"
@@ -214,6 +217,36 @@ func TestInvoke_NumbersEachCallFromItsOwnSpine(t *testing.T) {
 
 		if got := _Number(t, value); got != EXPECTED_SUM {
 			t.Fatalf("invoke %d gave %d, want %d", attempt, got, EXPECTED_SUM)
+		}
+	}
+}
+
+// TestRun_AModuleLevelFailureFailsTheRunNotTheCompile pins where
+// initialisation happens.
+//
+// A script's module-level statements execute once per run, because what they
+// produce includes the arguments that run supplied. So a compile of a script
+// whose top level fails succeeds, and every run of it fails - which is the
+// opposite of what this runtime did until arguments arrived, and is the one
+// behaviour that change moved.
+//
+// Revisions:
+//   - 2026-09-22 23:02: initial creation
+func TestRun_AModuleLevelFailureFailsTheRunNotTheCompile(t *testing.T) {
+	built, err := artifact.NewCompiler(artifact.WithLoader(_Loader())).
+		Compile(BREAKS_FIXTURE, _Fixture(t, BREAKS_FIXTURE))
+	if err != nil {
+		t.Fatalf("compile %s: %v", BREAKS_FIXTURE, err)
+	}
+
+	for attempt := range RUNS_OF_ONE {
+		_, err = built.Run(context.Background())
+		if err == nil {
+			t.Fatalf("run %d succeeded, want the module-level failure", attempt)
+		}
+
+		if !strings.Contains(err.Error(), BREAKS_TEXT) {
+			t.Fatalf("run %d failed with %v, want it to name %q", attempt, err, BREAKS_TEXT)
 		}
 	}
 }

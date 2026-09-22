@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -37,6 +38,11 @@ const (
 // the names in its body when it runs rather than when it is written, so a body
 // reading a constant declared below it is fine.
 //
+// Arguments come after the constants. Nothing forces the order - a constant
+// cannot read an argument, because a constant is a literal or a call of a
+// declared function and neither reads a name - so it is a reader's decision,
+// taken 2026-09-22 22:26.
+//
 // One unnamed template with its bindings at the top, per
 // .guidelines/styles.md. It lays out lines and never indentation: everything
 // indented arrives already indented, from a method that got it right in Go
@@ -62,6 +68,9 @@ def {{$NAME}}({{$PARAMS}}):
 {{end}}
 {{- range $NAME := $GEN.Constants}}
 {{$NAME}} = {{$GEN.Bound $NAME}}
+{{end}}
+{{- range $NAME := $GEN.Arguments}}
+{{$NAME}} = {{$GEN.Declared $NAME}}
 {{end}}`
 
 // _Gen is what the template calls. Its methods are exported because a template
@@ -126,6 +135,52 @@ func (g *_Gen) Bound(name string) (string, error) {
 	}
 
 	return _Value(held.GetValue())
+}
+
+// Arguments is every argument a generated script declares, sorted by the name
+// it binds.
+//
+// Sorted for the reason Constants is: a map has no order, and a generator that
+// emits a different file each run is one nobody can diff.
+//
+// Revisions:
+//   - 2026-09-22 22:44: initial creation
+func (g *_Gen) Arguments() []string {
+	var names []string
+
+	for name := range g.graph.GetArgs() {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+// Declared is the call a script declares an argument with.
+//
+// An argument with no default is written with none. Writing None there would
+// turn an argument a run must supply into one that defaults to nothing, which
+// is a different script - and deriving what was emitted would no longer give
+// back the graph that was emitted.
+//
+// Revisions:
+//   - 2026-09-22 22:44: initial creation
+func (g *_Gen) Declared(name string) (string, error) {
+	declared := g.graph.GetArgs()[name]
+
+	supplied := strconv.Quote(declared.GetName())
+
+	if declared.GetDefault() == nil {
+		return fmt.Sprintf("%s(%s)", ARG, supplied), nil
+	}
+
+	value, err := _Value(declared.GetDefault())
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", declared.GetName(), err)
+	}
+
+	return fmt.Sprintf("%s(%s%s%s)", ARG, supplied, SEPARATOR, value), nil
 }
 
 // Functions is every function the graph declares, in the order it declared

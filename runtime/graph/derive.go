@@ -57,6 +57,7 @@ type _Reading struct {
 	owner     map[string]string
 	order     []string
 	constants map[string]*workflowpb.Constant
+	args      map[string]*workflowpb.Arg
 	loaded    map[string]bool
 	loading   []string
 	threads   []*workflowpb.Thread
@@ -71,12 +72,14 @@ type _Reading struct {
 // so this uses the dialect decision rather than owning one. A nil source reads
 // a module as a file beside the one that loaded it.
 //
-// Returns ErrNoMain for a module, ErrConstant and ErrSignature for what the
-// graph cannot carry, ErrCollision and ErrAlias for loads it cannot inline.
+// Returns ErrNoMain for a module, ErrConstant, ErrNotCarried and ErrSignature
+// for what the graph cannot carry, ErrCollision and ErrAlias for loads it
+// cannot inline.
 //
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
 //   - 2026-09-21 08:09: names its source for what it is
+//   - 2026-09-22 22:41: reads the arguments a script declares
 func Of(src []byte, from string, source Source) (*Report, error) {
 	tree, err := dialect.OPTIONS.Parse(from, src, 0)
 	if err != nil {
@@ -93,6 +96,7 @@ func Of(src []byte, from string, source Source) (*Report, error) {
 		text:      make(map[string]string),
 		owner:     make(map[string]string),
 		constants: make(map[string]*workflowpb.Constant),
+		args:      make(map[string]*workflowpb.Arg),
 		loaded:    map[string]bool{from: true},
 		loading:   []string{from},
 	}
@@ -109,16 +113,23 @@ func Of(src []byte, from string, source Source) (*Report, error) {
 	return reading._Report(), nil
 }
 
-// _Constants is every module-level name a body may read.
+// _Constants is every module-level name a body may read: the arguments a run
+// supplies, and the values that are fixed.
 //
-// A literal, or a call of a function this graph declares. Some constants are
-// computed, and a Call naming a declared function stays inspectable and
-// editable where a string of Starlark would not - arbitrary code before the
-// entry point is still refused, and a named call of a declared function is not
-// that.
+// A constant is a literal, or a call of a function this graph declares. Some
+// constants are computed, and a Call naming a declared function stays
+// inspectable and editable where a string of Starlark would not - arbitrary
+// code before the entry point is still refused, and a named call of a declared
+// function is not that.
+//
+// The two share one namespace, and one owner map enforces it: both bind a
+// module-level name, so a name in both is the same collision as a name in two
+// modules.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-22 22:41: sorts an argument declaration into args, leaving the
+//     rest to be carried as constants
 func (r *_Reading) _Constants(tree *syntax.File, module string) error {
 	for _, stmt := range tree.Stmts {
 		assign, ok := stmt.(*syntax.AssignStmt)
@@ -134,6 +145,18 @@ func (r *_Reading) _Constants(tree *syntax.File, module string) error {
 		owner, known := r.owner[name.Name]
 		if known && owner != module {
 			return fmt.Errorf("%s in %s and %s: %w", name.Name, owner, module, ErrCollision)
+		}
+
+		declared, err := r._Declared(assign.RHS)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name.Name, err)
+		}
+
+		if declared != nil {
+			r.args[name.Name] = declared
+			r.owner[name.Name] = module
+
+			continue
 		}
 
 		held, err := r._Held(assign.RHS)
@@ -178,6 +201,7 @@ func (r *_Reading) _Held(expr syntax.Expr) (*workflowpb.Constant, error) {
 //   - 2026-09-21 01:17: initial creation
 //   - 2026-09-21 23:53: the spine names the entry point in its first step, as
 //     every thread names what it runs
+//   - 2026-09-22 22:41: carries the arguments the script declared
 func (r *_Reading) _Report() *Report {
 	graph := new(workflowpb.Graph)
 
@@ -191,6 +215,10 @@ func (r *_Reading) _Report() *Report {
 
 	if len(r.constants) > 0 {
 		graph.Constants = r.constants
+	}
+
+	if len(r.args) > 0 {
+		graph.Args = r.args
 	}
 
 	return &Report{Graph: graph, Unknown: r.unknown}

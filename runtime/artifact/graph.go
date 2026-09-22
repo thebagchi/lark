@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -248,29 +249,62 @@ func (g *_Graph) _Reach(from string, target string) (string, error) {
 	return name, err
 }
 
-// _Link initialises every unit in order and freezes what each produced.
+// _Link assembles the units into one artifact, in the order that initialises
+// dependencies first.
 //
-// Dependencies come first, so the load hook only ever has to hand back globals
-// that are already built and frozen - there is nothing left to fetch by the
-// time anything runs.
+// Nothing runs here. A script's module-level statements execute once per run,
+// not once per compile, because what they produce includes the arguments the
+// run supplies - and a value bound at compile time would be one compile's
+// value shared by every run of that artifact.
 //
-// Initialising is guarded, because a module's top level runs arbitrary script
-// and a script must not be able to take the host down with it.
-//
-// env is the one the source was compiled against, passed in rather than rebuilt
-// here. A script resolved against one environment and initialised against
+// env is the one the source was compiled against, kept rather than rebuilt at
+// each run. A script resolved against one environment and initialised against
 // another is a script whose names exist at compile time and not at run time -
 // and a plugin holding state would hand out a different store to each.
 //
 // Revisions:
 //   - 2026-09-19 18:36: initial creation
-func _Link(entry string, env starlark.StringDict, units map[string]*_Unit, order []string) (*Artifact, error) {
+//   - 2026-09-22 22:24: assembles without initialising, which moved to the run
+func _Link(entry string, env starlark.StringDict, units map[string]*_Unit, order []string) *Artifact {
+	message := &artifactpb.Artifact{
+		Entry: entry,
+		Units: make([]*artifactpb.Unit, 0, len(order)),
+	}
+
+	for _, name := range order {
+		message.Units = append(message.Units, units[name].saved)
+	}
+
+	return &Artifact{
+		saved: message,
+		units: units,
+		env:   env,
+		order: order,
+	}
+}
+
+// _Initialise runs every unit's module-level statements in order, with this
+// run's arguments bound on each thread, and freezes what each produced.
+//
+// Once per run. Dependencies come first, so the load hook only ever has to
+// hand back globals that are already built and frozen - there is nothing left
+// to fetch by the time anything runs.
+//
+// Initialising is guarded, because a module's top level runs arbitrary script
+// and a script must not be able to take the host down with it.
+//
+// Returns what the entry unit produced, and a wrapped error if any unit fails
+// to initialise. Never panics.
+//
+// Revisions:
+//   - 2026-09-22 22:24: initial creation, holding what _Link used to do
+func (a *Artifact) _Initialise(ctx context.Context) (starlark.StringDict, error) {
 	built := map[string]starlark.StringDict{}
 
 	var err error
 
-	for _, path := range order {
-		unit := units[path]
+	for _, path := range a.order {
+		unit := a.units[path]
 
 		load := func(thread *starlark.Thread, spelling string) (starlark.StringDict, error) {
 			globals, found := built[unit.saved.GetLoads()[spelling]]
@@ -286,13 +320,15 @@ func _Link(entry string, env starlark.StringDict, units map[string]*_Unit, order
 			Load: load,
 		}
 
+		_Bind(thread, ctx)
+
 		var globals starlark.StringDict
 
 		guard.WithRecover(
 			&globals,
 			&err,
 			func() (starlark.StringDict, error) {
-				return unit.code.Init(thread, env)
+				return unit.code.Init(thread, a.env)
 			},
 		)
 		if err != nil {
@@ -304,20 +340,5 @@ func _Link(entry string, env starlark.StringDict, units map[string]*_Unit, order
 		built[path] = globals
 	}
 
-	message := &artifactpb.Artifact{
-		Entry: entry,
-		Units: make([]*artifactpb.Unit, 0, len(order)),
-	}
-
-	for _, name := range order {
-		message.Units = append(message.Units, units[name].saved)
-	}
-
-	result := &Artifact{
-		saved:   message,
-		units:   units,
-		globals: built[entry],
-	}
-
-	return result, nil
+	return built[a.saved.GetEntry()], nil
 }

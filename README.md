@@ -45,6 +45,7 @@ lark -g graph.json         run the graph
 lark -g graph.json -t      print the Starlark it generates
 lark -s script.star -l dir keep a transcript in dir/script.star.log
 lark -s script.star -b out.bin  compile into a bundle instead of running
+lark -s script.star -a '{"host": "db"}'  supply the arguments it declares
 ```
 
 The two translations are inverses, so this prints what the first line printed:
@@ -81,6 +82,7 @@ from it, and a graph that will not run is refused with the reason.
 | `numbers.star` | `math`, and what it returns |
 | `cancel.star` | `cancel`, and what joining a cancelled handle gives |
 | `encode.star` | the `json` plugin |
+| `args.star` | `arg` — what a run supplies, and what it defaults to |
 
 Four exit non-zero on purpose — `cancel.star`, `failfast.star`,
 `failkinds.star` and `strings.star` — because what a failure looks like is part
@@ -171,10 +173,79 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `jsonpath` | `patch_json`, `extract_json`, `match_json`, `len_json`, `find_key`. |
 | `codec` | Twelve conversions between bytes, hex, bits and ints, plus `b64encode` / `b64decode`, `b64urlencode` / `b64urldecode`, `b32encode` / `b32decode` and `crc32`. See below. |
 | `utils` | `utils.datetime()`, the local time to the microsecond, as a string. |
+| `arg(name, default)` | Declares an argument this run supplies. Module level only. |
 
 `spawn` takes a **named function that takes no arguments** — not a lambda, not a
 call. A closure over what it needs is how a script passes data in. The rule
 exists so every thread has a name to report.
+
+### Arguments a run supplies
+
+A script declares what it takes at module level, with a default or without one:
+
+```python
+server = arg("host", "localhost")
+port = arg("port", 8080)
+token = arg("token")
+
+def main():
+    print("%s:%d" % (server, port))
+```
+
+```
+lark -s connect.star -a '{"host": "db.internal", "token": "t-123"}'
+```
+
+The name a caller supplies and the name the script binds are **independent** —
+`"host"` arrives, `server` is what this script calls it. Values are JSON, so a
+string, a number, a boolean, `null`, an array or an object; a whole number
+arrives as an `int`, because Starlark has two number types where JSON has one.
+
+**An argument with no default must be supplied.** Nothing supplies `token`
+above and the run stops at the declaration:
+
+```
+script failed: initialise connect.star: token: argument not supplied and has no default
+```
+
+**A declaration is module level only.** `arg()` inside a function body is
+refused, because the thread running a body is not the thread a run binds its
+arguments on — such a call could only ever take its default, silently.
+
+**Every run initialises the script itself**, which is what lets two runs of one
+compiled artifact take different arguments. A module-level statement therefore
+runs once per run, not once per compile — so a script can check what it was
+given, at module level, before anything else happens:
+
+```python
+port = arg("port", 8080)
+
+assert(port > 0, "port must be positive")
+
+def main():
+    print("listening on", port)
+```
+
+```
+lark -s serve.star -a '{"port": 5432}'    listening on 5432
+lark -s serve.star -a '{"port": -1}'      script failed: "port must be positive": assertion failed
+```
+
+One artifact, two runs, and the second does no work at all. `fail()` reads the
+same way. A module-level failure is a run's failure, not the compile's.
+
+A graph carries the declarations in a field of its own, so a host can ask what a
+workflow takes without reading its source:
+
+```json
+"args": {
+  "server": {"name": "host", "default": "localhost"},
+  "token":  {"name": "token"}
+}
+```
+
+Generating a script from a graph writes those declarations back, so the two
+forms round-trip.
 
 ### Sharing data between threads
 
@@ -427,6 +498,9 @@ units, err := artifact.Save()                          // the compiled units, as
 
 ctx = runtime.WithPrinter(ctx, func(line string) { ... })   // where print goes
 ctx = runtime.WithReporter(ctx, reporter)                   // starts, ends and prints
+
+supplied, err := runtime.Parsed([]byte(`{"host": "db.internal"}`))
+ctx = runtime.WithArgs(ctx, supplied)                       // what this run's arguments are
 ```
 
 What a script prints goes to standard error unless the context says otherwise.
@@ -465,9 +539,13 @@ Each is reachable with `errors.Is`, through whatever wrapping carried it.
 | `runtime.ErrNested` | `state.update` was called from inside an update, on any thread it started |
 | `runtime.ErrConflict` | Two plugins supply one name |
 | `runtime.ErrUnknown` | No run answers to that id |
+| `runtime.ErrNotObject` | What a run was given as arguments is not a JSON object |
 
 Every sentinel of every package the facade wraps is here. A plugin you import
-yourself - `flow`, `state`, `jsonpath` - keeps its own.
+yourself - `flow`, `state`, `jsonpath`, `args` - keeps its own. `args` raises
+`args.ErrNotSupplied` for a declaration nothing supplied and
+`args.ErrNotDeclaring` for an `arg()` call outside module level; deriving a
+graph raises `graph.ErrNotCarried` for a declaration it cannot carry.
 
 ### Cancellation
 

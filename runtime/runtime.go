@@ -13,6 +13,7 @@ import (
 	"context"
 
 	"go.starlark.net/starlark"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/runtime/artifact"
@@ -58,6 +59,7 @@ var (
 	ErrNoMain        = artifact.ErrNoMain
 	ErrNoUnit        = artifact.ErrNoUnit
 	ErrNotCallable   = artifact.ErrNotCallable
+	ErrNotObject     = artifact.ErrNotObject
 	ErrAssert        = core.ErrAssert
 	ErrNotACondition = core.ErrNotACondition
 	ErrNotAHandle    = core.ErrNotAHandle
@@ -192,6 +194,30 @@ func Start(ctx context.Context, art *Artifact, opts ...observe.Option) string {
 //   - 2026-09-20 19:55: initial creation
 func WithGraph(graph *Graph) observe.Option {
 	return observe.WithGraph(graph)
+}
+
+// WithArgs returns a context carrying what a run supplies its script's
+// arguments with.
+//
+// A script declares one at module level - host = arg("host", "localhost") -
+// and every run of one artifact may supply different values, because a run
+// initialises the script itself.
+//
+// Revisions:
+//   - 2026-09-22 22:24: initial creation
+func WithArgs(ctx context.Context, supplied map[string]*structpb.Value) context.Context {
+	return artifact.WithArgs(ctx, supplied)
+}
+
+// Parsed is the arguments a JSON object states, ready for WithArgs.
+//
+// Returns ErrNotObject for anything else, and a wrapped error for JSON that
+// does not parse.
+//
+// Revisions:
+//   - 2026-09-22 22:24: initial creation
+func Parsed(src []byte) (map[string]*structpb.Value, error) {
+	return artifact.Parsed(src)
 }
 
 // WithReporter returns a context carrying what a run tells its host: every

@@ -7,6 +7,7 @@
 //	lark -g run.json -t                  print the Starlark it generates
 //	lark -s build.star -l logs           run it, and keep a transcript
 //	lark -s build.star -b build.bin      compile it into a bundle
+//	lark -s build.star -a '{"n": 3}'     run it, supplying its arguments
 //
 // It is the smallest host this runtime supports. Given a script it compiles
 // that script together with every module it loads and calls its entry point;
@@ -35,6 +36,7 @@ import (
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/runtime"
 	"github.com/thebagchi/lark/runtime/graph"
+	_ "github.com/thebagchi/lark/runtime/plugin/args"
 	_ "github.com/thebagchi/lark/runtime/plugin/codec"
 	_ "github.com/thebagchi/lark/runtime/plugin/flow"
 	_ "github.com/thebagchi/lark/runtime/plugin/json"
@@ -56,6 +58,8 @@ const (
 	LOGS_USAGE      = "directory to keep this run's transcript in"
 	BUNDLE_FLAG     = "b"
 	BUNDLE_USAGE    = "compile into a bundle at this path instead of running"
+	ARGS_FLAG       = "a"
+	ARGS_USAGE      = "the arguments this run supplies, as a JSON object"
 
 	// SCRIPT and GRAPH are what a failure calls the thing that failed, so a
 	// reader knows which of the two inputs was wrong.
@@ -121,6 +125,7 @@ var (
 //     either into the other, replacing -g as a flag that only printed
 //   - 2026-09-21 16:42: keeps a transcript under -l
 //   - 2026-09-21 17:19: compiles into a bundle under -b
+//   - 2026-09-22 22:24: supplies a run's arguments under -a
 func main() {
 	var (
 		script    = flag.String(SCRIPT_FLAG, "", SCRIPT_USAGE)
@@ -128,6 +133,7 @@ func main() {
 		translate = flag.Bool(TRANSLATE_FLAG, false, TRANSLATE_USAGE)
 		logs      = flag.String(LOGS_FLAG, "", LOGS_USAGE)
 		bundle    = flag.String(BUNDLE_FLAG, "", BUNDLE_USAGE)
+		supplied  = flag.String(ARGS_FLAG, "", ARGS_USAGE)
 	)
 
 	flag.Parse()
@@ -162,6 +168,13 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
 		os.Exit(NO_FILE)
+	}
+
+	ctx, err = _Supplying(ctx, *supplied)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		flag.Usage()
+		os.Exit(NO_INPUT)
 	}
 
 	switch {
@@ -280,6 +293,28 @@ func _Reporting(ctx context.Context, dir string, path string) (context.Context, 
 	console.log = made
 
 	return runtime.WithReporter(ctx, console), console._Close, nil
+}
+
+// _Supplying is ctx carrying the arguments this run supplies, read from the
+// JSON object a caller passed.
+//
+// Wrong JSON is the invocation being wrong rather than the script, so it exits
+// with the flags rather than with the input. A caller keeping arguments in a
+// file passes the file: -a "$(cat args.json)".
+//
+// Revisions:
+//   - 2026-09-22 22:24: initial creation
+func _Supplying(ctx context.Context, supplied string) (context.Context, error) {
+	if supplied == "" {
+		return ctx, nil
+	}
+
+	parsed, err := runtime.Parsed([]byte(supplied))
+	if err != nil {
+		return nil, err
+	}
+
+	return runtime.WithArgs(ctx, parsed), nil
 }
 
 // _Run compiles src as the script at path and calls its entry point, with

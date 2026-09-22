@@ -76,12 +76,19 @@ type _Unit struct {
 //
 // Which unit is the entry, and the units themselves in that order, are the
 // generated artifact.Artifact - the same reuse _Unit makes. units indexes those
-// by name for lookup, and globals is what initialising produced, which no wire
-// format carries.
+// by name for lookup.
+//
+// env is the environment the units were compiled against, kept because every
+// run initialises them again and must do so against the environment they
+// resolved against. order is the order that initialises dependencies first.
+//
+// No globals. What initialising produces belongs to one run, since a run's
+// arguments are part of it.
 type Artifact struct {
-	saved   *artifactpb.Artifact
-	units   map[string]*_Unit
-	globals starlark.StringDict
+	saved *artifactpb.Artifact
+	units map[string]*_Unit
+	env   starlark.StringDict
+	order []string
 }
 
 // NewCompiler returns a Compiler configured by opts.
@@ -191,10 +198,7 @@ func (c *Compiler) Compile(name string, src []byte) (*Artifact, error) {
 		return nil, err
 	}
 
-	built, err := _Link(name, env, loaded.units, loaded.order)
-	if err != nil {
-		return nil, err
-	}
+	built := _Link(name, env, loaded.units, loaded.order)
 
 	c._Describe(built, name, src, &_Held{loader: c.loader, source: loaded.source})
 
@@ -268,10 +272,12 @@ func (a *Artifact) Graph() *workflowpb.Graph {
 // Invoke calls the global named fn as a run of its own and returns what it
 // produced, once everything it spawned has stopped.
 //
-// Every invocation is a run of its own: it numbers its own spine 0 and its
-// spawns from 1, so two invocations of one artifact produce two independent
-// numberings. That is what makes a recorded graph comparable with a later run
-// of the same function.
+// Every invocation is a run of its own: it initialises the units itself, with
+// the arguments ctx carries, and numbers its own spine 0 and its spawns from
+// 1, so two invocations of one artifact produce two independent numberings.
+// That is what makes a recorded graph comparable with a later run of the same
+// function, and it is what lets two runs of one artifact take different
+// arguments.
 //
 // What a run produced, and how a failure is reported, are the scheduler's
 // rules and are applied by Evaluate; this only finds the function.
@@ -288,8 +294,15 @@ func (a *Artifact) Graph() *workflowpb.Graph {
 //     sentinels it matched are returned before the call is made
 //   - 2026-09-21 09:46: the run itself moved to scheduler.Evaluate, which owns
 //     the rules it applies
+//   - 2026-09-22 22:24: initialises the units for this run, so that what a
+//     module-level statement produced is this run's and not the compile's
 func (a *Artifact) Invoke(ctx context.Context, fn string) (starlark.Value, error) {
-	value, found := a.globals[fn]
+	globals, err := a._Initialise(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	value, found := globals[fn]
 	if !found {
 		return nil, fmt.Errorf("invoke %s: %w", fn, ErrNoGlobal)
 	}

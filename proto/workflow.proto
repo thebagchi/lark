@@ -251,20 +251,43 @@ message Constant {
   }
 }
 
+// Arg is one argument a script declares: the name a caller supplies it
+// under, and what it takes when nobody does.
+//
+// name is not the map key. A script binds an argument to a module-level
+// name of its own choosing and the two need not agree - db =
+// arg("host", "localhost") is legal - so the key is the name the script
+// binds and this is the name a caller passes.
+//
+// An absent default is an argument a run cannot do without: the script
+// stated no value, so a caller who supplies none stops the run at the
+// declaration. A default that is null is a different thing and is
+// carried as one, because the script asked for None.
+message Arg {
+  string name                   = 1;
+  google.protobuf.Value default = 2;
+}
+
 // Graph is the static half of a script's workflow: one entry per
-// top-level function, grouped into the threads that run them, and the
-// module-level values those functions read. Every thread carries its
-// static half, since nothing has run.
+// top-level function, grouped into the threads that run them, the
+// module-level values those functions read, and the arguments a run
+// supplies. Every thread carries its static half, since nothing has run.
 //
 // constants is a map because names are unique and order does not matter
 // for a value. It matters for a Call naming another constant, which is
 // the one case this cannot express: a generated file emits its
 // functions before its constants, so a constant's call may name any
 // function but not another constant.
+//
+// args is a separate map rather than a third kind of Constant, because a
+// host asking what a workflow takes should read one field rather than
+// filter another. The two maps share a namespace: both bind a
+// module-level name, and a name in both is refused.
 message Graph {
   repeated Function functions        = 1;
   repeated Thread threads            = 2;
   map<string, Constant> constants    = 3;
+  map<string, Arg> args              = 4;
 }
 
 // Cause names the node whose failure ended a run: which thread, which
