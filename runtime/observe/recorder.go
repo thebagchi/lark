@@ -3,7 +3,6 @@ package observe
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 
@@ -30,7 +29,7 @@ type _Recorder struct {
 	cause *workflowpb.Cause
 
 	print func(string)
-	dir   string
+	file  string
 	logs  *Log
 	watch Watcher
 }
@@ -109,12 +108,14 @@ func (r *_Recorder) Printed(thread string, msg string) {
 //
 // Revisions:
 //   - 2026-09-21 16:42: initial creation
-func (r *_Recorder) _Open(id string) error {
-	if r.dir == "" {
+//   - 2026-09-23 23:20: opens the file the caller named, there being no
+//     identifier left to name one after
+func (r *_Recorder) _Open() error {
+	if r.file == "" {
 		return nil
 	}
 
-	made, err := NewLog(filepath.Join(r.dir, id+SUFFIX))
+	made, err := NewLog(r.file)
 	if err != nil {
 		return err
 	}

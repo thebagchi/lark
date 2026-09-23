@@ -1,11 +1,9 @@
-// This file tests the four calls phase 4 adds to the facade. Unlike
-// runtime_test.go it does not import only the facade, and cannot: two of these
-// tests are about the relationship between the facade's store and a store of
-// your own, which needs both names.
+// This file tests what the facade adds for a run that outlives the call
+// starting it. Unlike runtime_test.go it does not import only the facade: one
+// test names observe's own Start to show the two are one call.
 package runtime_test
 
 import (
-	"errors"
 	"testing"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
@@ -17,27 +15,25 @@ import (
 // it and a graph declaring it is the only way it appears.
 const UNCALLED = "never-run"
 
-// TestFacade_StartsPollsAndWaitsThroughOneImport is what phase 4 exists for: a
-// host writes no registration, holds no store, and starts a script.
+// TestFacade_StartsWaitsAndAsksThroughOneImport is what the facade exists for:
+// a host writes no registration, holds nothing of this package's, and starts a
+// script.
 //
 // Revisions:
-//   - 2026-09-20 01:38: initial creation
-func TestFacade_StartsPollsAndWaitsThroughOneImport(t *testing.T) {
-	id := runtime.Start(t.Context(), _Compiled(t, HOST_FIXTURE))
+//   - 2026-09-20 01:38: initial creation, as
+//     TestFacade_StartsPollsAndWaitsThroughOneImport
+//   - 2026-09-23 23:35: holds the run rather than an id into a store
+func TestFacade_StartsWaitsAndAsksThroughOneImport(t *testing.T) {
+	run := runtime.Start(t.Context(), _Compiled(t, HOST_FIXTURE))
 
-	snap, err := runtime.Status(id)
-	if err != nil {
-		t.Fatal(err)
+	begun := run.Status().GetStatus()
+
+	if begun != workflowpb.Status_STATUS_RUNNING &&
+		begun != workflowpb.Status_STATUS_SUCCEEDED {
+		t.Fatalf("want a run under way or done, got %v", begun)
 	}
 
-	begun := snap.GetStatus() == workflowpb.Status_STATUS_RUNNING ||
-		snap.GetStatus() == workflowpb.Status_STATUS_SUCCEEDED
-
-	if !begun {
-		t.Fatalf("want a run under way or done, got %v", snap.GetStatus())
-	}
-
-	got, err := runtime.Wait(t.Context(), id)
+	got, err := run.Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,101 +42,65 @@ func TestFacade_StartsPollsAndWaitsThroughOneImport(t *testing.T) {
 		t.Fatalf("want %s, got %s", EXPECTED_TOTAL, got)
 	}
 
-	snap, err = runtime.Status(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if snap.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want succeeded, got %v", snap.GetStatus())
+	if run.Status().GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
+		t.Fatalf("want succeeded, got %v", run.Status().GetStatus())
 	}
 }
 
-// TestFacade_SharesOneStoreWithObserve records that the four calls are the
-// store's own, not a second store hiding behind them.
+// TestFacade_StartIsObservesOwn records that the facade's call is the one
+// observe declares, rather than a second way of starting a run that could
+// drift from it.
+//
+// This replaces two tests about the relationship between a package-level store
+// and a store of your own. Neither exists: a run is the caller's, so there is
+// no global to escape from and no escape hatch to keep working.
 //
 // Revisions:
-//   - 2026-09-20 01:38: initial creation
-func TestFacade_SharesOneStoreWithObserve(t *testing.T) {
-	id := runtime.Start(t.Context(), _Compiled(t, HOST_FIXTURE))
+//   - 2026-09-20 01:38: initial creation, as TestFacade_SharesOneStoreWithObserve
+//   - 2026-09-23 23:35: there is no store to share, so this checks the two
+//     calls produce the same thing
+func TestFacade_StartIsObservesOwn(t *testing.T) {
+	built := _Compiled(t, HOST_FIXTURE)
 
-	_, err := runtime.STORE.Wait(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	through := runtime.Start(t.Context(), built)
+	direct := observe.Start(t.Context(), built)
 
-	_, err = runtime.Status(id)
-	if err != nil {
-		t.Fatalf("want the facade to find what its own store started, got %v", err)
-	}
-}
+	for _, run := range []*runtime.Execution{through, direct} {
+		got, err := run.Wait()
+		if err != nil {
+			t.Fatal(err)
+		}
 
-// TestFacade_LeavesRoomForAStoreOfYourOwn is the escape hatch the package-level
-// store is only acceptable because of. If this stops working, the cost of that
-// global stops having a remedy.
-//
-// Revisions:
-//   - 2026-09-20 01:38: initial creation
-func TestFacade_LeavesRoomForAStoreOfYourOwn(t *testing.T) {
-	mine := observe.New()
-
-	id := mine.Start(t.Context(), _Compiled(t, HOST_FIXTURE))
-
-	_, err := mine.Wait(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = runtime.Status(id)
-	if !errors.Is(err, runtime.ErrUnknown) {
-		t.Fatalf("want a separate store to be separate, got %v", err)
+		if got.String() != EXPECTED_TOTAL {
+			t.Fatalf("want %s, got %s", EXPECTED_TOTAL, got)
+		}
 	}
 }
 
-// TestFacade_ReexportsTheSameSentinel records that ErrUnknown is one value, so
-// errors.Is matches whichever name a host reaches it by.
+// TestFacade_SuppliesAGraphWithoutLeavingIt checks that a graph reaches a run
+// through the facade, since everything it buys was otherwise reachable only by
+// naming another package.
 //
-// Revisions:
-//   - 2026-09-20 01:38: initial creation
-func TestFacade_ReexportsTheSameSentinel(t *testing.T) {
-	_, err := runtime.Status(MISSING_RUN)
-
-	if !errors.Is(err, observe.ErrUnknown) {
-		t.Fatalf("want observe's own sentinel, got %v", err)
-	}
-
-	if !errors.Is(err, runtime.ErrUnknown) {
-		t.Fatalf("want the facade's name for it to match too, got %v", err)
-	}
-}
-
-// TestFacade_SuppliesAGraphWithoutLeavingIt is sub-phase 4.1: everything phase
-// 7 added was reachable only by abandoning the facade and holding a store.
-//
-// It names no option type, which is the other half of phase 7's decision not to
-// alias one - runtime.Option is already artifact.Option, so a host has to be
-// able to pass this inline without naming it.
+// It names no option type, which is deliberate: runtime.Option is already
+// artifact.Option, so a host has to be able to pass this inline without naming
+// it.
 //
 // Revisions:
 //   - 2026-09-20 19:55: initial creation
+//   - 2026-09-23 23:35: asks the run it started
 func TestFacade_SuppliesAGraphWithoutLeavingIt(t *testing.T) {
 	declared := &runtime.Graph{
 		Functions: []*workflowpb.Function{{Name: UNCALLED}},
 	}
 
-	id := runtime.Start(t.Context(), _Compiled(t, HOST_FIXTURE), runtime.WithGraph(declared))
+	run := runtime.Start(t.Context(), _Compiled(t, HOST_FIXTURE), runtime.WithGraph(declared))
 
-	_, err := runtime.Wait(t.Context(), id)
+	_, err := run.Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	snap, err := runtime.Status(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, lane := range snap.GetThreads() {
+	for _, lane := range run.Status().GetThreads() {
 		for _, node := range lane.GetLive().GetNodes() {
 			if node.GetFunction() != UNCALLED {
 				continue

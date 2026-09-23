@@ -53,64 +53,51 @@ func _Lines(t *testing.T, path string) []string {
 	return lines
 }
 
-// TestWithLogs_WritesOneFilePerRun is the naming rule a host relies on, since
-// a snapshot carries no path: the directory it named, the run's id, .log.
-//
-// Two runs of one artifact are two files, which is why the id names them
-// rather than the script.
+// TestWithLog_WritesTheFileItWasGiven is the naming rule now that nothing
+// mints a name: two runs of one artifact are two files because the caller said
+// so, and each holds only its own run's lines.
 //
 // Revisions:
-//   - 2026-09-21 16:42: initial creation
-func TestWithLogs_WritesOneFilePerRun(t *testing.T) {
+//   - 2026-09-21 16:42: initial creation, as TestWithLogs_WritesOneFilePerRun,
+//     where the rule was the directory, the run's id and .log
+//   - 2026-09-23 23:28: the caller names the file
+func TestWithLog_WritesTheFileItWasGiven(t *testing.T) {
 	dir := t.TempDir()
 	built := _Compile(t, PRINTS)
 
-	store := observe.New()
+	for _, name := range []string{"first.log", "second.log"} {
+		path := filepath.Join(dir, name)
 
-	first := store.Start(t.Context(), built, observe.WithLogs(dir))
+		_, err := observe.Start(t.Context(), built, observe.WithLog(path)).Wait()
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	if _, err := store.Wait(t.Context(), first); err != nil {
-		t.Fatal(err)
-	}
-
-	second := store.Start(t.Context(), built, observe.WithLogs(dir))
-
-	if _, err := store.Wait(t.Context(), second); err != nil {
-		t.Fatal(err)
-	}
-
-	if first == second {
-		t.Fatal("want two runs")
-	}
-
-	for _, id := range []string{first, second} {
-		lines := _Lines(t, filepath.Join(dir, id+observe.SUFFIX))
-
+		lines := _Lines(t, path)
 		if len(lines) != 3 {
-			t.Fatalf("%s wrote %v, want three lines", id, lines)
+			t.Fatalf("%s wrote %v, want three lines", name, lines)
 		}
 	}
 }
 
-// TestWithLogs_PutsTheLaneInFrontOfTheLine is what the file buys over a
+// TestWithLog_PutsTheLaneInFrontOfTheLine is what the file buys over a
 // printer: a concurrent script interleaves, and the transcript says which
 // thread said what.
 //
 // Revisions:
 //   - 2026-09-21 16:42: initial creation
-func TestWithLogs_PutsTheLaneInFrontOfTheLine(t *testing.T) {
-	dir := t.TempDir()
+//   - 2026-09-23 23:28: the caller names the file
+func TestWithLog_PutsTheLaneInFrontOfTheLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.log")
 
-	store := observe.New()
-	id := store.Start(t.Context(), _Compile(t, PRINTS), observe.WithLogs(dir))
-
-	if _, err := store.Wait(t.Context(), id); err != nil {
+	_, err := observe.Start(t.Context(), _Compile(t, PRINTS), observe.WithLog(path)).Wait()
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	lanes := make(map[string]bool)
 
-	for _, line := range _Lines(t, filepath.Join(dir, id+observe.SUFFIX)) {
+	for _, line := range _Lines(t, path) {
 		lane, said, found := strings.Cut(line, "  ")
 		if !found {
 			t.Fatalf("no lane in front of %q", line)
@@ -132,25 +119,26 @@ func TestWithLogs_PutsTheLaneInFrontOfTheLine(t *testing.T) {
 	}
 }
 
-// TestWithLogs_ARunWhoseFileCannotBeOpenedFails records that a host asking for
+// TestWithLog_ARunWhoseFileCannotBeOpenedFails records that a host asking for
 // a transcript and not getting one hears about it, rather than the run going
 // ahead with its output nowhere.
 //
 // Revisions:
 //   - 2026-09-21 16:42: initial creation
-func TestWithLogs_ARunWhoseFileCannotBeOpenedFails(t *testing.T) {
+//   - 2026-09-23 23:28: the caller names the file
+func TestWithLog_ARunWhoseFileCannotBeOpenedFails(t *testing.T) {
 	blocked := filepath.Join(t.TempDir(), "file")
 
 	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	store := observe.New()
-
 	// A file where the directory would have to be.
-	id := store.Start(t.Context(), _Compile(t, PRINTS), observe.WithLogs(blocked))
+	path := filepath.Join(blocked, "run.log")
 
-	_, err := store.Wait(t.Context(), id)
+	run := observe.Start(t.Context(), _Compile(t, PRINTS), observe.WithLog(path))
+
+	_, err := run.Wait()
 	if err == nil {
 		t.Fatal("want the run to fail")
 	}
@@ -159,28 +147,26 @@ func TestWithLogs_ARunWhoseFileCannotBeOpenedFails(t *testing.T) {
 		t.Fatalf("want the path named, got %v", err)
 	}
 
-	snap, err := store.Status(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if snap.GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want it reported failed, got %v", snap.GetStatus())
+	if run.Status().GetStatus() != workflowpb.Status_STATUS_FAILED {
+		t.Fatalf("want it reported failed, got %v", run.Status().GetStatus())
 	}
 }
 
-// TestWithLogs_IsOptional records that a run without one prints as it always
+// TestWithLog_IsOptional records that a run without one prints as it always
 // did and writes nothing.
 //
 // Revisions:
 //   - 2026-09-21 16:42: initial creation
-func TestWithLogs_IsOptional(t *testing.T) {
+//   - 2026-09-23 23:28: starts the run directly
+func TestWithLog_IsOptional(t *testing.T) {
 	dir := t.TempDir()
 
-	store := observe.New()
-	id := store.Start(t.Context(), _Compile(t, PRINTS), observe.WithPrinter(func(string) {}))
-
-	if _, err := store.Wait(t.Context(), id); err != nil {
+	_, err := observe.Start(
+		t.Context(),
+		_Compile(t, PRINTS),
+		observe.WithPrinter(func(string) {}),
+	).Wait()
+	if err != nil {
 		t.Fatal(err)
 	}
 

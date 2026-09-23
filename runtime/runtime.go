@@ -12,7 +12,6 @@ package runtime
 import (
 	"context"
 
-	"go.starlark.net/starlark"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
@@ -39,7 +38,7 @@ type (
 	Reporter       = scheduler.Reporter
 	Plugin         = plugin.Plugin
 	Registry       = plugin.Registry
-	Store          = observe.Store
+	Execution      = observe.Execution
 	Log            = observe.Log
 	Workflow       = workflowpb.Workflow
 	Graph          = workflowpb.Graph
@@ -73,21 +72,7 @@ var (
 	ErrNested        = scheduler.ErrNested
 	ErrDuration      = scheduler.ErrDuration
 	ErrConflict      = plugin.ErrConflict
-	ErrUnknown       = observe.ErrUnknown
 )
-
-// STORE is the runtime's own store of running scripts, which is what makes
-// Status a call rather than a method on something a host has to hold.
-//
-// It is package-level state, and that costs two things worth knowing. Two hosts
-// in one process share it: ids cannot collide, but a run started by one is
-// visible to the other. And tests in one binary cannot isolate from each
-// other's runs.
-//
-// Neither is solved by hiding it, and both are solved by not being forced to
-// use it: observe.New() builds a store of your own, with the same methods. This
-// is a default, not the only way in.
-var STORE = observe.New()
 
 const (
 	// ENTRY is the one top-level function a script a host runs must define.
@@ -172,14 +157,20 @@ func Register(installed Plugin) {
 }
 
 // Start evaluates art's entry point on a goroutine of its own and returns at
-// once with the id that finds it again.
+// once with the run itself: something to stop, to wait for, and to ask about.
+//
+// Nothing holds the run on the caller's behalf. What is worth keeping about a
+// finished run, and for how long, is the host's decision - so the run is the
+// caller's to hold and to let go of.
 //
 // Revisions:
 //   - 2026-09-20 01:38: initial creation
 //   - 2026-09-20 19:55: takes options, so a graph can be supplied without
 //     leaving the facade
-func Start(ctx context.Context, art *Artifact, opts ...observe.Option) string {
-	return STORE.Start(ctx, art, opts...)
+//   - 2026-09-23 23:20: returns the run rather than an id into a store, which
+//     no longer exists
+func Start(ctx context.Context, art *Artifact, opts ...observe.Option) *Execution {
+	return observe.Start(ctx, art, opts...)
 }
 
 // WithGraph tells a run what its script could do, so a report can say what has
@@ -264,17 +255,19 @@ func WithPrinter(ctx context.Context, print func(string)) context.Context {
 	return scheduler.WithPrinter(ctx, print)
 }
 
-// WithLogs gives every run started through this package's store a file of its
-// own under dir, named for the run's id with .log on the end.
+// WithLog is the file a started run writes its transcript to, each line behind
+// the thread that printed it.
 //
 // Revisions:
-//   - 2026-09-21 16:42: initial creation
-func WithLogs(dir string) observe.Option {
-	return observe.WithLogs(dir)
+//   - 2026-09-21 16:42: initial creation, as WithLogs, taking a directory
+//   - 2026-09-23 23:20: takes the file, since nothing mints a name to call one
+//     after
+func WithLog(path string) observe.Option {
+	return observe.WithLog(path)
 }
 
-// NewLog opens a file for one run's printed output, for a host that names its
-// own rather than starting runs through a store.
+// NewLog opens a file for one run's printed output, for a host that reports
+// for itself rather than starting a run through this package.
 //
 // It is a Reporter that hears only the printing, so a host wanting the lines
 // somewhere else as well writes a reporter of its own holding one of these.
@@ -283,29 +276,4 @@ func WithLogs(dir string) observe.Option {
 //   - 2026-09-21 16:42: initial creation
 func NewLog(path string) (*Log, error) {
 	return observe.NewLog(path)
-}
-
-// Status returns how the run with this id is doing, and forgets it if that
-// answer is final.
-//
-// Revisions:
-//   - 2026-09-20 01:38: initial creation
-func Status(id string) (*Workflow, error) {
-	return STORE.Status(id)
-}
-
-// Wait blocks until the run with this id is over and returns what it produced.
-//
-// Revisions:
-//   - 2026-09-20 01:38: initial creation
-func Wait(ctx context.Context, id string) (starlark.Value, error) {
-	return STORE.Wait(ctx, id)
-}
-
-// Cancel stops the run with this id, without waiting for it.
-//
-// Revisions:
-//   - 2026-09-20 01:38: initial creation
-func Cancel(id string) error {
-	return STORE.Cancel(id)
 }

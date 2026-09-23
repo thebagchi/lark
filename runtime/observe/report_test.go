@@ -44,25 +44,20 @@ const (
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
 //   - 2026-09-21 08:09: logs how the run ended rather than discarding it
+//   - 2026-09-23 23:28: asks the run it started, there being no store
 func _Ran(t *testing.T, path string, opts ...observe.Option) *workflowpb.Workflow {
 	t.Helper()
 
-	store := observe.New()
-	id := store.Start(t.Context(), _Compile(t, path), opts...)
+	run := observe.Start(t.Context(), _Compile(t, path), opts...)
 
-	_, err := store.Wait(t.Context(), id)
+	_, err := run.Wait()
 	if err != nil {
 		// How the run ended is what the snapshot below reports, and several
 		// of these scripts end badly on purpose.
 		t.Logf("%s ended with: %v", path, err)
 	}
 
-	snap, err := store.Status(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return snap
+	return run.Status()
 }
 
 // _Node finds one function's node, wherever it is, and says which thread it was
@@ -239,17 +234,13 @@ func _Count(snap *workflowpb.Workflow, name string) int {
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
 func TestReport_NeverShowsACaughtFailure(t *testing.T) {
-	store := observe.New()
-	id := store.Start(t.Context(), _Compile(t, RETRYSLOW))
+	run := observe.Start(t.Context(), _Compile(t, RETRYSLOW))
 
 	seen := 0
 	attempts := make(map[int32]bool)
 
 	for {
-		snap, err := store.Status(id)
-		if err != nil {
-			t.Fatal(err)
-		}
+		snap := run.Status()
 
 		node, _ := _Node(snap, "flaky")
 		if node != nil {
@@ -306,23 +297,16 @@ func TestReport_CountsEveryRepeat(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 11:34: initial creation
 func TestReport_CancelledIsNotFailed(t *testing.T) {
-	store := observe.New()
-	id := store.Start(t.Context(), _Compile(t, SLOW))
+	run := observe.Start(t.Context(), _Compile(t, SLOW))
 
-	err := store.Cancel(id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	run.Stop()
 
-	_, err = store.Wait(t.Context(), id)
+	_, err := run.Wait()
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want the cancellation, got %v", err)
 	}
 
-	snap, err := store.Status(id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	snap := run.Status()
 
 	if snap.GetStatus() != workflowpb.Status_STATUS_CANCELLED {
 		t.Fatalf("want cancelled, got %v", snap.GetStatus())
@@ -406,23 +390,16 @@ func TestReport_AFailureCarriesItsMessage(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 11:36: initial creation
 func TestReport_ACancellationCarriesNoMessage(t *testing.T) {
-	store := observe.New()
-	id := store.Start(t.Context(), _Compile(t, SLOW))
+	run := observe.Start(t.Context(), _Compile(t, SLOW))
 
-	err := store.Cancel(id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	run.Stop()
 
-	_, err = store.Wait(t.Context(), id)
+	_, err := run.Wait()
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want the cancellation, got %v", err)
 	}
 
-	snap, err := store.Status(id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	snap := run.Status()
 
 	if snap.GetCause() != nil {
 		t.Fatalf("want a cancelled run to have no cause, got %v", snap.GetCause())

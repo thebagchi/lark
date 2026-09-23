@@ -538,7 +538,6 @@ Each is reachable with `errors.Is`, through whatever wrapping carried it.
 | `runtime.ErrDuration` | `sleep` or `timeout` got something no timer can hold |
 | `runtime.ErrNested` | `state.update` was called from inside an update, on any thread it started |
 | `runtime.ErrConflict` | Two plugins supply one name |
-| `runtime.ErrUnknown` | No run answers to that id |
 | `runtime.ErrNotObject` | What a run was given as arguments is not a JSON object |
 
 Every sentinel of every package the facade wraps is here. A plugin you import
@@ -615,37 +614,42 @@ The lane matters because a concurrent script interleaves: the three lines above
 arrived in that order on standard output too, and without the prefix the file
 could not say which thread said what.
 
-A host embedding the runtime asks a store for the same thing:
+A host embedding the runtime names the file:
 
 ```go
-id := store.Start(ctx, artifact, observe.WithLogs("/var/log/lark"))
+run := runtime.Start(ctx, artifact, runtime.WithLog("/var/log/lark/nightly.log"))
 ```
 
-**The file is the run's id with `.log` on the end, under the directory you
-named.** That rule is the whole of what a poller needs, which is why `Workflow`
-carries no path: you named the directory and you hold the id. Two runs of one
-artifact are two files, because an id is what tells them apart. The directory
-is created if it is not there, a run whose file cannot be opened fails before
-its script is evaluated, and the sweep that forgets a run after its
-time-to-live does not delete the file.
+**You name it, because you know what this run is and the runtime does not.**
+Two runs of one artifact are two files when you give them two paths. The
+directory is created if it is not there, and a run whose file cannot be opened
+fails before its script is evaluated rather than running with its output going
+nowhere you asked for.
 
 ## Watching a run
 
 `Run` and `Invoke` block until the script is over. A long-running host — a
 service with a web interface rather than a command-line tool — wants the other
-shape: start the script, get an id back at once, and ask about it afterwards.
+shape: start the script, get the run back at once, and hold it.
 
 ```go
-id := runtime.Start(ctx, artifact)         // returns immediately, a v7 UUID
-snap, err := runtime.Status(id)            // how is it doing
-value, err := runtime.Wait(ctx, id)        // block until it is over
-err := runtime.Cancel(id)                  // stop it, without waiting
+run := runtime.Start(ctx, artifact)   // returns immediately
+snap := run.Status()                  // how is it doing
+run.Stop()                            // stop it, without waiting
+value, err := run.Wait()              // block until it is over
+<-run.Done()                          // or select on it beside your own work
 ```
 
 `Start` returns while the script is still running, whatever it goes on to do.
-The id is a version 7 UUID, so it sorts by start time and can never be reissued
-— a stale id from a previous process is always unknown rather than quietly
-attaching to a different run.
+`Stop` reaches a script that is spinning as readily as one that is asleep: the
+interpreter is told between instructions. Both `Stop` and cancelling the
+context you passed in are the same stop, and `Wait` then returns
+`runtime.ErrCancelled`.
+
+**Nothing holds the run for you.** There is no store, no id to look one up by,
+and nothing that forgets on a schedule of its own — what is worth keeping about
+a finished run, and for how long, is your decision. A run answers `Status` for
+as long as you hold it, and is collected when you let go.
 
 ### What a status says
 
@@ -704,18 +708,15 @@ Asking costs nothing and changes nothing. Every caller that asks is told how a
 run ended, as often as they like, and two interfaces watching one run are both
 answered.
 
-**A finished run is forgotten 24 hours after it ended**, read or not. Nothing
-else forgets it: `Status` does not consume it and neither does `Wait`. So a host
-that starts runs and never asks is bounded by time rather than by attention —
-and a finished run holds what it produced for that day, which is the price of
-answering everyone.
+**A finished run is kept for exactly as long as you hold it.** Nothing forgets
+it on a schedule: `Status` does not consume it and neither does `Wait`. Let go
+of it and it is collected like anything else. A host that wants runs to outlive
+its hold on them keeps what it was told — see below.
 
-After that, its id is unknown, which is the same answer as an id that never
-existed. A host polling a run a day later cannot tell those apart.
-
-`Wait` takes a context of its own, and it is the **caller's** patience, not the
-run's. Giving up on a wait leaves the run untouched; stopping the run is
-`Cancel`, or the context passed to `Start`.
+Giving up on a run leaves it untouched. `Wait` blocks until the run is over and
+takes no context of its own; a caller that would rather not block selects on
+`Done()` instead, and neither stops anything. Stopping is `Stop`, or the
+context passed to `Start`.
 
 ### Saying what has not happened yet
 
@@ -724,7 +725,7 @@ never appears. Hand one over and every function it declares starts `PENDING`,
 so a report can also say what was not reached.
 
 ```go
-id := runtime.Start(ctx, artifact, runtime.WithGraph(graph))
+run := runtime.Start(ctx, artifact, runtime.WithGraph(graph))
 ```
 
 A graph is a **floor, not a ceiling**. It may add functions and threads that
@@ -735,21 +736,34 @@ ones — when a graph and a run disagree, both are visible and the run wins.
 A function left pending after the run ended is not an error. It means the run
 finished without going there.
 
-### A store of your own
+### Hearing about every change
 
-`runtime.Start` and friends use one store the package owns, which is what makes
-them plain calls. Two hosts in one process share it, and tests in one binary
-cannot isolate from each other's runs. Neither is solved by hiding it:
+`Status` is a question you ask. A `Watcher` is told, each time a function
+changes status, without being asked:
 
 ```go
-import "github.com/thebagchi/lark/runtime/observe"
+type Watcher interface {
+    Changed(change *runtime.Change, whole func() *runtime.Workflow)
+}
 
-store := observe.New()          // your own, with the same methods
-id := store.Start(ctx, artifact)
+ctx = runtime.WithWatcher(ctx, mine)
+value, err := artifact.Run(ctx)
 ```
 
-This is the one place a host names a subpackage. Everything above is reachable
-through `runtime` alone.
+A `Change` carries the thread and the node as it now stands, and costs nothing
+to deliver. The **whole run arrives as a function, not a value**, because
+assembling it copies every node of every thread: on a run of 1,218 changes,
+ignoring it costs 21.6 ms and calling it every time costs 200 ms. A host that
+logs changes pays nothing; a host drawing a user interface pays where it
+chooses to.
+
+Two things are yours to handle. `Changed` runs on the goroutine of the thread
+that changed, so a watcher that blocks holds up the script — and a run with
+several threads calls it from several goroutines at once, so a watcher that
+keeps anything needs a lock of its own.
+
+This is how a host keeps what it wants: the runtime reports, and you decide
+what to remember.
 
 ## Adding your own names
 
