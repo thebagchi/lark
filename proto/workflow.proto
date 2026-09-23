@@ -251,6 +251,21 @@ message Constant {
   }
 }
 
+// Change is one function changing status, sent as it happens: which
+// thread it ran on, and the node as it now stands.
+//
+// An event, where a Node is a position. A host is told these while a run
+// is going and decides what to keep, because what is worth keeping, and
+// for how long, is the host's decision and not this runtime's.
+//
+// node rather than the four fields repeated here. A Node already says
+// what a function is doing, which attempt it is on and what went wrong;
+// declaring those a second time would be two shapes to keep in step.
+message Change {
+  string thread = 1;
+  Node node     = 2;
+}
+
 // Arg is one argument a script declares: the name a caller supplies it
 // under, and what it takes when nobody does.
 //

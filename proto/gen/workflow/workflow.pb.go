@@ -1536,6 +1536,68 @@ func (*Constant_Value) isConstant_Kind() {}
 
 func (*Constant_Call) isConstant_Kind() {}
 
+// Change is one function changing status, sent as it happens: which
+// thread it ran on, and the node as it now stands.
+//
+// An event, where a Node is a position. A host is told these while a run
+// is going and decides what to keep, because what is worth keeping, and
+// for how long, is the host's decision and not this runtime's.
+//
+// node rather than the four fields repeated here. A Node already says
+// what a function is doing, which attempt it is on and what went wrong;
+// declaring those a second time would be two shapes to keep in step.
+type Change struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Thread        string                 `protobuf:"bytes,1,opt,name=thread,proto3" json:"thread,omitempty"`
+	Node          *Node                  `protobuf:"bytes,2,opt,name=node,proto3" json:"node,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Change) Reset() {
+	*x = Change{}
+	mi := &file_workflow_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Change) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Change) ProtoMessage() {}
+
+func (x *Change) ProtoReflect() protoreflect.Message {
+	mi := &file_workflow_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Change.ProtoReflect.Descriptor instead.
+func (*Change) Descriptor() ([]byte, []int) {
+	return file_workflow_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *Change) GetThread() string {
+	if x != nil {
+		return x.Thread
+	}
+	return ""
+}
+
+func (x *Change) GetNode() *Node {
+	if x != nil {
+		return x.Node
+	}
+	return nil
+}
+
 // Arg is one argument a script declares: the name a caller supplies it
 // under, and what it takes when nobody does.
 //
@@ -1558,7 +1620,7 @@ type Arg struct {
 
 func (x *Arg) Reset() {
 	*x = Arg{}
-	mi := &file_workflow_proto_msgTypes[20]
+	mi := &file_workflow_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1570,7 +1632,7 @@ func (x *Arg) String() string {
 func (*Arg) ProtoMessage() {}
 
 func (x *Arg) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[20]
+	mi := &file_workflow_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1583,7 +1645,7 @@ func (x *Arg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Arg.ProtoReflect.Descriptor instead.
 func (*Arg) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{20}
+	return file_workflow_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Arg) GetName() string {
@@ -1627,7 +1689,7 @@ type Graph struct {
 
 func (x *Graph) Reset() {
 	*x = Graph{}
-	mi := &file_workflow_proto_msgTypes[21]
+	mi := &file_workflow_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1639,7 +1701,7 @@ func (x *Graph) String() string {
 func (*Graph) ProtoMessage() {}
 
 func (x *Graph) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[21]
+	mi := &file_workflow_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1652,7 +1714,7 @@ func (x *Graph) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Graph.ProtoReflect.Descriptor instead.
 func (*Graph) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{21}
+	return file_workflow_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Graph) GetFunctions() []*Function {
@@ -1705,7 +1767,7 @@ type Cause struct {
 
 func (x *Cause) Reset() {
 	*x = Cause{}
-	mi := &file_workflow_proto_msgTypes[22]
+	mi := &file_workflow_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1717,7 +1779,7 @@ func (x *Cause) String() string {
 func (*Cause) ProtoMessage() {}
 
 func (x *Cause) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[22]
+	mi := &file_workflow_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1730,7 +1792,7 @@ func (x *Cause) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cause.ProtoReflect.Descriptor instead.
 func (*Cause) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{22}
+	return file_workflow_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Cause) GetThread() string {
@@ -1771,7 +1833,7 @@ type Workflow struct {
 
 func (x *Workflow) Reset() {
 	*x = Workflow{}
-	mi := &file_workflow_proto_msgTypes[23]
+	mi := &file_workflow_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1783,7 +1845,7 @@ func (x *Workflow) String() string {
 func (*Workflow) ProtoMessage() {}
 
 func (x *Workflow) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[23]
+	mi := &file_workflow_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1796,7 +1858,7 @@ func (x *Workflow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Workflow.ProtoReflect.Descriptor instead.
 func (*Workflow) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{23}
+	return file_workflow_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Workflow) GetStatus() Status {
@@ -1906,7 +1968,10 @@ const file_workflow_proto_rawDesc = "" +
 	"\bConstant\x12.\n" +
 	"\x05value\x18\x01 \x01(\v2\x16.google.protobuf.ValueH\x00R\x05value\x12$\n" +
 	"\x04call\x18\x02 \x01(\v2\x0e.workflow.CallH\x00R\x04callB\x06\n" +
-	"\x04kind\"K\n" +
+	"\x04kind\"D\n" +
+	"\x06Change\x12\x16\n" +
+	"\x06thread\x18\x01 \x01(\tR\x06thread\x12\"\n" +
+	"\x04node\x18\x02 \x01(\v2\x0e.workflow.NodeR\x04node\"K\n" +
 	"\x03Arg\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\adefault\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\adefault\"\xec\x02\n" +
@@ -1950,7 +2015,7 @@ func file_workflow_proto_rawDescGZIP() []byte {
 }
 
 var file_workflow_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_workflow_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_workflow_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_workflow_proto_goTypes = []any{
 	(Status)(0),            // 0: workflow.Status
 	(*Call)(nil),           // 1: workflow.Call
@@ -1973,16 +2038,17 @@ var file_workflow_proto_goTypes = []any{
 	(*Thread)(nil),         // 18: workflow.Thread
 	(*Node)(nil),           // 19: workflow.Node
 	(*Constant)(nil),       // 20: workflow.Constant
-	(*Arg)(nil),            // 21: workflow.Arg
-	(*Graph)(nil),          // 22: workflow.Graph
-	(*Cause)(nil),          // 23: workflow.Cause
-	(*Workflow)(nil),       // 24: workflow.Workflow
-	nil,                    // 25: workflow.Graph.ConstantsEntry
-	nil,                    // 26: workflow.Graph.ArgsEntry
-	(*structpb.Value)(nil), // 27: google.protobuf.Value
+	(*Change)(nil),         // 21: workflow.Change
+	(*Arg)(nil),            // 22: workflow.Arg
+	(*Graph)(nil),          // 23: workflow.Graph
+	(*Cause)(nil),          // 24: workflow.Cause
+	(*Workflow)(nil),       // 25: workflow.Workflow
+	nil,                    // 26: workflow.Graph.ConstantsEntry
+	nil,                    // 27: workflow.Graph.ArgsEntry
+	(*structpb.Value)(nil), // 28: google.protobuf.Value
 }
 var file_workflow_proto_depIdxs = []int32{
-	27, // 0: workflow.Call.args:type_name -> google.protobuf.Value
+	28, // 0: workflow.Call.args:type_name -> google.protobuf.Value
 	1,  // 1: workflow.Condition.call:type_name -> workflow.Call
 	5,  // 2: workflow.If.condition:type_name -> workflow.Condition
 	1,  // 3: workflow.If.then:type_name -> workflow.Call
@@ -2011,23 +2077,24 @@ var file_workflow_proto_depIdxs = []int32{
 	16, // 26: workflow.Thread.static:type_name -> workflow.Static
 	17, // 27: workflow.Thread.live:type_name -> workflow.Live
 	0,  // 28: workflow.Node.status:type_name -> workflow.Status
-	27, // 29: workflow.Constant.value:type_name -> google.protobuf.Value
+	28, // 29: workflow.Constant.value:type_name -> google.protobuf.Value
 	1,  // 30: workflow.Constant.call:type_name -> workflow.Call
-	27, // 31: workflow.Arg.default:type_name -> google.protobuf.Value
-	15, // 32: workflow.Graph.functions:type_name -> workflow.Function
-	18, // 33: workflow.Graph.threads:type_name -> workflow.Thread
-	25, // 34: workflow.Graph.constants:type_name -> workflow.Graph.ConstantsEntry
-	26, // 35: workflow.Graph.args:type_name -> workflow.Graph.ArgsEntry
-	0,  // 36: workflow.Workflow.status:type_name -> workflow.Status
-	18, // 37: workflow.Workflow.threads:type_name -> workflow.Thread
-	23, // 38: workflow.Workflow.cause:type_name -> workflow.Cause
-	20, // 39: workflow.Graph.ConstantsEntry.value:type_name -> workflow.Constant
-	21, // 40: workflow.Graph.ArgsEntry.value:type_name -> workflow.Arg
-	41, // [41:41] is the sub-list for method output_type
-	41, // [41:41] is the sub-list for method input_type
-	41, // [41:41] is the sub-list for extension type_name
-	41, // [41:41] is the sub-list for extension extendee
-	0,  // [0:41] is the sub-list for field type_name
+	19, // 31: workflow.Change.node:type_name -> workflow.Node
+	28, // 32: workflow.Arg.default:type_name -> google.protobuf.Value
+	15, // 33: workflow.Graph.functions:type_name -> workflow.Function
+	18, // 34: workflow.Graph.threads:type_name -> workflow.Thread
+	26, // 35: workflow.Graph.constants:type_name -> workflow.Graph.ConstantsEntry
+	27, // 36: workflow.Graph.args:type_name -> workflow.Graph.ArgsEntry
+	0,  // 37: workflow.Workflow.status:type_name -> workflow.Status
+	18, // 38: workflow.Workflow.threads:type_name -> workflow.Thread
+	24, // 39: workflow.Workflow.cause:type_name -> workflow.Cause
+	20, // 40: workflow.Graph.ConstantsEntry.value:type_name -> workflow.Constant
+	22, // 41: workflow.Graph.ArgsEntry.value:type_name -> workflow.Arg
+	42, // [42:42] is the sub-list for method output_type
+	42, // [42:42] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_workflow_proto_init() }
@@ -2069,7 +2136,7 @@ func file_workflow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_workflow_proto_rawDesc), len(file_workflow_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   26,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

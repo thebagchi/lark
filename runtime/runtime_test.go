@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
@@ -179,5 +180,69 @@ func TestHost_CanDrawABundleBeforeItRuns(t *testing.T) {
 				t.Fatalf("%s is %v, want pending", node.GetFunction(), node.GetStatus())
 			}
 		}
+	}
+}
+
+// _Host is a Watcher written the way a host would write one, against the
+// interface this package re-exports.
+//
+// The lock is part of that: changes arrive from every thread the run started,
+// on that thread's own goroutine.
+type _Host struct {
+	guard  sync.Mutex
+	seen   []*runtime.Change
+	widest int
+}
+
+// Changed keeps the change, and asks for the whole run so this exercises both
+// halves of what a watcher is handed.
+//
+// Revisions:
+//   - 2026-09-23 23:02: initial creation
+func (h *_Host) Changed(change *runtime.Change, whole func() *runtime.Workflow) {
+	held := whole()
+
+	h.guard.Lock()
+	defer h.guard.Unlock()
+
+	h.seen = append(h.seen, change)
+
+	if len(held.GetThreads()) > h.widest {
+		h.widest = len(held.GetThreads())
+	}
+}
+
+// TestHost_CanWatchARunAsItGoes is the facade's half of the watcher: a host
+// importing only this package hears every change and can assemble the run.
+//
+// Revisions:
+//   - 2026-09-23 23:02: initial creation
+func TestHost_CanWatchARunAsItGoes(t *testing.T) {
+	into := new(_Host)
+
+	value, err := _Compiled(t, HOST_FIXTURE).Run(runtime.WithWatcher(t.Context(), into))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if value.String() != EXPECTED_TOTAL {
+		t.Fatalf("returned %s, want %s", value.String(), EXPECTED_TOTAL)
+	}
+
+	into.guard.Lock()
+	defer into.guard.Unlock()
+
+	if len(into.seen) == 0 {
+		t.Fatal("the host heard nothing")
+	}
+
+	// The spine and the two lanes host.star spawns.
+	if into.widest != 3 {
+		t.Fatalf("the widest the run looked was %d threads, want 3", into.widest)
+	}
+
+	if into.seen[0].GetNode().GetFunction() != runtime.ENTRY {
+		t.Fatalf("the first change was %q, want %s",
+			into.seen[0].GetNode().GetFunction(), runtime.ENTRY)
 	}
 }

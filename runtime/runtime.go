@@ -43,6 +43,8 @@ type (
 	Log            = observe.Log
 	Workflow       = workflowpb.Workflow
 	Graph          = workflowpb.Graph
+	Change         = workflowpb.Change
+	Watcher        = observe.Watcher
 )
 
 // The failures a host can act on. Each is the subpackage's own value, so
@@ -218,6 +220,22 @@ func WithArgs(ctx context.Context, supplied map[string]*structpb.Value) context.
 //   - 2026-09-22 22:24: initial creation
 func Parsed(src []byte) (map[string]*structpb.Value, error) {
 	return artifact.Parsed(src)
+}
+
+// WithWatcher returns a context carrying what a run tells its host every time
+// a function changes status.
+//
+// A change costs nothing to deliver. The whole run, which the watcher is
+// handed as a function, costs time proportional to how wide the run is - so a
+// host pays for the picture only where it asks for one.
+//
+// Here as well as on observe for the reason WithGraph is: a feature reachable
+// only by abandoning the facade is one the facade does not have.
+//
+// Revisions:
+//   - 2026-09-23 22:48: initial creation
+func WithWatcher(ctx context.Context, into Watcher) context.Context {
+	return WithReporter(ctx, observe.Watching(into))
 }
 
 // WithReporter returns a context carrying what a run tells its host: every

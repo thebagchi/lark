@@ -32,6 +32,7 @@ type _Recorder struct {
 	print func(string)
 	dir   string
 	logs  *Log
+	watch Watcher
 }
 
 // _Where is a node's identity: which function, on which thread.
@@ -186,12 +187,17 @@ func (r *_Recorder) _Resolve(thread string, name string) string {
 //   - 2026-09-20 20:53: resolves an anonymous function against the graph
 func (r *_Recorder) Started(thread string, name string, attempt int32) {
 	r.guard.Lock()
-	defer r.guard.Unlock()
 
 	node := r._At(thread, r._Resolve(thread, name))
 
 	node.Status = workflowpb.Status_STATUS_RUNNING
 	node.Attempt = attempt
+
+	change := _Changed(thread, node)
+
+	r.guard.Unlock()
+
+	r._Notify(change)
 }
 
 // Ended records how a function finished.
@@ -209,9 +215,9 @@ func (r *_Recorder) Started(thread string, name string, attempt int32) {
 //   - 2026-09-20 11:34: tells a cancellation from a failure
 //   - 2026-09-20 11:36: carries the failure's text, for a reader that needs
 //     more than a colour
+//   - 2026-09-23 22:48: tells the watcher, outside the lock
 func (r *_Recorder) Ended(thread string, name string, err error) {
 	r.guard.Lock()
-	defer r.guard.Unlock()
 
 	where := _Where{thread: thread, name: r._Resolve(thread, name)}
 
@@ -221,6 +227,15 @@ func (r *_Recorder) Ended(thread string, name string, err error) {
 	node.Failure = _Why(err)
 
 	r._Blame(&where, node)
+
+	change := _Changed(thread, node)
+
+	// Released rather than deferred, because notifying must happen outside
+	// it: a watcher may ask for the whole run, and assembling that takes this
+	// same lock.
+	r.guard.Unlock()
+
+	r._Notify(change)
 }
 
 // _Blame remembers the first function to fail, which is the one that ended the
