@@ -10,9 +10,15 @@ import (
 	"github.com/thebagchi/lark/runtime/guard"
 )
 
-// ErrCancelled separates "the interpreter stopped you" from "your code was
-// wrong", because a caller acts on them differently.
-var ErrCancelled = errors.New("handle cancelled")
+// ErrCancelled separates "something stopped you" from "your code was wrong",
+// because a caller acts on them differently.
+//
+// It covers both stops a caller can meet: a joined handle that was cancelled,
+// which is a fact about one thread, and a run that was stopped from outside,
+// which is the caller's own doing. One sentinel rather than two, decided
+// 2026-09-23 06:58 - a host asking "did this finish on its own" wants one
+// answer, and the two are told apart by what else the error carries.
+var ErrCancelled = errors.New("cancelled")
 
 // Option sets one thing on the evaluation Beside starts, given the evaluation
 // that is starting it.

@@ -9,6 +9,9 @@
 //	lark -s build.star -b build.bin      compile it into a bundle
 //	lark -s build.star -a '{"n": 3}'     run it, supplying its arguments
 //
+// An interrupt stops a run: the script is told between instructions, the
+// transcript is closed, and this exits 4.
+//
 // It is the smallest host this runtime supports. Given a script it compiles
 // that script together with every module it loads and calls its entry point;
 // modules resolve beside the file that loaded them, so a script in samples/
@@ -29,7 +32,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -85,6 +90,16 @@ const (
 	FAILED   = 1
 	NO_INPUT = 2
 	NO_FILE  = 3
+
+	// STOPPED is a run this command was asked to stop, by an interrupt or a
+	// termination signal. Its own code, because a run somebody stopped did
+	// not fail and a caller acts on the two differently.
+	//
+	// Read from whether the signal arrived, never from the error. A script
+	// that cancels its own thread and joins it also meets ErrCancelled, and
+	// that script failed in the ordinary way - samples/cancel.star is exactly
+	// that, and exits 1.
+	STOPPED = 4
 )
 
 var (
@@ -126,6 +141,7 @@ var (
 //   - 2026-09-21 16:42: keeps a transcript under -l
 //   - 2026-09-21 17:19: compiles into a bundle under -b
 //   - 2026-09-22 22:24: supplies a run's arguments under -a
+//   - 2026-09-23 07:06: an interrupt stops the run and exits 4
 func main() {
 	var (
 		script    = flag.String(SCRIPT_FLAG, "", SCRIPT_USAGE)
@@ -164,7 +180,13 @@ func main() {
 		os.Exit(NO_FILE)
 	}
 
-	ctx, kept, err := _Reporting(context.Background(), *logs, path)
+	// Stopping is the signal cancelling this context, which reaches the
+	// interpreter between instructions, so a script with no sleep in it stops
+	// as readily as one that blocks.
+	stopping, released := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer released()
+
+	ctx, kept, err := _Reporting(stopping, *logs, path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
 		os.Exit(NO_FILE)
@@ -200,10 +222,17 @@ func main() {
 		err = closing
 	}
 
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s failed: %v\n", noun, err)
-		os.Exit(FAILED)
+	if err == nil {
+		return
 	}
+
+	if stopping.Err() != nil {
+		fmt.Fprintf(os.Stderr, "%s stopped\n", noun)
+		os.Exit(STOPPED)
+	}
+
+	fmt.Fprintf(os.Stderr, "%s failed: %v\n", noun, err)
+	os.Exit(FAILED)
 }
 
 // _Console is what this command tells a run: print to standard output, and

@@ -10,6 +10,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/thebagchi/lark/runtime/artifact"
+	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
 const (
@@ -111,10 +112,17 @@ func TestRun_ReturnsWithoutWaitingForWhatNobodyJoined(t *testing.T) {
 }
 
 // TestRun_CancellingTheContextStopsTheSpine proves cancellation reaches the
-// entry point's own evaluation, not only spawned ones.
+// entry point's own evaluation, not only spawned ones, and that what comes
+// back says so.
+//
+// The deadline rather than a cancel, so the context's own error is
+// DeadlineExceeded - which is the second thing this checks. One sentinel
+// covers every stop, and what kind of stop it was stays underneath it.
 //
 // Revisions:
 //   - 2026-09-19 22:48: initial creation
+//   - 2026-09-23 07:02: checks which error came back, having only checked that
+//     one did
 func TestRun_CancellingTheContextStopsTheSpine(t *testing.T) {
 	ctx, stop := context.WithTimeout(t.Context(), CANCEL_AFTER)
 	defer stop()
@@ -130,8 +138,12 @@ func TestRun_CancellingTheContextStopsTheSpine(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err == nil {
-			t.Fatal("a cancelled run succeeded")
+		if !errors.Is(err, scheduler.ErrCancelled) {
+			t.Fatalf("a cancelled run gave %v, want ErrCancelled", err)
+		}
+
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("a cancelled run gave %v, want it to carry the deadline", err)
 		}
 
 		t.Logf("spine stopped: %v", err)
