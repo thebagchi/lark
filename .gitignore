@@ -18,6 +18,7 @@ CLAUDE.md
 plan.md
 review.md
 revision.md
+testing.md
 
 # A WSL utility for deleting Windows Zone.Identifier sidecars. It lives here
 # because that is where it is run from, not because it belongs to this project.
