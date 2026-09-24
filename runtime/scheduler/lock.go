@@ -25,6 +25,20 @@ var ErrNested = errors.New("an update cannot start another")
 // take locks in an order it cannot see. Returns ErrCancelled wrapping the
 // context's error when the wait is cancelled.
 //
+// **A thread spawned inside an update cannot lock for the rest of its life.**
+// It copied the fact at birth and nothing clears a copy, so it is refused
+// after the update has returned as surely as during it. That is deliberate
+// rather than an oversight: clearing the mark on release would make the same
+// script succeed or fail on timing, since the child's set would land either
+// side of a release it cannot see. A ban a reader can predict beats a failure
+// that flickers. A thread that needs to lock is spawned before the update, not
+// inside it.
+//
+// The two refusals say different things because they are different facts. An
+// evaluation that took the name is already updating. One that inherited the
+// mark was started while another evaluation was, and saying "already updating"
+// of it is false once that other evaluation has finished.
+//
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 //   - 2026-09-21 09:46: the name held is one string, since there is never a
@@ -35,8 +49,12 @@ func Lock(thread *starlark.Thread, name string) (func(), error) {
 		return nil, err
 	}
 
-	if locals.inside != "" {
+	if locals.holding {
 		return nil, fmt.Errorf("already updating %q: %w", locals.inside, ErrNested)
+	}
+
+	if locals.inside != "" {
+		return nil, fmt.Errorf("started inside an update of %q: %w", locals.inside, ErrNested)
 	}
 
 	slot := locals.run._Slot(name)
@@ -48,9 +66,11 @@ func Lock(thread *starlark.Thread, name string) (func(), error) {
 	}
 
 	locals.inside = name
+	locals.holding = true
 
 	return func() {
 		locals.inside = ""
+		locals.holding = false
 
 		<-slot
 	}, nil
@@ -72,4 +92,26 @@ func (r *_Run) _Slot(name string) chan struct{} {
 	}
 
 	return slot
+}
+
+// Updating is the name the evaluation on thread is inside an update of, and
+// empty when it is inside none.
+//
+// Exported for a builtin that must refuse while a name is held without
+// wanting the lock itself. join is the one: waiting for a thread that needs
+// the name this evaluation holds is a wait nothing in the script can end, and
+// only the scheduler knows a name is held.
+//
+// True for an evaluation that inherited the mark as well as one that took it,
+// because both are inside an update as far as anything they do is concerned.
+//
+// Revisions:
+//   - 2026-09-24 17:12: initial creation
+func Updating(thread *starlark.Thread) (string, error) {
+	locals, err := _Of(thread)
+	if err != nil {
+		return "", err
+	}
+
+	return locals.inside, nil
 }

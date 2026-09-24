@@ -81,6 +81,12 @@ type _Run struct {
 // "inside" mean the same thing whether the child is a spawn, an attempt or a
 // bounded call. inside is one name, not a list: a second update is refused,
 // so an evaluation is never inside two.
+//
+// holding says whether this evaluation is the one that took the name, rather
+// than one that inherited the fact from whoever did. Both are refused a lock,
+// and they are refused for different reasons - one is already updating, the
+// other was merely started while somebody else was - so the refusal can say
+// which. A child never holds: the lock belongs to the evaluation that took it.
 type _Locals struct {
 	run      *_Run
 	thread   string
@@ -88,6 +94,7 @@ type _Locals struct {
 	attempt  int32
 	catching int
 	inside   string
+	holding  bool
 }
 
 // Begin attaches a new run to thread and returns the function that ends it.

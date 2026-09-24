@@ -43,6 +43,24 @@ func _Join(
 		return nil, err
 	}
 
+	// Refused while a name is held, because the wait can be one nothing in
+	// the script can end: an update takes the name before it calls its
+	// function, so joining a thread that needs that name leaves the parent
+	// waiting for the child and the child waiting for the parent. Only a
+	// cancel breaks it, and a script cannot cancel itself.
+	//
+	// Refused whether or not this evaluation is the one holding the name: a
+	// thread that inherited the mark can join into the same cycle.
+	updating, err := scheduler.Updating(thread)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+	}
+
+	if updating != "" {
+		return nil, fmt.Errorf("%s inside an update of %q: %w",
+			fn.Name(), updating, scheduler.ErrNested)
+	}
+
 	values := make([]starlark.Value, 0, len(handles))
 
 	for index, handle := range handles {

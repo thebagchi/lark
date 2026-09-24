@@ -258,3 +258,146 @@ func TestQueries_AnswerQuestionsRatherThanFail(t *testing.T) {
 		{"find what is not there", `find_key(` + doc + `, "absent")`, `None`},
 	})
 }
+
+// _Global runs a script and returns one of the names it bound.
+//
+// Eval takes an expression, and showing that a document is untouched needs
+// three statements: patch it, change what came back, then look at the
+// original.
+//
+// Revisions:
+//   - 2026-09-24 16:15: initial creation
+func _Global(t *testing.T, script string, name string) (string, error) {
+	t.Helper()
+
+	env, err := plugin.DEFAULT.Environment()
+	if err != nil {
+		t.Fatalf("environment: %v", err)
+	}
+
+	globals, err := starlark.ExecFileOptions(
+		dialect.OPTIONS,
+		&starlark.Thread{Name: SCRIPT},
+		SCRIPT,
+		script,
+		env,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	return globals[name].String(), nil
+}
+
+// TestPatch_ACopyGetsItsOwnContainers is the promise on _Patch that the
+// document handed in is never modified.
+//
+// Copy walked to the value and inserted that same value. The containers along
+// the path were copied; the value was not - so one list was in two places, and
+// appending to what was now at the target changed what was at the source.
+//
+// Move may keep the value it took, because the value left the old path. Only
+// copy needs its own.
+//
+// Revisions:
+//   - 2026-09-24 16:15: initial creation
+func TestPatch_ACopyGetsItsOwnContainers(t *testing.T) {
+	const FLAT = `
+doc = {"a": [1]}
+out = patch_json(doc, [{"op": "copy", "from": "/a", "path": "/b"}])
+out["b"].append(2)
+`
+
+	const NESTED = `
+doc = {"a": {"x": [1]}}
+out = patch_json(doc, [{"op": "copy", "from": "/a", "path": "/b"}])
+out["b"]["x"].append(2)
+`
+
+	cases := []struct{ name, script, read, want string }{
+		{"the original is untouched", FLAT, "doc", `{"a": [1]}`},
+		{"and the copy is its own list", FLAT, "out", `{"a": [1], "b": [1, 2]}`},
+		{"a nested container is copied too", NESTED, "doc", `{"a": {"x": [1]}}`},
+	}
+
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			got, err := _Global(t, item.script, item.read)
+			if err != nil {
+				t.Fatalf("%s: %v", item.read, err)
+			}
+
+			if got != item.want {
+				t.Fatalf("%s was %s, want %s", item.read, got, item.want)
+			}
+		})
+	}
+}
+
+// TestPatch_AMoveKeepsTheValueItTook records the other half, so that fixing
+// copy is not read as a rule about both.
+//
+// Revisions:
+//   - 2026-09-24 16:15: initial creation
+func TestPatch_AMoveKeepsTheValueItTook(t *testing.T) {
+	got, err := _Eval(t, `patch_json({"a": [1]}, [{"op": "move", "from": "/a", "path": "/b"}])`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got != `{"b": [1]}` {
+		t.Fatalf("got %s, want the value moved", got)
+	}
+}
+
+// TestPatch_AWrittenValueGetsItsOwnContainers is the other half of the rule
+// copy now follows.
+//
+// _Insert already copies every container along the path, so the document's
+// structure was never shared - only the leaf a caller supplied in the patch.
+// A caller who passed a value they still hold, part of the document included,
+// could change what came back and change the input with it, against the
+// promise on _Patch.
+//
+// Revisions:
+//   - 2026-09-24 16:23: initial creation
+func TestPatch_AWrittenValueGetsItsOwnContainers(t *testing.T) {
+	const ADDED = `
+doc = {"a": [1]}
+out = patch_json(doc, [{"op": "add", "path": "/b", "value": doc["a"]}])
+out["b"].append(2)
+`
+
+	const REPLACED = `
+doc = {"a": [1], "b": [9]}
+out = patch_json(doc, [{"op": "replace", "path": "/b", "value": doc["a"]}])
+out["b"].append(2)
+`
+
+	const OWNED = `
+mine = [1]
+doc = {}
+out = patch_json(doc, [{"op": "add", "path": "/b", "value": mine}])
+out["b"].append(2)
+`
+
+	cases := []struct{ name, script, read, want string }{
+		{"add leaves the document alone", ADDED, "doc", `{"a": [1]}`},
+		{"and the addition is its own list", ADDED, "out", `{"a": [1], "b": [1, 2]}`},
+		{"replace leaves it alone too", REPLACED, "doc", `{"a": [1], "b": [9]}`},
+		{"a value the caller still holds is not theirs to be changed", OWNED, "mine", `[1]`},
+	}
+
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			got, err := _Global(t, item.script, item.read)
+			if err != nil {
+				t.Fatalf("%s: %v", item.read, err)
+			}
+
+			if got != item.want {
+				t.Fatalf("%s was %s, want %s", item.read, got, item.want)
+			}
+		})
+	}
+}

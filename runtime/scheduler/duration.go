@@ -13,9 +13,21 @@ import (
 // hold.
 var ErrDuration = errors.New("not a duration")
 
-// NANOS is how many of time.Duration's units make a second, so a script's
-// fractional seconds can become one.
-const NANOS = float64(time.Second)
+const (
+	// NANOS is how many of time.Duration's units make a second, so a script's
+	// fractional seconds can become one.
+	NANOS = float64(time.Second)
+
+	// LIMIT is the first count of nanoseconds a timer cannot hold.
+	//
+	// Two to the sixty-third, written as that rather than as MaxInt64,
+	// because a float64 cannot tell the two apart: converting MaxInt64 to a
+	// float rounds it up to exactly this, so a guard reading "greater than
+	// MaxInt64" lets this value through and time.Duration then wraps it to
+	// the most negative duration there is. A sleep of that returns at once,
+	// which is the opposite of what was asked for.
+	LIMIT = 1 << 63
+)
 
 // Duration reads a script's number of seconds as a duration a timer can hold.
 //
@@ -29,6 +41,8 @@ const NANOS = float64(time.Second)
 //
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
+//   - 2026-09-24 16:08: refuses two to the sixty-third nanoseconds, which the
+//     old guard compared against a float that had rounded up to meet it
 func Duration(value starlark.Value) (time.Duration, error) {
 	seconds, ok := starlark.AsFloat(value)
 	if !ok {
@@ -37,7 +51,7 @@ func Duration(value starlark.Value) (time.Duration, error) {
 
 	nanos := seconds * NANOS
 
-	unfit := math.IsNaN(nanos) || math.IsInf(nanos, 0) || nanos < 0 || nanos > math.MaxInt64
+	unfit := math.IsNaN(nanos) || math.IsInf(nanos, 0) || nanos < 0 || nanos >= LIMIT
 
 	if unfit {
 		return 0, fmt.Errorf("%g seconds: %w", seconds, ErrDuration)

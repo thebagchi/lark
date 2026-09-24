@@ -138,14 +138,62 @@ func _Parentage(graph *workflowpb.Graph) error {
 // The spine is the special case it is everywhere else: it contributes no
 // prefix, so its children are thread_1 rather than thread_0_1.
 //
+// Nothing descends from itself, said once here rather than inside each arm.
+// The general arm already excluded it by construction - thread_1 does not
+// begin with "thread_1_" - but the spine's arm did not, so a fork of thread_0
+// declared on thread_0 read as an ordinary child and Check passed a graph
+// whose spine forks itself.
+//
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-24 16:38: nothing is its own child, which the spine's arm let
+//     through
+//   - 2026-09-24 16:44: an id with no ordinal is nobody's child. thread_ is
+//     not thread_0, so the self-check does not reach it, and an empty ordinal
+//     holds no underscore - so it read as an ordinary child of the spine
+//   - 2026-09-24 17:12: an ordinal is a decimal counting from one, on both
+//     arms, so an id the scheduler would never mint is refused rather than
+//     read as an ordinary child
 func _Descends(id string, parent string) bool {
-	if parent == SPINE {
-		return strings.HasPrefix(id, THREAD) && !strings.Contains(_Ordinal(id), "_")
+	if id == parent {
+		return false
 	}
 
-	return strings.HasPrefix(id, parent+"_") && !strings.Contains(id[len(parent)+1:], "_")
+	if parent == SPINE {
+		return strings.HasPrefix(id, THREAD) && _Decimal(_Ordinal(id))
+	}
+
+	return strings.HasPrefix(id, parent+"_") && _Decimal(id[len(parent)+1:])
+}
+
+// _Decimal reports whether a segment is an ordinal an id may carry.
+//
+// A decimal counting from one, with no leading zero: 1, 2, 10. The scheduler
+// numbers lanes that way and mints nothing else, so an id carrying anything
+// else names a thread this runtime would never have produced - and Check
+// exists for graphs a user interface sends, which is where such an id comes
+// from.
+//
+// Empty is refused, and so is anything beginning with zero. That includes the
+// spine's own ordinal, so this covers the self-fork a second time; the guard
+// above still states that rule on its own, because it is a rule about
+// parentage rather than about how an ordinal is spelled, and a later change
+// to what an ordinal may look like must not quietly reopen it.
+//
+// Revisions:
+//   - 2026-09-24 17:12: initial creation
+func _Decimal(text string) bool {
+	if text == "" || text[0] == '0' {
+		return false
+	}
+
+	for _, digit := range text {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+
+	return true
 }
 
 // _Ordinal is what follows a thread id's prefix.

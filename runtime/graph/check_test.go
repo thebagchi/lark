@@ -186,3 +186,96 @@ func TestCheck_RefusesACallThatCannotFit(t *testing.T) {
 		t.Fatalf("want the call named, got %v", err)
 	}
 }
+
+// TestCheck_RefusesASpineThatForksItself is the hole the spine's own arm had.
+//
+// The spine contributes no prefix, so its children are thread_1 rather than
+// thread_0_1 - and the test for that was "begins with thread_ and the ordinal
+// holds no underscore", which thread_0 satisfies. A fork of thread_0 declared
+// on thread_0 therefore read as an ordinary child, and a graph whose spine
+// forks itself passed. The general arm never had the hole, because thread_1
+// does not begin with "thread_1_".
+//
+// Revisions:
+//   - 2026-09-24 16:38: initial creation
+func TestCheck_RefusesASpineThatForksItself(t *testing.T) {
+	built := _Authored([]*workflowpb.Step{_Fork(graph.SPINE)})
+
+	err := graph.Check(built)
+	if !errors.Is(err, graph.ErrParentage) {
+		t.Fatalf("a spine forking itself gave %v, want ErrParentage", err)
+	}
+
+	if !strings.Contains(err.Error(), graph.SPINE) {
+		t.Fatalf("the refusal does not name the thread: %v", err)
+	}
+}
+
+// TestCheck_RefusesAnIdWithNoOrdinal is the neighbour of the self-fork, and it
+// is not caught by the same guard.
+//
+// thread_ is not equal to thread_0, so "nothing descends from itself" does not
+// reach it - and an empty ordinal contains no underscore, so the spine's arm
+// read it as an ordinary child. An id that names no ordinal names no thread.
+//
+// The odd spellings next to it were waved for a day and are now refused too:
+// an ordinal is a decimal counting from one, so thread_01, thread_00 and
+// thread_1a name threads the scheduler would never mint. That started as a
+// rule about parentage and is now also a rule about how an ordinal is spelled,
+// which was asked for after the first version of this test recorded the
+// opposite.
+//
+// Revisions:
+//   - 2026-09-24 16:44: initial creation
+//   - 2026-09-24 17:12: the odd spellings flip from accepted to refused
+func TestCheck_RefusesAnIdWithNoOrdinal(t *testing.T) {
+	built := _Authored([]*workflowpb.Step{_Fork(graph.THREAD)}, _Runs(graph.THREAD, "alpha"))
+
+	err := graph.Check(built)
+	if !errors.Is(err, graph.ErrParentage) {
+		t.Fatalf("a fork of %q gave %v, want ErrParentage", graph.THREAD, err)
+	}
+
+	for _, odd := range []string{"thread_01", "thread_00", "thread_1a"} {
+		t.Run(odd, func(t *testing.T) {
+			held := _Authored([]*workflowpb.Step{_Fork(odd)}, _Runs(odd, "alpha"))
+
+			if !errors.Is(graph.Check(held), graph.ErrParentage) {
+				t.Fatalf("%q was accepted, and no ordinal is spelled that way", odd)
+			}
+		})
+	}
+
+	// And the ones the scheduler does mint stay legal.
+	for _, good := range []string{"thread_1", "thread_10"} {
+		t.Run(good, func(t *testing.T) {
+			held := _Authored([]*workflowpb.Step{_Fork(good)}, _Runs(good, "alpha"))
+
+			if err := graph.Check(held); err != nil {
+				t.Fatalf("%q was refused: %v", good, err)
+			}
+		})
+	}
+}
+
+// TestCheck_KeepsTheForksThatAreLegal checks the fix refused only what it
+// should: the spine's real children still pass, and a grandchild declared on
+// the spine still fails.
+//
+// Revisions:
+//   - 2026-09-24 16:38: initial creation
+func TestCheck_KeepsTheForksThatAreLegal(t *testing.T) {
+	legal := _Authored([]*workflowpb.Step{_Fork("thread_1")}, _Runs("thread_1", "alpha"))
+
+	err := graph.Check(legal)
+	if err != nil {
+		t.Fatalf("the spine forking thread_1 gave %v, want it allowed", err)
+	}
+
+	skipped := _Authored([]*workflowpb.Step{_Fork("thread_1_1")}, _Runs("thread_1_1", "alpha"))
+
+	err = graph.Check(skipped)
+	if !errors.Is(err, graph.ErrParentage) {
+		t.Fatalf("the spine forking a grandchild gave %v, want ErrParentage", err)
+	}
+}

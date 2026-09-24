@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/runtime/plugin/deep"
 )
 
 var (
@@ -81,6 +83,8 @@ func _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 //
 // Revisions:
 //   - 2026-09-20 00:54: initial creation
+//   - 2026-09-24 16:08: a copy is given its own containers, where it used to
+//     share them with the document it came from
 func _Field(op *starlark.Dict, name string) (string, error) {
 	value, found, err := op.Get(starlark.String(name))
 	if err != nil || !found {
@@ -134,8 +138,18 @@ func _Write(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Value,
 		return nil, err
 	}
 
+	// The written value gets its own containers. _Insert already copies every
+	// container along the path, so the document's structure is never shared -
+	// this finishes that job at the leaf. Without it a caller who passed a
+	// value they still hold, part of the document included, could change what
+	// came back and change the input with it.
+	own, err := deep.Copy(value)
+	if err != nil {
+		return nil, err
+	}
+
 	if kind == ADD {
-		return _Insert(doc, steps, value)
+		return _Insert(doc, steps, own)
 	}
 
 	_, err = _Walk(doc, steps)
@@ -143,7 +157,7 @@ func _Write(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Value,
 		return nil, err
 	}
 
-	return _Replace(doc, steps, value)
+	return _Replace(doc, steps, own)
 }
 
 // _Remove deletes what path names.
@@ -214,9 +228,20 @@ func _Relocate(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Val
 		if err != nil {
 			return nil, err
 		}
+
+		return _Insert(doc, target, value)
 	}
 
-	return _Insert(doc, target, value)
+	// The copy gets its own. Inserting the value itself puts one list in two
+	// places, so appending to what is now at the target changed what is at
+	// the source - and this package promises the document it was handed is
+	// never modified. Move may keep the value, because the value left.
+	own, err := deep.Copy(value)
+	if err != nil {
+		return nil, err
+	}
+
+	return _Insert(doc, target, own)
 }
 
 // _Inside reports whether target is strictly below source.

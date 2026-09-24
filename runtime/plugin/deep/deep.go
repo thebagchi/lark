@@ -1,4 +1,11 @@
-package state
+// Package deep copies a Starlark value and everything under it.
+//
+// It supplies no names to a script and is not a plugin. It is here rather than
+// inside state because two plugins need the same copy for the same reason:
+// state hands a reader something it owns, and a JSON patch that copies a value
+// must give the copy its own containers. Two implementations of "copy this and
+// everything under it" would be two sets of cycle handling to keep in step.
+package deep
 
 import (
 	"fmt"
@@ -6,7 +13,7 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// _Copy returns a deep, unfrozen copy of value.
+// Copy returns a deep, unfrozen copy of value.
 //
 // What is stored is frozen, so that several threads reading one name at once
 // cannot be handed something one of them can change underneath the others. That
@@ -28,12 +35,13 @@ import (
 // - they hold no mutable state a script can reach.
 //
 // Revisions:
-//   - 2026-09-20 00:42: initial creation
-func _Copy(value starlark.Value) (starlark.Value, error) {
-	return _CopyInto(value, map[starlark.Value]starlark.Value{})
+//   - 2026-09-20 00:42: initial creation, as state's own _Copy
+//   - 2026-09-24 16:08: moved here, where jsonpath reaches it too
+func Copy(value starlark.Value) (starlark.Value, error) {
+	return Into(value, map[starlark.Value]starlark.Value{})
 }
 
-// _CopyInto copies value, reusing whatever has already been copied.
+// Into copies value, reusing whatever has already been copied.
 //
 // The seen map is what makes a self-referential value safe. Starlark allows
 // one - x = [1]; x.append(x) is legal - and a copy that did not remember what
@@ -49,25 +57,26 @@ func _Copy(value starlark.Value) (starlark.Value, error) {
 // every value up here panicked on the first tuple a script stored.
 //
 // Revisions:
-//   - 2026-09-20 00:43: initial creation
+//   - 2026-09-20 00:43: initial creation, as state's own _CopyInto
+//   - 2026-09-24 16:08: moved here
 //   - 2026-09-21 08:09: consults seen only for a container, so a tuple never
 //     reaches a map that cannot hash it
-func _CopyInto(
+func Into(
 	value starlark.Value,
 	seen map[starlark.Value]starlark.Value,
 ) (starlark.Value, error) {
 	switch original := value.(type) {
 	case *starlark.List:
-		return _CopyList(original, seen)
+		return _List(original, seen)
 
 	case *starlark.Dict:
-		return _CopyDict(original, seen)
+		return _Dict(original, seen)
 
 	case starlark.Tuple:
-		return _CopyTuple(original, seen)
+		return _Tuple(original, seen)
 
 	case *starlark.Set:
-		return _CopySet(original, seen)
+		return _Set(original, seen)
 
 	default:
 		return value, nil
@@ -80,7 +89,7 @@ func _CopyInto(
 // Revisions:
 //   - 2026-09-20 00:44: initial creation
 //   - 2026-09-21 08:09: reuses a copy already made
-func _CopyList(original *starlark.List, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+func _List(original *starlark.List, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
 	copied, found := seen[original]
 	if found {
 		return copied, nil
@@ -91,7 +100,7 @@ func _CopyList(original *starlark.List, seen map[starlark.Value]starlark.Value) 
 	seen[original] = made
 
 	for index := range original.Len() {
-		element, err := _CopyInto(original.Index(index), seen)
+		element, err := Into(original.Index(index), seen)
 		if err != nil {
 			return nil, err
 		}
@@ -112,7 +121,7 @@ func _CopyList(original *starlark.List, seen map[starlark.Value]starlark.Value) 
 // Revisions:
 //   - 2026-09-20 00:45: initial creation
 //   - 2026-09-21 08:09: reuses a copy already made
-func _CopyDict(original *starlark.Dict, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+func _Dict(original *starlark.Dict, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
 	copied, found := seen[original]
 	if found {
 		return copied, nil
@@ -123,12 +132,12 @@ func _CopyDict(original *starlark.Dict, seen map[starlark.Value]starlark.Value) 
 	seen[original] = made
 
 	for _, item := range original.Items() {
-		key, err := _CopyInto(item[0], seen)
+		key, err := Into(item[0], seen)
 		if err != nil {
 			return nil, err
 		}
 
-		held, err := _CopyInto(item[1], seen)
+		held, err := Into(item[1], seen)
 		if err != nil {
 			return nil, err
 		}
@@ -150,11 +159,11 @@ func _CopyDict(original *starlark.Dict, seen map[starlark.Value]starlark.Value) 
 //
 // Revisions:
 //   - 2026-09-20 00:46: initial creation
-func _CopyTuple(original starlark.Tuple, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+func _Tuple(original starlark.Tuple, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
 	made := make(starlark.Tuple, 0, len(original))
 
 	for _, element := range original {
-		copied, err := _CopyInto(element, seen)
+		copied, err := Into(element, seen)
 		if err != nil {
 			return nil, err
 		}
@@ -173,7 +182,7 @@ func _CopyTuple(original starlark.Tuple, seen map[starlark.Value]starlark.Value)
 // Revisions:
 //   - 2026-09-20 00:47: initial creation
 //   - 2026-09-21 08:09: reuses a copy already made
-func _CopySet(original *starlark.Set, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+func _Set(original *starlark.Set, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
 	copied, found := seen[original]
 	if found {
 		return copied, nil

@@ -62,6 +62,12 @@ func Beside(thread *starlark.Thread, target starlark.Callable, opts ...Option) (
 		attempt:  parent.attempt,
 		catching: parent.catching,
 		inside:   parent.inside,
+
+		// Never inherited. The lock belongs to the evaluation that took it,
+		// so a child carries the fact that one is held without being the one
+		// holding it - which is what lets the refusal say which of the two it
+		// is refusing.
+		holding: false,
 	}
 
 	for _, opt := range opts {

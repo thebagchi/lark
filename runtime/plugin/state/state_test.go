@@ -216,6 +216,9 @@ func TestUpdate_SeesNoneWhenNothingIsStored(t *testing.T) {
 //     hangs rather than merely risking it
 //   - 2026-09-21 08:09: covers nesting through a spawn and through a timeout,
 //     which used to hang forever, and matches the sentinel
+//   - 2026-09-24 17:12: the spawn case joins after the update rather than
+//     inside it, so the refusal under test is the child's own. Joining inside
+//     is refused earlier now, and has a test of its own
 func TestUpdate_RefusesToNest(t *testing.T) {
 	scripts := []string{
 		NESTED_SCRIPT,
@@ -318,5 +321,152 @@ func TestState_CopiesSurviveCyclesAndSharing(t *testing.T) {
 
 	if value.String() != `[3, [9, 8]]` {
 		t.Fatalf("got %s, want [3, [9, 8]]", value.String())
+	}
+}
+
+// TestSet_IsNotLostToAnUpdateThatStartedEarlier is the race a store mutex
+// cannot close.
+//
+// Update holds the name's lock across its read, its call and its write. Set
+// took only the store's mutex, which update releases around the call - so a
+// set landing in that window was overwritten by what the update had read
+// before the set happened, and the write that finished second lost silently.
+//
+// Revisions:
+//   - 2026-09-24 16:15: initial creation
+func TestSet_IsNotLostToAnUpdateThatStartedEarlier(t *testing.T) {
+	got, err := _Built(t, "setwins.star").Run(t.Context())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if got.String() != `"from-set"` {
+		t.Fatalf("got %s, want the set that finished last to be what is stored", got.String())
+	}
+}
+
+// TestSet_FromInsideAnUpdateIsRefusedRatherThanWaited checks that closing the
+// race did not open a deadlock: the lock set now takes is the one the
+// surrounding update already holds.
+//
+// Revisions:
+//   - 2026-09-24 16:15: initial creation
+func TestSet_FromInsideAnUpdateIsRefusedRatherThanWaited(t *testing.T) {
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := _Built(t, "setinside.star").Run(t.Context())
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, runtime.ErrNested) {
+			t.Fatalf("got %v, want ErrNested", err)
+		}
+	case <-time.After(PROMPT):
+		t.Fatal("a set inside an update hung rather than being refused")
+	}
+}
+
+// TestUpdate_AChildIsRefusedAfterTheUpdateHasFinished is the lifetime of the
+// mark, written down because it is surprising and deliberate.
+//
+// A thread spawned inside an update copies the fact that one is held, and
+// nothing clears a copy. So it is refused after the parent has released the
+// name, and refused for a different name than the one that was held.
+//
+// The alternative - clearing on release - was considered and rejected: the
+// child's set would land either side of a release it cannot see, so the same
+// script would succeed or fail on the scheduler's timing. A ban a reader can
+// predict beats a failure that flickers.
+//
+// Revisions:
+//   - 2026-09-24 16:55: initial creation
+func TestUpdate_AChildIsRefusedAfterTheUpdateHasFinished(t *testing.T) {
+	_, err := _Built(t, "afterupdate.star").Run(t.Context())
+	if !errors.Is(err, runtime.ErrNested) {
+		t.Fatalf("got %v, want ErrNested", err)
+	}
+
+	// And it says which of the two refusals this is. The parent finished
+	// before the child ever called set, so "already updating" would be false.
+	if strings.Contains(err.Error(), "already updating") {
+		t.Fatalf("a child that inherited the mark was told it is updating: %v", err)
+	}
+
+	if !strings.Contains(err.Error(), `started inside an update of "a"`) {
+		t.Fatalf("the refusal does not say why it refused: %v", err)
+	}
+}
+
+// TestUpdate_ANestedUpdateStillSaysItIsUpdating is the other half: the
+// evaluation that took the name is told the true thing about itself.
+//
+// Revisions:
+//   - 2026-09-24 16:55: initial creation
+func TestUpdate_ANestedUpdateStillSaysItIsUpdating(t *testing.T) {
+	_, err := _Built(t, NESTED_SCRIPT).Run(t.Context())
+	if !errors.Is(err, runtime.ErrNested) {
+		t.Fatalf("got %v, want ErrNested", err)
+	}
+
+	if !strings.Contains(err.Error(), "already updating") {
+		t.Fatalf("an evaluation holding the name was not told so: %v", err)
+	}
+}
+
+// TestJoin_UnderAHeldNameIsRefused is the wait nothing in a script can end.
+//
+// An update takes the name before it calls its function, so a join inside that
+// function waits for a thread that may need the name the caller is holding.
+// The parent waits for the child and the child waits for the parent. Only a
+// cancel breaks it, and a script cannot cancel itself - so before this, the
+// script ran until the host stopped the run.
+//
+// Refused whether or not this evaluation is the one holding the name, and
+// whether or not the joined thread would in fact have wanted it: which threads
+// will touch the store cannot be known before they run, so the refusal is the
+// broad one. That is the same trade the lifetime ban makes, and for the same
+// reason - a rule a reader can predict beats one that depends on what a thread
+// turns out to do.
+//
+// Revisions:
+//   - 2026-09-24 17:12: initial creation
+func TestJoin_UnderAHeldNameIsRefused(t *testing.T) {
+	started := time.Now()
+
+	_, err := _Built(t, "join_under_lock.star").Run(t.Context())
+	if !errors.Is(err, runtime.ErrNested) {
+		t.Fatalf("got %v, want ErrNested", err)
+	}
+
+	if !strings.Contains(err.Error(), "join") {
+		t.Fatalf("the refusal does not say what was refused: %v", err)
+	}
+
+	// It refuses rather than waits, so this returns at once. Before the
+	// refusal the same script ran until something killed it.
+	if taken := time.Since(started); taken > PROMPT {
+		t.Fatalf("refusing took %s, which is a wait rather than a refusal", taken)
+	}
+}
+
+// TestJoin_AfterTheUpdateHasReturnedIsLegal is the other side: the refusal is
+// about a name being held, not about the handle.
+//
+// Revisions:
+//   - 2026-09-24 17:12: initial creation
+func TestJoin_AfterTheUpdateHasReturnedIsLegal(t *testing.T) {
+	// afterupdate.star spawns inside an update and joins the handle after the
+	// update returned. Its child is refused at set, not at join - so if the
+	// join were refused this would say so instead.
+	_, err := _Built(t, "afterupdate.star").Run(t.Context())
+	if !errors.Is(err, runtime.ErrNested) {
+		t.Fatalf("got %v, want ErrNested from the child", err)
+	}
+
+	if strings.Contains(err.Error(), "join") {
+		t.Fatalf("the join after the update was refused, and should not be: %v", err)
 	}
 }

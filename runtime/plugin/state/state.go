@@ -14,6 +14,7 @@ import (
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/thebagchi/lark/runtime/plugin"
+	"github.com/thebagchi/lark/runtime/plugin/deep"
 	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
@@ -101,8 +102,21 @@ func _Of(thread *starlark.Thread) (*_Store, error) {
 // than corruption. It is also what Starlark does to module scope for the same
 // reason.
 //
+// It takes the name's lock, which update holds across its read, its call and
+// its write. Without it a set landing while an update's function was running
+// was overwritten by what that update had read before the set happened - so
+// the write that finished second lost, silently, and a script could not tell.
+// The store's own mutex could not prevent that: it is held for the read and
+// for the write, and released around the call, which is the window.
+//
+// Returns ErrNested when called from inside an update, as a nested update is:
+// waiting there would be waiting for a lock this evaluation already holds,
+// which never ends.
+//
 // Revisions:
 //   - 2026-09-20 00:25: initial creation
+//   - 2026-09-24 16:08: takes the name's lock, so a set cannot be lost to an
+//     update that started before it
 func _Set(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -123,6 +137,13 @@ func _Set(
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
 	}
+
+	release, err := scheduler.Lock(thread, name)
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
+	}
+
+	defer release()
 
 	value.Freeze()
 
@@ -182,7 +203,7 @@ func _Get(
 		return starlark.None, nil
 	}
 
-	copied, err := _Copy(value)
+	copied, err := deep.Copy(value)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
 	}
@@ -278,7 +299,7 @@ func (s *_Store) _Apply(
 		current = starlark.None
 	}
 
-	current, err := _Copy(current)
+	current, err := deep.Copy(current)
 	if err != nil {
 		return nil, err
 	}
