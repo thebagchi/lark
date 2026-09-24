@@ -489,3 +489,69 @@ func TestWritelines_RefusesSomethingThatIsNotALine(t *testing.T) {
 		t.Fatalf("the refusal does not say which line: %v", err)
 	}
 }
+
+// TestErrFile_IsAnsweredWithoutBeingSaid is the sentinel doing its job
+// silently.
+//
+// ErrFile answers "did a file call fail", which every refusal here answers yes
+// to. Wrapping it with %w put its words at the end of every message, where a
+// line of the wrong type and a read past the run's memory both claimed the
+// filesystem had refused something. The question still has to be answerable,
+// so this checks both halves at once: every refusal matches ErrFile, and none
+// of them says so.
+//
+// Revisions:
+//   - 2026-09-25 00:18: initial creation
+func TestErrFile_IsAnsweredWithoutBeingSaid(t *testing.T) {
+	root := t.TempDir()
+
+	_Put(t, root, "note.txt", "hello")
+
+	cases := map[string]string{
+		"a missing file":           `file.read(path.join(root, "nope.txt"))`,
+		"a directory":              `file.read(root)`,
+		"walking one":              `[line for line in file.lines(root)]`,
+		"a line of the wrong type": `file.writelines(path.join(root, "bad.txt"), [1])`,
+		"sizing nothing":           `file.size(path.join(root, "nope.txt"))`,
+		"removing nothing":         `file.remove(path.join(root, "nope.txt"))`,
+		"listing a file":           `file.list(path.join(root, "note.txt"))`,
+	}
+
+	for name, expression := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := _Eval(t, root, expression)
+			if !errors.Is(err, larkfile.ErrFile) {
+				t.Fatalf("%s did not answer ErrFile: %v", expression, err)
+			}
+
+			if strings.Contains(err.Error(), larkfile.ErrFile.Error()) {
+				t.Fatalf("the sentinel put its words in the message: %v", err)
+			}
+		})
+	}
+
+	// And the memory refusals, which are the ones the words were false about.
+	_Put(t, root, "big.txt", strings.Repeat("y", _LONG))
+
+	narrow := map[string]string{
+		"a read past the ceiling": `file.read(path.join(root, "big.txt"))`,
+		"a line past the ceiling": `[line for line in file.lines(path.join(root, "big.txt"))]`,
+	}
+
+	for name, expression := range narrow {
+		t.Run(name, func(t *testing.T) {
+			_, err := _Within(t, root, _SMALL, expression)
+			if !errors.Is(err, larkfile.ErrFile) {
+				t.Fatalf("%s did not answer ErrFile: %v", expression, err)
+			}
+
+			if !errors.Is(err, scheduler.ErrMemory) {
+				t.Fatalf("%s did not answer ErrMemory: %v", expression, err)
+			}
+
+			if strings.Contains(err.Error(), larkfile.ErrFile.Error()) {
+				t.Fatalf("a memory refusal claimed the filesystem refused it: %v", err)
+			}
+		})
+	}
+}

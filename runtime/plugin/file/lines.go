@@ -214,7 +214,7 @@ func (w *_Walk) Done() {
 		return
 	}
 
-	cause := fmt.Errorf("%s.%s: %s: %w: %w", NAME, LINES, w.lines.named, w.failed, ErrFile)
+	cause := _Rejected(NAME+"."+LINES, w.lines.named, w.failed)
 
 	// Fail returns its cause so a builtin can raise it. Done has nothing to
 	// raise to, so what comes back is kept as the reason this walk stopped:

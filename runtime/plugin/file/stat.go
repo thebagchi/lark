@@ -1,7 +1,6 @@
 package file
 
 import (
-	"fmt"
 	"os"
 
 	starlarktime "go.starlark.net/lib/time"
@@ -78,7 +77,7 @@ func _Sized(name string, named string) (os.FileInfo, error) {
 	}
 
 	if !about.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s: %s: %w: %w", name, named, ErrNotAFile, ErrFile)
+		return nil, _Rejected(name, named, ErrNotAFile)
 	}
 
 	return about, nil

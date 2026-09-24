@@ -17,7 +17,7 @@ const (
 
 // ErrLine is returned for something in a list of lines that is not one.
 //
-// Wrapped in ErrFile, so a caller branching on the module's general question
+// Answers ErrFile too, so a caller branching on the module's general question
 // still catches it.
 var ErrLine = errors.New("not a line")
 
@@ -83,7 +83,7 @@ func _Putting(
 
 	closing := held.Close()
 	if err == nil && closing != nil {
-		err = fmt.Errorf("%s: %s: %w: %w", fn.Name(), named, closing, ErrFile)
+		err = _Rejected(fn.Name(), named, closing)
 	}
 
 	if err != nil {
@@ -163,8 +163,8 @@ func _Pouring(
 	for walk.Next(&line) {
 		held, ok := starlark.AsString(line)
 		if !ok {
-			return fmt.Errorf("%s: %s: line %d is %s: %w: %w",
-				fn.Name(), named, index, line.Type(), ErrLine, ErrFile)
+			return _Rejected(fn.Name(), named,
+				fmt.Errorf("line %d is %s: %w", index, line.Type(), ErrLine))
 		}
 
 		if index > 0 {
@@ -173,7 +173,7 @@ func _Pouring(
 
 		_, err := writer.WriteString(held)
 		if err != nil {
-			return fmt.Errorf("%s: %s: %w: %w", fn.Name(), named, err, ErrFile)
+			return _Rejected(fn.Name(), named, err)
 		}
 
 		index++
@@ -181,7 +181,7 @@ func _Pouring(
 
 	err := writer.Flush()
 	if err != nil {
-		return fmt.Errorf("%s: %s: %w: %w", fn.Name(), named, err, ErrFile)
+		return _Rejected(fn.Name(), named, err)
 	}
 
 	return nil

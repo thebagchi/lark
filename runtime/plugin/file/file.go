@@ -20,7 +20,6 @@ package file
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,15 +33,20 @@ import (
 )
 
 var (
-	// ErrFile is returned for anything the filesystem refused, wrapping what
-	// it said so that a caller who wants the detail still has it.
+	// ErrFile is what every refusal in this module answers to, so a caller
+	// asking "did a file call fail" asks once.
+	//
+	// It is carried rather than wrapped with %w; see _Failed. Its words would
+	// otherwise land at the end of every message, where they read as a claim
+	// about the filesystem rather than as the category they are - and three of
+	// this module's refusals are not the filesystem's doing at all.
 	ErrFile = errors.New("the filesystem refused")
 
 	// ErrNotAFile is returned for reading something that is not a regular
 	// file: a device, a pipe, a directory.
 	//
-	// Wrapped in ErrFile as well as itself. A caller branching on "did this
-	// call fail in a way I handle" tests the general one, and a refusal that
+	// Answers ErrFile as well as itself. A caller branching on "did this call
+	// fail in a way I handle" tests the general one, and a refusal that
 	// matched only the specific sentinel would slip past every such branch -
 	// including the ones written before this sentinel existed, when reading a
 	// directory reached the filesystem and came back as ErrFile.
@@ -201,7 +205,7 @@ func _Contents(
 
 	err = budget.Charge(size)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %s: %w: %w", fn.Name(), named, err, ErrFile)
+		return nil, _Rejected(fn.Name(), named, err)
 	}
 
 	// Given back when the value is handed over: from then on the script owns
@@ -479,12 +483,4 @@ func _Destination(
 	}
 
 	return named, data, nil
-}
-
-// _Refused is what this says about anything the filesystem would not do.
-//
-// Revisions:
-//   - 2026-09-24 00:53: initial creation
-func _Refused(who string, err error) error {
-	return fmt.Errorf("%s: %w: %w", who, ErrFile, err)
 }
