@@ -5,6 +5,7 @@ package testing_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -142,4 +143,96 @@ func _RunCtx(t *testing.T, ctx context.Context, src string) (starlark.Value, err
 		return nil, err
 	}
 	return built.Run(ctx)
+}
+
+const (
+	// _SETTLE is how long main waits, in seconds as its script spells it, so an
+	// unjoined child reaches its failure before the run ends. Without this the
+	// exit would cancel the child first and the test would pass having proved
+	// nothing.
+	_SETTLE = 0.2
+
+	// _ORPHAN_SLEEP is how long the abandoned child asks to sleep, in seconds
+	// as its script spells it.
+	_ORPHAN_SLEEP = 2
+
+	// _KILLED_WITHIN is how long the run may take before its child is taken to
+	// have been waited for rather than killed. Measured 2026-09-24: 0.205s
+	// killed against 2.005s joined, so this sits between the two with room on
+	// either side of it.
+	_KILLED_WITHIN = time.Second
+)
+
+// TestSpawn_AnUnjoinedFailureDoesNotEndTheRun pins detached-thread semantics.
+//
+// Nobody asked the child for its value, so nothing is waiting to be told it
+// failed - the same answer a goroutine, a Java thread with an uncaught
+// exception or a Python daemon thread gives. The failure reaches the reporter;
+// only the run's result is left alone.
+//
+// The child marks the store before it fails and main returns that mark, so a
+// green run is evidence the child actually got there. A test that only checked
+// the error would pass just as well if the child had never run at all.
+//
+// Revisions:
+//   - 2026-09-24 21:26: initial creation
+func TestSpawn_AnUnjoinedFailureDoesNotEndTheRun(t *testing.T) {
+	src := fmt.Sprintf(`
+def child():
+    state.set("ran", True)
+
+    return None + 1
+
+def main():
+    spawn(child)
+    sleep(%v)
+
+    return state.get("ran")
+`, _SETTLE)
+
+	got, err := _Run(t, src)
+	if err != nil {
+		t.Fatalf("an unjoined child's failure ended the run: %v", err)
+	}
+
+	if got != starlark.Bool(true) {
+		t.Fatalf("main returned %v, so the child never reached its failure", got)
+	}
+}
+
+// TestSpawn_AnUnjoinedChildIsKilledAtExit is the other half of the same rule.
+//
+// A run ends by cancelling its context and then waiting, so a child nobody
+// joined is cut off rather than waited out. This is what keeps the rule above
+// from being a way to abandon work that outlives the run - and it is why an
+// unjoined failure could not become the run's result even if it were wanted:
+// whether the child reaches its own failure first is a race with main
+// returning.
+//
+// Revisions:
+//   - 2026-09-24 21:26: initial creation
+func TestSpawn_AnUnjoinedChildIsKilledAtExit(t *testing.T) {
+	src := fmt.Sprintf(`
+def child():
+    sleep(%v)
+
+    return "the exit waited"
+
+def main():
+    spawn(child)
+
+    return "main finished"
+`, _ORPHAN_SLEEP)
+
+	started := time.Now()
+
+	_, err := _Run(t, src)
+	if err != nil {
+		t.Fatalf("the run failed: %v", err)
+	}
+
+	taken := time.Since(started)
+	if taken >= _KILLED_WITHIN {
+		t.Fatalf("the run took %v, so the child was waited for rather than killed", taken)
+	}
 }
