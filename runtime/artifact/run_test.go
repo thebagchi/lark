@@ -8,10 +8,16 @@ import (
 	"time"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 
 	"github.com/thebagchi/lark/runtime/artifact"
+	"github.com/thebagchi/lark/runtime/plugin"
 	"github.com/thebagchi/lark/runtime/scheduler"
 )
+
+// ErrSpelling is what the plugin below refuses with, so that a test can tell
+// being asked from not being asked.
+var ErrSpelling = errors.New("refused on spelling")
 
 const (
 	CONCURRENT_FIXTURE  = "concurrent.star"
@@ -22,14 +28,18 @@ const (
 	BREAKS_FIXTURE      = "breaks.star"
 	BREAKS_TEXT         = "module level"
 	RUNS_OF_ONE         = 2
-	EXPECTED_SUM        = 10
-	EXPECTED_DEFAULT    = 1
-	EXPECTED_DONE       = "done"
-	MISSING_GLOBAL      = "absent"
-	ENTRY_NAME          = "main"
-	ABANDON_BUDGET      = 2 * time.Second
-	CANCEL_AFTER        = 20 * time.Millisecond
-	CANCEL_BUDGET       = 5 * time.Second
+
+	// SPELLING is the one name the plugin below supplies, and the name a file
+	// may take for itself.
+	SPELLING         = "spelling"
+	EXPECTED_SUM     = 10
+	EXPECTED_DEFAULT = 1
+	EXPECTED_DONE    = "done"
+	MISSING_GLOBAL   = "absent"
+	ENTRY_NAME       = "main"
+	ABANDON_BUDGET   = 2 * time.Second
+	CANCEL_AFTER     = 20 * time.Millisecond
+	CANCEL_BUDGET    = 5 * time.Second
 )
 
 // _Built compiles the named fixture or ends the test.
@@ -261,4 +271,107 @@ func TestRun_AModuleLevelFailureFailsTheRunNotTheCompile(t *testing.T) {
 			t.Fatalf("run %d failed with %v, want it to name %q", attempt, err, BREAKS_TEXT)
 		}
 	}
+}
+
+// _Spelling is a plugin that refuses every call of the one name it supplies,
+// which is how a check that matches on spelling behaves when the spelling is
+// not its own.
+type _Spelling struct{}
+
+// Name is what this plugin is called when a conflict has to name it.
+//
+// Revisions:
+//   - 2026-09-24 20:46: initial creation
+func (s *_Spelling) Name() string {
+	return SPELLING
+}
+
+// Values supplies the one name.
+//
+// Revisions:
+//   - 2026-09-24 20:46: initial creation
+func (s *_Spelling) Values() starlark.StringDict {
+	return starlark.StringDict{
+		SPELLING: starlark.NewBuiltin(SPELLING, func(
+			thread *starlark.Thread,
+			fn *starlark.Builtin,
+			args starlark.Tuple,
+			kwargs []starlark.Tuple,
+		) (starlark.Value, error) {
+			return starlark.None, nil
+		}),
+	}
+}
+
+// Check refuses any file at all, so that the only thing deciding the outcome
+// is whether it was asked.
+//
+// Revisions:
+//   - 2026-09-24 20:46: initial creation
+func (s *_Spelling) Check(tree *syntax.File) error {
+	return ErrSpelling
+}
+
+// TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken is the mistake the
+// compiler now carries so a plugin cannot make it.
+//
+// A global shadows a predeclared one. A check that matches on the spelling a
+// plugin owns, run against a file that means something else by that name,
+// refuses a script that runs perfectly well and blames a plugin it never
+// reached. That was found twice in one day in two plugins, so the question is
+// asked here rather than by each of them.
+//
+// Revisions:
+//   - 2026-09-24 20:46: initial creation
+func TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken(t *testing.T) {
+	registry := plugin.New()
+	registry.Register(new(_Spelling))
+
+	compiler := artifact.NewCompiler(artifact.WithPlugins(registry))
+
+	// This file leaves the name alone, so the plugin is asked and refuses.
+	_, err := compiler.Compile("uses.star", []byte("def main():\n    "+SPELLING+"()\n"))
+	if !errors.Is(err, ErrSpelling) {
+		t.Fatalf("a file using the name gave %v, want the plugin to have been asked", err)
+	}
+
+	// And every way a file can take it, because missing one is the whole
+	// mistake rather than a near miss: the name then looks like the plugin's,
+	// and a correct script is refused and told about a plugin it never
+	// reached.
+	taken := map[string]string{
+		"an assignment":        SPELLING + " = 1",
+		"a def":                "def " + SPELLING + "():\n    return 1",
+		"a tuple":              SPELLING + ", other = 1, 2",
+		"a list":               "[" + SPELLING + ", other] = [1, 2]",
+		"a loop variable":      "for " + SPELLING + " in [1]:\n    pass",
+		"under a top-level if": "if True:\n    " + SPELLING + " = 1",
+	}
+
+	for name, binding := range taken {
+		t.Run(name, func(t *testing.T) {
+			script := binding + "\n\ndef main():\n    return 1\n"
+
+			_, err := compiler.Compile(name+".star", []byte(script))
+			if err != nil {
+				t.Fatalf("a file that took the name by %s was refused: %v", name, err)
+			}
+		})
+	}
+
+	// A load binds too, and needs a loader to reach the file it names.
+	t.Run("a load", func(t *testing.T) {
+		loading := artifact.NewCompiler(
+			artifact.WithPlugins(registry),
+			artifact.WithLoader(_Loader()),
+		)
+
+		script := `load("spelling.star", "` + SPELLING + `")` +
+			"\n\ndef main():\n    return " + SPELLING + "\n"
+
+		_, err := loading.Compile("loads.star", []byte(script))
+		if err != nil {
+			t.Fatalf("a file that took the name by a load was refused: %v", err)
+		}
+	})
 }

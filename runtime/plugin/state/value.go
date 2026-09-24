@@ -25,7 +25,9 @@ var ErrNotData = errors.New("not data a store can hold")
 // read from somewhere, a function an update returns.
 //
 // This is a Checking, which the compiler asks every plugin for. The compiler
-// does not know what set means, and does not have to.
+// does not know what set means, and does not have to - and it does not ask at
+// all about a file that has taken the name state for itself, so nothing here
+// has to remember that a global shadows a predeclared one.
 //
 // Revisions:
 //   - 2026-09-24 20:10: initial creation
@@ -37,13 +39,6 @@ func (s *_State) Check(tree *syntax.File) error {
 		if ok {
 			declared[def.Name.Name] = true
 		}
-	}
-
-	// A file that binds state itself means its own thing by that name, since
-	// a global shadows a predeclared one. Refusing its calls would refuse a
-	// script this runtime runs, and blame a store it never reached.
-	if _Shadowed(tree) {
-		return nil
 	}
 
 	var failure error
@@ -70,32 +65,6 @@ func (s *_State) Check(tree *syntax.File) error {
 	})
 
 	return failure
-}
-
-// _Shadowed reports whether this file binds the module's own name.
-//
-// A def or an assignment at the top level, which is where a global is bound.
-// Anything deeper is a local and cannot reach the calls this walks.
-//
-// Revisions:
-//   - 2026-09-24 20:34: initial creation
-func _Shadowed(tree *syntax.File) bool {
-	for _, stmt := range tree.Stmts {
-		switch held := stmt.(type) {
-		case *syntax.DefStmt:
-			if held.Name.Name == NAME {
-				return true
-			}
-
-		case *syntax.AssignStmt:
-			bound, ok := held.LHS.(*syntax.Ident)
-			if ok && bound.Name == NAME {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 // _Stores reports whether a call is state.set.

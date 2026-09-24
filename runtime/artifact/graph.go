@@ -368,9 +368,15 @@ func _Checked(registry *plugin.Registry, tree *syntax.File) error {
 		return nil
 	}
 
+	bound := _Bound(tree)
+
 	for _, installed := range registry.Registered() {
 		checker, ok := installed.(plugin.Checking)
 		if !ok {
+			continue
+		}
+
+		if _Shadowed(installed, bound) {
 			continue
 		}
 
@@ -381,4 +387,117 @@ func _Checked(registry *plugin.Registry, tree *syntax.File) error {
 	}
 
 	return nil
+}
+
+// _Bound is every name this file binds as a global.
+//
+// A global shadows a predeclared one, so a file that binds a name has taken
+// it: what that name means in this file is what the file said, not what a
+// plugin supplied. Missing one is not a near miss - it is the whole mistake,
+// because the name then looks like the plugin's and a correct script is
+// refused and told about a plugin it never reached.
+//
+// So every way a global is bound counts, and there are four: a def, an
+// assignment, a load, and a loop variable. An assignment or a loop may
+// destructure, which is why the targets are walked rather than read.
+//
+// Into control flow, because this dialect allows it at the top level - a name
+// bound inside a top-level if is still a global. Never into a def: what that
+// binds is a local, and a local cannot be what a call elsewhere resolves to.
+//
+// Revisions:
+//   - 2026-09-24 20:46: initial creation
+//   - 2026-09-24 21:00: counts a load, a loop variable, a destructuring
+//     target and a binding under top-level control flow - the first two
+//     predicted by a reader, the rest found looking for their neighbours
+func _Bound(tree *syntax.File) map[string]bool {
+	bound := map[string]bool{}
+
+	_Binds(tree.Stmts, bound)
+
+	return bound
+}
+
+// _Binds collects the names these statements bind, descending into control
+// flow and not into a def.
+//
+// Revisions:
+//   - 2026-09-24 21:00: initial creation
+func _Binds(stmts []syntax.Stmt, bound map[string]bool) {
+	for _, stmt := range stmts {
+		switch held := stmt.(type) {
+		case *syntax.DefStmt:
+			bound[held.Name.Name] = true
+
+		case *syntax.AssignStmt:
+			_Targets(held.LHS, bound)
+
+		case *syntax.LoadStmt:
+			for _, named := range held.To {
+				bound[named.Name] = true
+			}
+
+		case *syntax.ForStmt:
+			_Targets(held.Vars, bound)
+			_Binds(held.Body, bound)
+
+		case *syntax.WhileStmt:
+			_Binds(held.Body, bound)
+
+		case *syntax.IfStmt:
+			_Binds(held.True, bound)
+			_Binds(held.False, bound)
+		}
+	}
+}
+
+// _Targets collects the names an assignment or a loop binds, which may be one
+// name or a shape of them.
+//
+// Revisions:
+//   - 2026-09-24 21:00: initial creation
+func _Targets(expr syntax.Expr, bound map[string]bool) {
+	switch held := expr.(type) {
+	case *syntax.Ident:
+		bound[held.Name] = true
+
+	case *syntax.TupleExpr:
+		for _, part := range held.List {
+			_Targets(part, bound)
+		}
+
+	case *syntax.ListExpr:
+		for _, part := range held.List {
+			_Targets(part, bound)
+		}
+
+	case *syntax.ParenExpr:
+		_Targets(held.X, bound)
+	}
+}
+
+// _Shadowed reports whether this file has taken any name the plugin supplies.
+//
+// Asked here rather than left to each plugin, because forgetting to ask is a
+// mistake that reads as a correct refusal: the check matches on the spelling a
+// plugin owns, the file means something else by it, and a script that runs
+// perfectly well is refused and told about a plugin it never reached. That was
+// found twice in one day, in two plugins, by two different people - so it is
+// the compiler's question now and a plugin cannot forget it.
+//
+// Conservative where a plugin supplies several names and the file has taken
+// one: the whole check is skipped rather than risk that refusal. A check not
+// run leaves an ordinary error at run time, which is recoverable; a wrong
+// refusal at compile time stops a correct script and blames the wrong thing.
+//
+// Revisions:
+//   - 2026-09-24 20:46: initial creation
+func _Shadowed(installed plugin.Plugin, bound map[string]bool) bool {
+	for name := range installed.Values() {
+		if bound[name] {
+			return true
+		}
+	}
+
+	return false
 }
