@@ -8,6 +8,7 @@
 //	lark -s build.star -l logs           run it, and keep a transcript
 //	lark -s build.star -b build.bin      compile it into a bundle
 //	lark -s build.star -a '{"n": 3}'     run it, supplying its arguments
+//	lark -s build.star -m 64             run it, with 64MB of memory to use
 //
 // An interrupt stops a run: the script is told between instructions, the
 // transcript is closed, and this exits 4.
@@ -57,6 +58,7 @@ import (
 	_ "github.com/thebagchi/lark/runtime/plugin/state"
 	_ "github.com/thebagchi/lark/runtime/plugin/time"
 	_ "github.com/thebagchi/lark/runtime/plugin/utils"
+	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
 const (
@@ -72,6 +74,12 @@ const (
 	BUNDLE_USAGE    = "compile into a bundle at this path instead of running"
 	ARGS_FLAG       = "a"
 	ARGS_USAGE      = "the arguments this run supplies, as a JSON object"
+	MEMORY_FLAG     = "m"
+	MEMORY_USAGE    = "the memory this run may use, in megabytes"
+
+	// MEGABYTE is what -m counts in, because a ceiling is written by a person
+	// and nobody writes 268435456.
+	MEGABYTE = 1 << 20
 
 	// SCRIPT and GRAPH are what a failure calls the thing that failed, so a
 	// reader knows which of the two inputs was wrong.
@@ -115,6 +123,9 @@ var (
 
 	// ErrOneOutput is returned when two things to produce were named.
 	ErrOneOutput = errors.New("lark: -t and -b produce different things")
+
+	// ErrMemory is returned for a ceiling that is not a quantity of memory.
+	ErrMemory = errors.New("lark: -m is a number of megabytes, above zero")
 )
 
 // main runs or translates whichever input was named.
@@ -157,6 +168,7 @@ func main() {
 		logs      = flag.String(LOGS_FLAG, "", LOGS_USAGE)
 		bundle    = flag.String(BUNDLE_FLAG, "", BUNDLE_USAGE)
 		supplied  = flag.String(ARGS_FLAG, "", ARGS_USAGE)
+		memory    = flag.Int(MEMORY_FLAG, 0, MEMORY_USAGE)
 	)
 
 	flag.Parse()
@@ -202,6 +214,13 @@ func main() {
 	ctx, err = _Supplying(ctx, *supplied)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		flag.Usage()
+		os.Exit(NO_INPUT)
+	}
+
+	ctx, err = _Allowing(ctx, *memory)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		flag.Usage()
 		os.Exit(NO_INPUT)
 	}
@@ -351,6 +370,27 @@ func _Supplying(ctx context.Context, supplied string) (context.Context, error) {
 	}
 
 	return runtime.WithArgs(ctx, parsed), nil
+}
+
+// _Allowing is ctx carrying the memory ceiling this run was given, or ctx
+// unchanged when it was given none.
+//
+// Megabytes rather than bytes, because a ceiling is written by a person and
+// nobody writes 268435456. The library's own default stands when the flag is
+// absent, so leaving it out is not the same as asking for nothing.
+//
+// Revisions:
+//   - 2026-09-24 23:48: initial creation
+func _Allowing(ctx context.Context, memory int) (context.Context, error) {
+	if memory == 0 {
+		return ctx, nil
+	}
+
+	if memory < 0 {
+		return nil, ErrMemory
+	}
+
+	return scheduler.Allowing(ctx, int64(memory)*MEGABYTE), nil
 }
 
 // _Run compiles src as the script at path and calls its entry point, with

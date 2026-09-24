@@ -46,6 +46,7 @@ lark -g graph.json -t      print the Starlark it generates
 lark -s script.star -l dir keep a transcript in dir/script.star.log
 lark -s script.star -b out.bin  compile into a bundle instead of running
 lark -s script.star -a '{"host": "db"}'  supply the arguments it declares
+lark -s script.star -m 64  run it with 64MB of memory to use
 ```
 
 The two translations are inverses, so this prints what the first line printed:
@@ -525,8 +526,13 @@ file: measured, 512MB of file peaked at 1057MB of memory. It now charges that
 against the run's budget *from the stat*, before allocating, so a file the run
 cannot afford costs one syscall rather than the process. Nothing here says how
 big a file may be — only how much memory a run may use, which is a question the
-host already knows the answer to. The default is 256MB; a host chooses its own
-with `scheduler.Allowing(ctx, ceiling)` before starting the run.
+host already knows the answer to.
+
+The default is 256MB. `lark -m 64` sets it in megabytes; a host embedding the
+runtime calls `scheduler.Allowing(ctx, ceiling)` on the context it passes to
+`Run`. What a read reserves is given back as the value is handed over, so a
+loop reading a thousand files is bounded by the largest of them rather than by
+their sum — measured, a hundred reads of a 1MB file run under a ceiling of 8MB.
 
 **`lines` walks a file a line at a time**, so what it costs is set by the
 longest line rather than by the file, and a log far too big to `read` is
