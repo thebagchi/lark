@@ -60,10 +60,11 @@ const (
 // cancel would be a second copy of that fact - one that a spawn made during
 // teardown was measured not to be on.
 type _Run struct {
-	ctx   context.Context
-	stop  context.CancelFunc
-	group sync.WaitGroup
-	into  Reporter
+	ctx    context.Context
+	stop   context.CancelFunc
+	group  sync.WaitGroup
+	into   Reporter
+	budget *Budget
 
 	mutex   sync.Mutex
 	outcome error
@@ -126,6 +127,7 @@ func Begin(ctx context.Context, thread *starlark.Thread, name string) func() {
 		ctx:     inner,
 		stop:    stop,
 		into:    _Reporter(ctx),
+		budget:  NewBudget(_Chosen(ctx)),
 		ordinal: make(map[string]int32),
 		shared:  make(map[string]any),
 		locks:   make(map[string]chan struct{}),
