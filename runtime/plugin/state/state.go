@@ -96,6 +96,13 @@ func _Of(thread *starlark.Thread) (*_Store, error) {
 
 // _Set stores value under name and returns None.
 //
+// Storing something that is not data stops the whole run, the way a failed
+// assertion does, rather than only the thread that did it. A thread nobody
+// joins fails silently - its error reaches the report and never becomes the
+// run's result - so a spawned worker storing a function would otherwise put
+// nothing in the store and say nothing about it. The mistake is in the script
+// rather than in the data, and a script author wants to hear about it.
+//
 // The value is frozen first. A store exists so that threads can reach it at
 // once, and handing a mutable value to two threads is the race this package is
 // meant to avoid - freezing turns a later mutation into a loud failure rather
@@ -136,6 +143,16 @@ func _Set(
 	store, err := _Of(thread)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+	}
+
+	// Before the lock, because what the value is does not depend on who holds
+	// the name. Taken after, a doomed call would first wait out whatever
+	// update is running - and a run cancelled during that wait would report
+	// the cancellation rather than the mistake in the script.
+	bad, ok := deep.IsData(value)
+	if !ok {
+		return nil, scheduler.Fail(thread, fmt.Errorf(
+			"%s %q: %s: %w", fn.Name(), name, bad.Type(), ErrNotData))
 	}
 
 	release, err := scheduler.Lock(thread, name)
@@ -307,6 +324,15 @@ func (s *_Store) _Apply(
 	updated, err := starlark.Call(thread, change, starlark.Tuple{current}, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	// What the function returned is stored, so it answers to the same rule a
+	// set does. Nothing the source could have shown refuses this one: what a
+	// function returns is known when it returns.
+	bad, ok := deep.IsData(updated)
+	if !ok {
+		return nil, scheduler.Fail(thread, fmt.Errorf(
+			"%s.%s %q: %s: %w", NAME, UPDATE, name, bad.Type(), ErrNotData))
 	}
 
 	updated.Freeze()

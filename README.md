@@ -319,6 +319,44 @@ handles the first write.
 `set` takes the same lock, so a write that lands while an update's function is
 running is not overwritten by what that update read before it.
 
+### A store holds data
+
+It is the script's cache, and a cache holds data: `None`, a bool, a number, a
+string, bytes, and the containers of those. **A function or a thread handle is
+refused**, and refused all the way down — a list with a function in it is no
+more storable than the function.
+
+```python
+state.set("k", helper)             # refused before the script runs
+state.set("k", [1, pick()])        # refused when it runs
+state.update("k", lambda v: helper)
+state.set("k", spawn(worker))
+
+state.set("k", [1, {"a": (2, 3)}, None, b"x"])   # fine
+```
+
+Neither is useful and both read as though they worked. A stored function is the
+same frozen code the script already had. A handle names a thread, and there is
+no way for another thread to do anything with it — waiting on one from inside
+the store's own locking would defeat the point of the store.
+
+**Where the source shows it, the refusal happens at compile time**, with the
+position:
+
+```
+state.set at build.star:5:14 stores the function helper: not data a store can hold
+```
+
+A name the file declares, or a lambda written in place, is certain before
+anything runs. Everything else — a call's result, what an update's function
+returns — is refused when it runs.
+
+**Storing something else stops the whole run**, the way a failed assertion
+does, rather than only the thread that did it. A thread nobody joins fails
+silently: its error reaches the report and never becomes the run's result. So a
+spawned worker storing a function would otherwise leave the store empty, say
+nothing, and let the script finish as though it had worked.
+
 **Three things are refused while a name is held**, all with `ErrNested`, and all
 because the alternative is a wait nothing in the script can end:
 
@@ -705,6 +743,7 @@ Each is reachable with `errors.Is`, through whatever wrapping carried it.
 | `runtime.ErrNested` | `update`, `set` or `join` was called while a name was held, on any thread the update started |
 | `runtime.ErrConflict` | Two plugins supply one name |
 | `runtime.ErrNotObject` | What a run was given as arguments is not a JSON object |
+| `state.ErrNotData` | A store was given a function, a handle, or a container holding one |
 
 Every sentinel of every package the facade wraps is here. A plugin you import
 yourself keeps its own, and there are more of them now:

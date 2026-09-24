@@ -9,10 +9,12 @@ import (
 	"strings"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 
 	artifactpb "github.com/thebagchi/lark/proto/gen/artifact"
 	"github.com/thebagchi/lark/runtime/dialect"
 	"github.com/thebagchi/lark/runtime/guard"
+	"github.com/thebagchi/lark/runtime/plugin"
 )
 
 // Loader fetches the source of a module a script asked to load, and says what
@@ -53,12 +55,13 @@ type _Dir struct{}
 // compile, and deriving a graph through the loader again would have broken
 // that - measured, by the test that counts what the loader was asked for.
 type _Graph struct {
-	loader Loader
-	env    starlark.StringDict
-	units  map[string]*_Unit
-	order  []string
-	chain  []string
-	source map[string][]byte
+	loader   Loader
+	registry *plugin.Registry
+	env      starlark.StringDict
+	units    map[string]*_Unit
+	order    []string
+	chain    []string
+	source   map[string][]byte
 }
 
 // _Held serves the sources a compile already read.
@@ -152,6 +155,14 @@ func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 	err = code.Write(&encoded)
 	if err != nil {
 		return nil, fmt.Errorf("encode %s: %w", path, err)
+	}
+
+	// Not wrapped with the path: a refusal carries the position it was
+	// written at, which opens with the file, and repeating it makes a reader
+	// scan past the same name twice.
+	err = _Checked(g.registry, tree)
+	if err != nil {
+		return nil, err
 	}
 
 	g.source[path] = src
@@ -341,4 +352,33 @@ func (a *Artifact) _Initialise(ctx context.Context) (starlark.StringDict, error)
 	}
 
 	return built[a.saved.GetEntry()], nil
+}
+
+// _Checked lets every plugin that wants to refuse a use of its own names read
+// the source before anything runs.
+//
+// The compiler asks and does not look: which names mean what is the plugin's
+// business, and a compiler that knew would be one more thing to change every
+// time somebody writes a plugin.
+//
+// Revisions:
+//   - 2026-09-24 17:40: initial creation
+func _Checked(registry *plugin.Registry, tree *syntax.File) error {
+	if registry == nil {
+		return nil
+	}
+
+	for _, installed := range registry.Registered() {
+		checker, ok := installed.(plugin.Checking)
+		if !ok {
+			continue
+		}
+
+		err := checker.Check(tree)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -13,9 +13,24 @@ import (
 	"sync"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 )
 
 var ErrConflict = errors.New("two plugins supply one name")
+
+// Checking is a plugin that can refuse a use of its names by reading the
+// source, before anything runs.
+//
+// Optional: a compiler asks every plugin that implements it and leaves the
+// rest alone. That is what keeps the knowledge in the right place - a plugin
+// knows what its own names mean, and a compiler that had to know would be a
+// compiler coupled to every plugin anybody writes.
+//
+// A tree, not a string, because the question is about what was written rather
+// than how it was spelled. Returning an error refuses the compile.
+type Checking interface {
+	Check(tree *syntax.File) error
+}
 
 // Plugin is a set of names a script is given.
 //

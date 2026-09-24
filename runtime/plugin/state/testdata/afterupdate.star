@@ -1,19 +1,26 @@
-# A thread spawned inside an update, locking after the update has returned.
+# A thread spawned inside an update, reaching the store after the update has
+# returned.
 #
-# The child copied the mark at birth and nothing clears a copy, so it is
-# refused for the rest of its life - deliberately, because clearing the mark
-# on release would make this script succeed or fail on where the set happened
-# to land relative to a release it cannot see.
+# The child copied the mark at birth and nothing clears a copy, so its set is
+# refused for the rest of its life. It cannot be joined - an update's function
+# returns data now, so the handle cannot leave - and an unjoined failure does
+# not reach the run, so what it did is read from what it printed.
 
 def child():
     sleep(0.05)
 
+    print("child reached the store")
+
     state.set("b", 1)
 
+    print("child stored")
+
 def spawner(v):
-    return spawn(child)
+    spawn(child)
+
+    return "spawned"
 
 def main():
-    held = state.update("a", spawner)
+    state.update("a", spawner)
 
-    join(held)
+    sleep(0.3)

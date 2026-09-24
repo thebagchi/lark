@@ -1,4 +1,5 @@
-// Package deep copies a Starlark value and everything under it.
+// Package deep reads a Starlark value and everything under it: copying one,
+// and saying whether one is data.
 //
 // It supplies no names to a script and is not a plugin. It is here rather than
 // inside state because two plugins need the same copy for the same reason:
@@ -205,4 +206,129 @@ func _Set(original *starlark.Set, seen map[starlark.Value]starlark.Value) (starl
 	}
 
 	return made, nil
+}
+
+// IsData reports whether value, and everything under it, is data.
+//
+// Data is what a value can be built from and read back as: None, a bool, a
+// number, a string, bytes, and the containers of those. A function is code, a
+// handle names a thread, a module is a plugin's own table - none of them mean
+// anything to whoever did not make them, so a caller passing one across a
+// boundary has made a mistake that otherwise reads as if it worked.
+//
+// The first return is what failed, so a caller can say which thing was wrong
+// rather than naming the outermost container. It is nil when the answer is
+// yes.
+//
+// Deep, because a list of functions is no more data than a function is. A
+// value that contains itself terminates, which Starlark allows and the copier
+// beside this already handles.
+//
+// Revisions:
+//   - 2026-09-24 20:10: initial creation, as state's own _Data
+//   - 2026-09-24 20:14: a question anything can ask, rather than one plugin's
+func IsData(value starlark.Value) (starlark.Value, bool) {
+	// Most values a script stores are one number or one word, and those
+	// cannot contain anything - so the map the walk needs is built only once
+	// something might be walked into.
+	switch value.(type) {
+	case *starlark.List, *starlark.Dict, starlark.Tuple, *starlark.Set:
+		return _Walk(value, map[starlark.Value]bool{})
+	}
+
+	return _Walk(value, nil)
+}
+
+// _Walk is IsData, carrying what it has already seen.
+//
+// Revisions:
+//   - 2026-09-24 20:14: initial creation
+func _Walk(value starlark.Value, seen map[starlark.Value]bool) (starlark.Value, bool) {
+	switch held := value.(type) {
+	case starlark.NoneType, starlark.Bool, starlark.Int, starlark.Float,
+		starlark.String, starlark.Bytes:
+		return nil, true
+
+	case *starlark.List:
+		return _Every(held, seen)
+
+	case *starlark.Dict:
+		return _Pairs(held, seen)
+
+	case starlark.Tuple:
+		return _Items(held, seen)
+
+	case *starlark.Set:
+		return _Every(held, seen)
+	}
+
+	return value, false
+}
+
+// _Every walks a list or a set.
+//
+// Revisions:
+//   - 2026-09-24 20:10: initial creation
+func _Every(held starlark.Iterable, seen map[starlark.Value]bool) (starlark.Value, bool) {
+	if seen[held] {
+		return nil, true
+	}
+
+	seen[held] = true
+
+	iter := held.Iterate()
+	defer iter.Done()
+
+	var value starlark.Value
+
+	for iter.Next(&value) {
+		bad, ok := _Walk(value, seen)
+		if !ok {
+			return bad, false
+		}
+	}
+
+	return nil, true
+}
+
+// _Pairs walks a dict, keys as well as values.
+//
+// Revisions:
+//   - 2026-09-24 20:10: initial creation
+func _Pairs(held *starlark.Dict, seen map[starlark.Value]bool) (starlark.Value, bool) {
+	if seen[held] {
+		return nil, true
+	}
+
+	seen[held] = true
+
+	for _, pair := range held.Items() {
+		for _, value := range pair {
+			bad, ok := _Walk(value, seen)
+			if !ok {
+				return bad, false
+			}
+		}
+	}
+
+	return nil, true
+}
+
+// _Items walks a tuple.
+//
+// A tuple is a slice rather than a pointer, so it cannot be a map key and is
+// not recorded in seen. It cannot contain itself either, for the same reason:
+// there is nothing to take the address of.
+//
+// Revisions:
+//   - 2026-09-24 20:10: initial creation
+func _Items(held starlark.Tuple, seen map[starlark.Value]bool) (starlark.Value, bool) {
+	for _, value := range held {
+		bad, ok := _Walk(value, seen)
+		if !ok {
+			return bad, false
+		}
+	}
+
+	return nil, true
 }

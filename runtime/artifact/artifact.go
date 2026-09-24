@@ -186,11 +186,12 @@ func (c *Compiler) Compile(name string, src []byte) (*Artifact, error) {
 	}
 
 	loaded := &_Graph{
-		loader: c.loader,
-		env:    env,
-		units:  map[string]*_Unit{},
-		chain:  []string{name},
-		source: map[string][]byte{},
+		loader:   c.loader,
+		registry: c.registry,
+		env:      env,
+		units:    map[string]*_Unit{},
+		chain:    []string{name},
+		source:   map[string][]byte{},
 	}
 
 	_, err = loaded._Add(name, src)

@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 
 	"github.com/thebagchi/lark/runtime"
 	_ "github.com/thebagchi/lark/runtime/plugin/flow"
-	_ "github.com/thebagchi/lark/runtime/plugin/state"
+	"github.com/thebagchi/lark/runtime/plugin/state"
 )
 
 const (
@@ -219,11 +220,14 @@ func TestUpdate_SeesNoneWhenNothingIsStored(t *testing.T) {
 //   - 2026-09-24 17:12: the spawn case joins after the update rather than
 //     inside it, so the refusal under test is the child's own. Joining inside
 //     is refused earlier now, and has a test of its own
+//   - 2026-09-24 20:20: the spawn case is gone. An update's function returns
+//     data, so a handle cannot leave one, and a child spawned inside is no
+//     longer joinable - TestUpdate_AChildIsRefusedAfterTheUpdateHasFinished
+//     reads what it printed instead
 func TestUpdate_RefusesToNest(t *testing.T) {
 	scripts := []string{
 		NESTED_SCRIPT,
 		SAMEKEY_SCRIPT,
-		"nested_through_spawn.star",
 		"nested_through_timeout.star",
 	}
 
@@ -384,19 +388,36 @@ func TestSet_FromInsideAnUpdateIsRefusedRatherThanWaited(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 16:55: initial creation
 func TestUpdate_AChildIsRefusedAfterTheUpdateHasFinished(t *testing.T) {
-	_, err := _Built(t, "afterupdate.star").Run(t.Context())
-	if !errors.Is(err, runtime.ErrNested) {
-		t.Fatalf("got %v, want ErrNested", err)
+	var (
+		guard   sync.Mutex
+		printed []string
+	)
+
+	ctx := runtime.WithPrinter(t.Context(), func(line string) {
+		guard.Lock()
+		defer guard.Unlock()
+
+		printed = append(printed, line)
+	})
+
+	_, err := _Built(t, "afterupdate.star").Run(ctx)
+	if err != nil {
+		t.Fatalf("run: %v", err)
 	}
 
-	// And it says which of the two refusals this is. The parent finished
-	// before the child ever called set, so "already updating" would be false.
-	if strings.Contains(err.Error(), "already updating") {
-		t.Fatalf("a child that inherited the mark was told it is updating: %v", err)
+	guard.Lock()
+	defer guard.Unlock()
+
+	said := strings.Join(printed, "\n")
+
+	// It got as far as the store, which is what makes the next line a
+	// refusal rather than a thread that never ran.
+	if !strings.Contains(said, "child reached the store") {
+		t.Fatalf("the child never ran: %q", said)
 	}
 
-	if !strings.Contains(err.Error(), `started inside an update of "a"`) {
-		t.Fatalf("the refusal does not say why it refused: %v", err)
+	if strings.Contains(said, "child stored") {
+		t.Fatalf("a child spawned inside an update stored after it returned: %q", said)
 	}
 }
 
@@ -458,15 +479,200 @@ func TestJoin_UnderAHeldNameIsRefused(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 17:12: initial creation
 func TestJoin_AfterTheUpdateHasReturnedIsLegal(t *testing.T) {
-	// afterupdate.star spawns inside an update and joins the handle after the
-	// update returned. Its child is refused at set, not at join - so if the
-	// join were refused this would say so instead.
-	_, err := _Built(t, "afterupdate.star").Run(t.Context())
-	if !errors.Is(err, runtime.ErrNested) {
-		t.Fatalf("got %v, want ErrNested from the child", err)
+	got, err := _Built(t, "joinafter.star").Run(t.Context())
+	if err != nil {
+		t.Fatalf("joining after an update returned was refused: %v", err)
 	}
 
-	if strings.Contains(err.Error(), "join") {
-		t.Fatalf("the join after the update was refused, and should not be: %v", err)
+	if got.String() != `"joined"` {
+		t.Fatalf("got %s, want the joined value", got.String())
+	}
+}
+
+// TestSet_RefusesWhatIsNotData is the rule that a store holds data.
+//
+// A function read back by another thread is the same frozen code the script
+// already had, and a handle names a thread that means nothing to whoever did
+// not start it. Both used to go in and come back out, doing nothing - a
+// mistake that reads as if it worked.
+//
+// Revisions:
+//   - 2026-09-24 20:22: initial creation
+func TestSet_RefusesWhatIsNotData(t *testing.T) {
+	cases := map[string]string{
+		"a function, at run time": `
+def pick():
+    return helper
+
+def helper():
+    return 1
+
+def main():
+    state.set("k", pick())
+`,
+		"one inside a list": `
+def helper():
+    return 1
+
+def main():
+    state.set("k", [1, helper])
+`,
+		"a handle": `
+def worker():
+    return 1
+
+def main():
+    state.set("k", spawn(worker))
+`,
+		"what an update returns": `
+def helper():
+    return 1
+
+def main():
+    state.update("k", lambda v: helper)
+`,
+	}
+
+	for name, script := range cases {
+		t.Run(name, func(t *testing.T) {
+			built, err := runtime.NewCompiler().Compile(name+".star", []byte(script))
+			if err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+
+			_, err = built.Run(t.Context())
+			if !errors.Is(err, state.ErrNotData) {
+				t.Fatalf("got %v, want ErrNotData", err)
+			}
+		})
+	}
+}
+
+// TestSet_RefusesAVisibleFunctionBeforeItRuns is the half the source can see.
+//
+// A name this file declares, or a lambda written in place, is certain before
+// anything runs - and an author would rather hear it then. The compiler does
+// not know what set means: it asks every plugin whether the source is
+// acceptable, and this one answers.
+//
+// Revisions:
+//   - 2026-09-24 20:22: initial creation
+func TestSet_RefusesAVisibleFunctionBeforeItRuns(t *testing.T) {
+	cases := map[string]string{
+		"a declared function": "def helper():\n    return 1\n\ndef main():\n    state.set(\"k\", helper)\n",
+		"a lambda":            "def main():\n    state.set(\"k\", lambda: 1)\n",
+	}
+
+	for name, script := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := runtime.NewCompiler().Compile(name+".star", []byte(script))
+			if !errors.Is(err, state.ErrNotData) {
+				t.Fatalf("compiling gave %v, want ErrNotData before it ran", err)
+			}
+		})
+	}
+}
+
+// TestSet_KeepsTakingData checks the rule refused only what it should.
+//
+// Revisions:
+//   - 2026-09-24 20:22: initial creation
+func TestSet_KeepsTakingData(t *testing.T) {
+	const SCRIPT = `
+def main():
+    state.set("k", [1, {"a": (2, 3)}, None, True, b"x", 1.5])
+
+    return state.get("k")
+`
+
+	built, err := runtime.NewCompiler().Compile("data.star", []byte(SCRIPT))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	got, err := built.Run(t.Context())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if got.String() != `[1, {"a": (2, 3)}, None, True, b"x", 1.5]` {
+		t.Fatalf("got %s", got.String())
+	}
+}
+
+// TestSet_StoringSomethingElseStopsTheWholeRun is why the refusal goes through
+// the same door a failed assertion does.
+//
+// A thread nobody joins fails silently: its error reaches the report and never
+// becomes the run's result. So a spawned worker storing a function would put
+// nothing in the store, say nothing about it, and let the script finish as
+// though it had worked - which is the shape of mistake this rule exists to
+// catch.
+//
+// Revisions:
+//   - 2026-09-24 20:26: initial creation
+func TestSet_StoringSomethingElseStopsTheWholeRun(t *testing.T) {
+	var (
+		guard   sync.Mutex
+		printed []string
+	)
+
+	ctx := runtime.WithPrinter(t.Context(), func(line string) {
+		guard.Lock()
+		defer guard.Unlock()
+
+		printed = append(printed, line)
+	})
+
+	_, err := _Built(t, "spawnstore.star").Run(ctx)
+	if !errors.Is(err, state.ErrNotData) {
+		t.Fatalf("got %v, want the run stopped with ErrNotData", err)
+	}
+
+	guard.Lock()
+	defer guard.Unlock()
+
+	for _, line := range printed {
+		if strings.Contains(line, "run survived") {
+			t.Fatal("the run finished, so an unjoined thread's mistake went unsaid")
+		}
+	}
+}
+
+// TestCheck_AScriptsOwnStateIsNotThePlugin is the false positive a source
+// check invites: a global shadows a predeclared name, so a file that binds
+// state means its own thing by that name.
+//
+// Refusing its calls would refuse a script this runtime runs, and blame a
+// store it never reached. The same mistake as reading every call named arg as
+// a declaration, met twice in one day in two different plugins - which is
+// worth knowing about any check written against a plugin's own spelling.
+//
+// Revisions:
+//   - 2026-09-24 20:34: initial creation
+func TestCheck_AScriptsOwnStateIsNotThePlugin(t *testing.T) {
+	const ALIASED = `
+def helper():
+    return 1
+
+state = 1
+
+def main():
+    return state.set("k", helper)
+`
+
+	built, err := runtime.NewCompiler().Compile("aliased.star", []byte(ALIASED))
+	if err != nil {
+		t.Fatalf("compiling a script with its own state was refused: %v", err)
+	}
+
+	// It fails when it runs, for the reason it should: that value has no set.
+	_, err = built.Run(t.Context())
+	if err == nil {
+		t.Fatal("want the run to fail on the aliased value")
+	}
+
+	if errors.Is(err, state.ErrNotData) {
+		t.Fatalf("the store was blamed for a call it never saw: %v", err)
 	}
 }
