@@ -30,6 +30,7 @@ import (
 
 	"github.com/thebagchi/lark/runtime/plugin"
 	"github.com/thebagchi/lark/runtime/plugin/unpack"
+	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
 var (
@@ -61,6 +62,13 @@ const (
 	SIZE   = "size"
 	MKDIR  = "mkdir"
 
+	// The line oriented half of the module, and the stat that keeps what the
+	// syscall read.
+	STAT        = "stat"
+	LINES       = "lines"
+	WRITELINES  = "writelines"
+	APPENDLINES = "appendlines"
+
 	// PATH and DATA are what the writers call their arguments, so a script
 	// may pass them either way round.
 	PATH = "path"
@@ -70,6 +78,10 @@ const (
 	// directory takes, both as restrictive as this repository's own.
 	FILE      = 0o640
 	DIRECTORY = 0o750
+
+	// _STRING is what a read pays on top of the bytes it read, because the
+	// file and the string copied from it are both live at once.
+	_STRING = 2
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -110,6 +122,11 @@ func (f *_File) Values() starlark.StringDict {
 				LIST:   starlark.NewBuiltin(NAME+"."+LIST, _List),
 				SIZE:   starlark.NewBuiltin(NAME+"."+SIZE, _Size),
 				MKDIR:  starlark.NewBuiltin(NAME+"."+MKDIR, _Mkdir),
+
+				STAT:        starlark.NewBuiltin(NAME+"."+STAT, _Stat),
+				LINES:       starlark.NewBuiltin(NAME+"."+LINES, _Reading),
+				WRITELINES:  starlark.NewBuiltin(NAME+"."+WRITELINES, _Writelines),
+				APPENDLINES: starlark.NewBuiltin(NAME+"."+APPENDLINES, _Appendlines),
 			},
 		},
 	}
@@ -125,7 +142,7 @@ func _Read(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	held, err := _Contents(fn, args, kwargs)
+	held, err := _Contents(thread, fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +160,7 @@ func _Bytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	held, err := _Contents(fn, args, kwargs)
+	held, err := _Contents(thread, fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
@@ -156,6 +173,7 @@ func _Bytes(
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func _Contents(
+	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
@@ -167,19 +185,29 @@ func _Contents(
 		return nil, err
 	}
 
-	about, err := os.Stat(named)
+	about, err := _Sized(fn.Name(), named)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, err
 	}
 
-	// A regular file, not a device. os.ReadFile sizes its buffer from the
-	// file, which bounds a read of anything with an end - but a character
-	// device has none, so reading /dev/zero grows until the process dies.
-	// Refusing what is not a file removes that without inventing a limit,
-	// and catches a directory on the way past.
-	if !about.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s: %s: %w: %w", fn.Name(), named, ErrNotAFile, ErrFile)
+	budget := scheduler.Allowance(thread)
+
+	// Charged from the stat, before anything is allocated, so a file this run
+	// cannot afford costs one syscall rather than an allocation that takes the
+	// process down with it. Twice the size, because ReadFile allocates the
+	// bytes and starlark.String copies them: measured, 512MB of file peaked at
+	// 1057MB of memory.
+	size := about.Size() * _STRING
+
+	err = budget.Charge(size)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s: %w: %w", fn.Name(), named, err, ErrFile)
 	}
+
+	// Given back when the value is handed over: from then on the script owns
+	// it and Go's collector decides when it goes. This bounds one read, and
+	// every read in flight at once, not the whole of what a script is holding.
+	defer budget.Credit(size)
 
 	held, err := os.ReadFile(named)
 	if err != nil {

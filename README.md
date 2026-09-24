@@ -496,6 +496,12 @@ file.list(dir)                          # names, sorted
 file.size(p)
 file.mkdir(dir)                         # making one twice is fine
 file.remove(p)                          # one thing, never a tree
+
+file.stat(p)                            # size, dir, mode, modified - one syscall
+for line in file.lines(p):              # one line at a time, read once
+    ...
+file.writelines(p, ["a", "b"])          # newline between, none after the last
+file.appendlines(p, ["c"])              # joins what was already there
 ```
 
 **Importing `file` is the whole of enabling it, and that is the warning.**
@@ -510,10 +516,43 @@ mistyped path costs a refusal rather than an afternoon's work.
 
 **`read` reads files, not devices.** Anything that is not a regular file — a
 character device, a pipe, a directory — is refused with `ErrNotAFile`, which
-also matches `ErrFile`. That is not a size limit: `os.ReadFile` sizes its buffer
-from the file, which bounds anything with an end, and only something endless
-like `/dev/zero` grows until the process dies. A very large *regular* file is
-still yours to be careful with, and `file.size` is how you check first.
+also matches `ErrFile`. Something endless like `/dev/zero` would otherwise grow
+until the process died.
+
+**A large file is bounded by what the run may hold, not by a size limit.**
+`read` allocates the bytes and copies them into a string, so it costs twice the
+file: measured, 512MB of file peaked at 1057MB of memory. It now charges that
+against the run's budget *from the stat*, before allocating, so a file the run
+cannot afford costs one syscall rather than the process. Nothing here says how
+big a file may be — only how much memory a run may use, which is a question the
+host already knows the answer to. The default is 256MB; a host chooses its own
+with `scheduler.Allowing(ctx, ceiling)` before starting the run.
+
+**`lines` walks a file a line at a time**, so what it costs is set by the
+longest line rather than by the file, and a log far too big to `read` is
+ordinary to walk. Measured: 27MB of file walked with the heap never passing
+17MB. How long a line may be is whatever the run has left to spend, so a file
+of one enormous line is refused for the memory it wanted rather than for
+tripping a number nobody chose.
+
+`file.lines(p)` is read **once**, like a Python file object: a second pass
+raises `ErrWalked` rather than quietly starting again from the beginning. The
+file is named when you call it — a missing file or a directory is refused right
+there — but not opened until the loop starts, so naming one and never reading
+it leaves nothing open.
+
+**`writelines` puts a newline between lines and none after the last**, so what
+comes back out is what went in. `appendlines` repairs that seam when it adds to
+a file that does not end in one, because otherwise the first new line would run
+onto the end of the old one.
+
+**`stat` answers with everything the syscall read** — `size`, `dir`, `mode`,
+`modified` — because `size` and `exists` were each making that call and
+discarding the rest, so a script wanting two facts asked twice and could be
+told two things that were never true together. `mode` is the permission bits as
+a number, the way Python's `stat.S_IMODE` gives them, so `info.mode & 0o700`
+tests one and `"%o" % info.mode` prints it. `modified` is a `time` value, ready
+for the `time` module without conversion.
 
 **`exists` is `False` only when the path is absent.** A directory the process
 may not search answers with an error rather than `False`, because "not there"
