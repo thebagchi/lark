@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/runtime/plugin/unpack"
 )
 
 // _Bytes2Bits is a 0/1 string, most significant bit first, eight bits per
@@ -19,7 +21,7 @@ func _Bytes2Bits(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := _Data(fn, args, kwargs)
+	data, err := unpack.Data(fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +46,7 @@ func _Bits2Bytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := _Text(fn, args, kwargs)
+	text, err := unpack.Text(fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +117,7 @@ func _Bits2Int(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := _Text(fn, args, kwargs)
+	text, err := unpack.Text(fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}

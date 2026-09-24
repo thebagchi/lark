@@ -5,6 +5,8 @@ import (
 	"math/big"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/runtime/plugin/unpack"
 )
 
 // _Bytes2Int is an unsigned big-endian integer.
@@ -17,7 +19,7 @@ func _Bytes2Int(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := _Data(fn, args, kwargs)
+	data, err := unpack.Data(fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}

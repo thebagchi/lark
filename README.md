@@ -169,9 +169,17 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `load(path, name)` | Binds a name from another script. |
 | `json` | `json.encode`, `json.decode`, and the rest of the module go.starlark.net ships. |
 | `state` | `state.set`, `state.get`, `state.update` — see below. |
-| `time`, `math` | go.starlark.net's own modules. |
+| `time` | go.starlark.net's own module. |
+| `math` | The usual functions, plus `inf`, `nan`, `tau`, `trunc`, `isnan`, `isinf`, `log2`, `log10`, `gcd`. |
+| `regexp` | `search`, `match`, `findall`, `sub`, `split`, `quote`. RE2, so no backtracking. |
+| `random` | `seed`, `int`, `float`, `choice`, `shuffle`, `bytes`. Seedable per run. |
+| `path` | `join`, `dir`, `base`, `ext`, `stem`, `split`, `parts`, `clean`, `isabs`. Text only. |
+| `file` | `read`, `bytes`, `write`, `append`, `exists`, `remove`, `list`, `size`, `mkdir`. **Reaches the disk.** |
 | `jsonpath` | `patch_json`, `extract_json`, `match_json`, `len_json`, `find_key`. |
-| `codec` | Twelve conversions between bytes, hex, bits and ints, plus `b64encode` / `b64decode`, `b64urlencode` / `b64urldecode`, `b32encode` / `b32decode` and `crc32`. See below. |
+| `codec` | Twelve conversions between bytes, hex, bits and ints, plus `crc32`. See below. |
+| `base64` | `base64.encode` / `decode`, and `urlencode` / `urldecode` for the URL-safe alphabet. |
+| `base32` | `base32.encode` / `decode`, RFC 4648. |
+| `hash` | `hash.md5`, `sha1`, `sha256`, `sha512` and `hash.hmac(algorithm, key, data)`, as hex. |
 | `utils` | `utils.datetime()`, the local time to the microsecond, as a string. |
 | `arg(name, default)` | Declares an argument this run supplies. Module level only. |
 
@@ -305,9 +313,30 @@ Four threads incrementing one name two hundred times each:
 
 The lock is Go's and covers the whole of read, call and write. A script never
 sees it and cannot forget to release it. The function is called with `None` when
-nothing is stored yet, and it must not start another update — two threads
-updating two names in opposite orders would wait on each other forever, so
-nesting is refused rather than risked.
+nothing is stored yet — `lambda n: 1 if n == None else n + 1` is the shape that
+handles the first write.
+
+`set` takes the same lock, so a write that lands while an update's function is
+running is not overwritten by what that update read before it.
+
+**Three things are refused while a name is held**, all with `ErrNested`, and all
+because the alternative is a wait nothing in the script can end:
+
+| Refused | Why |
+| --- | --- |
+| A second `update` | Two threads updating two names in opposite orders would wait on each other forever, and a script cannot be asked to take locks in an order it cannot see |
+| A `set`, from inside an update | The same lock, so the same deadlock |
+| A `join` | An update takes the name before calling its function, so joining a thread that needs that name leaves each waiting for the other |
+
+**A thread spawned inside an update carries the ban for its whole life** — it
+cannot `set` or `update` even after the update has returned, and not for any
+name. It copied the fact at birth and nothing clears a copy. That is deliberate:
+clearing it on release would make the same script succeed or fail depending on
+which side of the release its write happened to land. A thread that needs to
+lock is spawned before the update, not inside it.
+
+Joining *after* the update has returned is fine. The refusal is about a name
+being held, not about the handle.
 
 Each of these is a plugin, and a host enables it by importing it:
 
@@ -317,30 +346,167 @@ import (
     _ "github.com/thebagchi/lark/runtime/plugin/jsonpath"
     _ "github.com/thebagchi/lark/runtime/plugin/time"
     _ "github.com/thebagchi/lark/runtime/plugin/math"
+    _ "github.com/thebagchi/lark/runtime/plugin/regexp"
+    _ "github.com/thebagchi/lark/runtime/plugin/random"
     _ "github.com/thebagchi/lark/runtime/plugin/codec"
+    _ "github.com/thebagchi/lark/runtime/plugin/base64"
+    _ "github.com/thebagchi/lark/runtime/plugin/base32"
+    _ "github.com/thebagchi/lark/runtime/plugin/hash"
+    _ "github.com/thebagchi/lark/runtime/plugin/path"
+    _ "github.com/thebagchi/lark/runtime/plugin/file"   // reaches the disk
     _ "github.com/thebagchi/lark/runtime/plugin/utils"
 )
 ```
 
-`cmd/lark` imports all of them, so every sample can use them.
+`cmd/lark` imports all of them, so every sample can use them. **A host that
+runs scripts it did not write should think about `file` before importing it** —
+see below.
 
-### Two naming styles in `codec`, and why
-
-The twelve the brief asks for are `x2y`: `bytes2hex`, `hex2bits`, `int2bytes`.
-The base encodings are `encode` and `decode`, because a name ending in a digit
-cannot take the `2` infix without reading as a number - `base642bytes` is "base
-642 bytes" to anyone who has not been told otherwise.
+### Regular expressions
 
 ```python
-hex = bytes2hex(data)              # the twelve, unchanged
-token = b64urlencode(payload)      # unpadded, which is what a JWT carries
-data = b64urldecode(token)         # padded or not, either way
-sum = crc32(chunk, sum)            # continues a checksum already started
+m = regexp.search(r"(?P<user>\w+)@(\w+)", "to bob@corp now")
+
+m.text      # "bob@corp"
+m.start     # 3, a byte offset
+m.end       # 11
+m.groups    # ["bob", "corp"]
+m.named     # {"user": "bob"}
 ```
 
-Anything conceptually bytes takes a `str` too, so `b64encode("foobar")` works.
-Quoted-printable, uuencode and `crc_hqx` are deliberately absent: two are
-email-era formats and the third serves one obsolete protocol.
+`search` looks anywhere, `match` only at the start, and both give `None` when
+nothing matched — so `if regexp.search(...)` reads the way it looks.
+`findall` gives a list of those same matches. A group that took part in no
+match is `None`, not `""`, because they are different answers.
+
+```python
+regexp.sub(r"(\w+)@(\w+)", "$2/$1", "bob@corp")   # "corp/bob"
+regexp.sub(r"a", "-", "banana", count = 2)        # "b-n-na"
+regexp.split(r",\s*", "a, b,c")                   # ["a", "b", "c"]
+regexp.quote("a.b*c")                             # escaped, matches itself
+```
+
+A replacement names a group **the engine's way** — `$1` and `${name}`, with
+`$$` for a literal dollar — not Python's `\1`. One syntax, so nothing is
+rewritten on the way through.
+
+**The engine is RE2**, and that is a safety choice rather than a taste one: it
+matches in time linear in the subject, so no pattern a script can write makes a
+run hang. The price is that **lookahead, lookbehind and backreferences do not
+exist** and never will — those are bought with backtracking, which is a denial
+of service wearing a feature's clothes in anything that runs scripts it did not
+write. A pattern asking for one is refused rather than quietly meaning
+something else. Named groups, `(?P<name>...)`, do work.
+
+### Randomness, and what a seed promises
+
+```python
+random.seed(42)
+random.int(1, 6)         # both ends included
+random.float()           # 0.0 up to but not including 1.0
+random.choice(items)
+random.shuffle(items)    # a new list; the original is untouched
+random.bytes(16)
+```
+
+The source belongs to **one run**, as `state`'s store does, so two runs of one
+artifact draw independently and every thread inside a run draws from the same
+stream. Unseeded, it is seeded from `crypto/rand`.
+
+**A seed repeats less than it looks like it does.** A seeded source hands out
+one sequence, but which thread receives which number depends on the order the
+threads ask — and that order is the scheduler's, not the script's. So a
+single-threaded run with a seed repeats exactly; a concurrent one repeats in
+the values drawn and not in who drew them. A thread that must repeat gets its
+own seed and draws only there.
+
+`shuffle` returns a new list rather than reordering the one it was given,
+because module scope freezes before anything concurrent runs — a function that
+worked at the top of a script and failed inside a thread would be worse than
+one that never reorders in place.
+
+### Paths, and the disk
+
+`path` is text. Nothing in it touches a disk, so every answer is the same
+whether the path exists or not.
+
+```python
+p = path.join("/srv", "work", "run.log")   # "/srv/work/run.log"
+path.dir(p)                                 # "/srv/work"
+path.base(p)                                # "run.log"
+path.stem(p)                                # "run"
+path.ext(p)                                 # ".log"
+path.parts(p)                               # ["/", "srv", "work", "run.log"]
+```
+
+It uses the **host's own separator**, through `path/filepath`, because these
+paths are handed to `file` and then to the operating system — a module that
+spelled them its own way would build something the host has to translate, and
+the translation is where a path stops meaning what it said. The cost is that
+the same script reads a different separator on Windows, so build paths with
+`join` rather than with text and it never arises.
+
+`file` reaches the disk:
+
+```python
+file.write(p, "written by a script")   # makes the directory above it
+file.read(p)                            # as text, regular files only
+file.bytes(p)                           # as bytes, same rule
+file.append(p, " and more")
+file.exists(p)                          # False only when absent
+file.list(dir)                          # names, sorted
+file.size(p)
+file.mkdir(dir)                         # making one twice is fine
+file.remove(p)                          # one thing, never a tree
+```
+
+**Importing `file` is the whole of enabling it, and that is the warning.**
+Every other plugin here works on what a script was handed; this one reaches
+whatever the host process can reach, with the host's permissions, and a script
+may name any path it likes. A host that runs scripts it did not write should
+not import it — and because importing is what enables a plugin, leaving the
+import out is the whole of leaving it out.
+
+`remove` deletes one file or one empty directory and never a tree, so a
+mistyped path costs a refusal rather than an afternoon's work.
+
+**`read` reads files, not devices.** Anything that is not a regular file — a
+character device, a pipe, a directory — is refused with `ErrNotAFile`, which
+also matches `ErrFile`. That is not a size limit: `os.ReadFile` sizes its buffer
+from the file, which bounds anything with an end, and only something endless
+like `/dev/zero` grows until the process dies. A very large *regular* file is
+still yours to be careful with, and `file.size` is how you check first.
+
+**`exists` is `False` only when the path is absent.** A directory the process
+may not search answers with an error rather than `False`, because "not there"
+and "I cannot tell" are different answers and a script deciding whether to write
+would otherwise overwrite something it could not see.
+
+### Two naming styles, and why
+
+`codec`'s twelve conversions are flat and spelled `x2y`: `bytes2hex`,
+`hex2bits`, `int2bytes`. The encodings are modules, because `encode` and
+`decode` are words a script uses for several things and read better behind the
+encoding they belong to — and because a name ending in a digit cannot take the
+`2` infix without reading as a number: `base642bytes` is "base 642 bytes" to
+anyone who has not been told otherwise.
+
+```python
+hex = bytes2hex(data)                   # codec's twelve, flat
+token = base64.urlencode(payload)       # unpadded, which is what a JWT carries
+data = base64.urldecode(token)          # padded or not, either way
+sum = crc32(chunk, sum)                 # continues a checksum already started
+mac = hash.hmac("sha256", key, body)    # hex, like every digest here
+```
+
+Anything conceptually bytes takes a `str` too, so `base64.encode("foobar")` and
+`hash.sha256("abc")` both work. Quoted-printable, uuencode and `crc_hqx` are
+deliberately absent: two are email-era formats and the third serves one
+obsolete protocol.
+
+`md5` and `sha1` are present and are not for anything a reader must not forge.
+A script meeting an old checksum still has to read it, and refusing would only
+send its author somewhere worse.
 
 ### Repeating, retrying and bounding
 
@@ -536,15 +702,28 @@ Each is reachable with `errors.Is`, through whatever wrapping carried it.
 | `runtime.ErrNotAHandle` | `join` or `cancel` got something other than a handle |
 | `runtime.ErrInterrupted` | A `sleep` was cut short by the run ending |
 | `runtime.ErrDuration` | `sleep` or `timeout` got something no timer can hold |
-| `runtime.ErrNested` | `state.update` was called from inside an update, on any thread it started |
+| `runtime.ErrNested` | `update`, `set` or `join` was called while a name was held, on any thread the update started |
 | `runtime.ErrConflict` | Two plugins supply one name |
 | `runtime.ErrNotObject` | What a run was given as arguments is not a JSON object |
 
 Every sentinel of every package the facade wraps is here. A plugin you import
-yourself - `flow`, `state`, `jsonpath`, `args` - keeps its own. `args` raises
-`args.ErrNotSupplied` for a declaration nothing supplied and
-`args.ErrNotDeclaring` for an `arg()` call outside module level; deriving a
-graph raises `graph.ErrNotCarried` for a declaration it cannot carry.
+yourself keeps its own, and there are more of them now:
+
+| Sentinel | Raised when |
+| --- | --- |
+| `args.ErrNotSupplied` | A declaration nothing supplied has no default |
+| `args.ErrNotDeclaring` | `arg()` was called outside module level |
+| `file.ErrFile` | The filesystem refused, wrapping what it said |
+| `file.ErrNotAFile` | `read` was given a device, a pipe or a directory. Also matches `ErrFile` |
+| `regexp.ErrPattern` | RE2 cannot read that pattern — lookahead, lookbehind, a backreference |
+| `random.ErrRange` | A range whose end is below its start, or a negative count |
+| `random.ErrEmpty` | A choice from a sequence with nothing in it |
+| `hash.ErrAlgorithm` | A keyed digest was asked for under a name this does not know |
+| `math.ErrNumber` / `math.ErrBase` | Something that is not a number; a logarithm in base one |
+| `base64.ErrEncoded` / `base32.ErrEncoded` | Text that is not that encoding |
+| `path.ErrNotAPath` | `join` was given something that is not text |
+| `unpack.ErrData` | Something that should be bytes or a string is neither |
+| `graph.ErrNotCarried` | Deriving met an `arg()` call it cannot carry |
 
 ### Cancellation
 

@@ -8,56 +8,6 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// _Data reads a builtin's one argument as bytes.
-//
-// Revisions:
-//   - 2026-09-21 10:35: initial creation
-//   - 2026-09-21 15:25: converts through _Bytes, which a builtin taking a
-//     second argument reaches directly
-func _Data(fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error) {
-	var given starlark.Value
-
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &given)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
-	}
-
-	return _Bytes(fn.Name(), given)
-}
-
-// _Bytes is one value as bytes, accepting a str as the brief says an input
-// that is conceptually bytes may be.
-//
-// Revisions:
-//   - 2026-09-21 15:25: initial creation
-func _Bytes(who string, given starlark.Value) ([]byte, error) {
-	switch held := given.(type) {
-	case starlark.Bytes:
-		return []byte(held), nil
-
-	case starlark.String:
-		return []byte(held), nil
-
-	default:
-		return nil, fmt.Errorf("%s got %s: %w", who, given.Type(), ErrData)
-	}
-}
-
-// _Text reads a builtin's one argument as a string.
-//
-// Revisions:
-//   - 2026-09-21 10:35: initial creation
-func _Text(fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (string, error) {
-	var text string
-
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &text)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", fn.Name(), err)
-	}
-
-	return text, nil
-}
-
 // _Counted reads a builtin's two arguments as a non-negative integer and a
 // width of at least one.
 //

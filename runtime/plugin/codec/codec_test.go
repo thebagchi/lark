@@ -12,6 +12,7 @@ import (
 	"github.com/thebagchi/lark/runtime/dialect"
 	"github.com/thebagchi/lark/runtime/plugin"
 	"github.com/thebagchi/lark/runtime/plugin/codec"
+	"github.com/thebagchi/lark/runtime/plugin/unpack"
 )
 
 const SCRIPT = "codec_test.star"
@@ -112,7 +113,7 @@ func TestBytes_ConvertToAndFromHexAndBits(t *testing.T) {
 		{"hex2bytes not hex", `hex2bytes("zz")`, codec.ErrHex},
 		{"bits2bytes not a multiple of 8", `bits2bytes("0000000")`, codec.ErrBits},
 		{"bits2bytes not bits", `bits2bytes("00000002")`, codec.ErrBits},
-		{"bytes2hex of a number", `bytes2hex(1)`, codec.ErrData},
+		{"bytes2hex of a number", `bytes2hex(1)`, unpack.ErrData},
 	})
 }
 

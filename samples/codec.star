@@ -26,11 +26,11 @@ def main():
 
     # The base encodings. The URL-safe alphabet is unpadded, which is what a
     # JSON Web Token carries; both decoders take padded or unpadded text.
-    print("base64", b64encode("foobar"))
-    print("base64 back", b64decode("Zm9vYmFy"))
-    print("base64url", b64urlencode(b"\xfb\xff\xbf"))
-    print("standard, for contrast", b64encode(b"\xfb\xff\xbf"))
-    print("base32", b32encode("foobar"))
+    print("base64", base64.encode("foobar"))
+    print("base64 back", base64.decode("Zm9vYmFy"))
+    print("base64url", base64.urlencode(b"\xfb\xff\xbf"))
+    print("standard, for contrast", base64.encode(b"\xfb\xff\xbf"))
+    print("base32", base32.encode("foobar"))
 
     # A checksum, and the same checksum taken in two parts.
     print("crc32", crc32("123456789"))

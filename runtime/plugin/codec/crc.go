@@ -3,8 +3,11 @@ package codec
 import (
 	"fmt"
 	"hash/crc32"
+	"math"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/runtime/plugin/unpack"
 )
 
 // _CRC32 is the IEEE checksum of data, unsigned, optionally continuing one
@@ -14,8 +17,14 @@ import (
 // possible: a script reads a chunk, keeps the number, and hands it back for
 // the next. binascii's crc32 takes it for the same reason.
 //
+// A seed is a checksum, so it is thirty-two bits and anything wider is
+// refused. Cutting it to width instead made 2**32 the same seed as 0, which is
+// a wrong answer given confidently.
+//
 // Revisions:
 //   - 2026-09-21 15:25: initial creation
+//   - 2026-09-24 16:08: refuses a seed too wide to be a checksum, rather than
+//     truncating it
 func _CRC32(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -32,13 +41,13 @@ func _CRC32(
 		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
 	}
 
-	data, err := _Bytes(fn.Name(), given)
+	data, err := unpack.Bytes(fn.Name(), given)
 	if err != nil {
 		return nil, err
 	}
 
 	held, ok := seed.Uint64()
-	if !ok {
+	if !ok || held > math.MaxUint32 {
 		return nil, fmt.Errorf("%s got %s to continue: %w", fn.Name(), seed, ErrRange)
 	}
 

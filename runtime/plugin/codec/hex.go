@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/runtime/plugin/unpack"
 )
 
 // _Bytes2Hex is lowercase hex with no separators.
@@ -19,7 +21,7 @@ func _Bytes2Hex(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := _Data(fn, args, kwargs)
+	data, err := unpack.Data(fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +40,7 @@ func _Hex2Bytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := _Text(fn, args, kwargs)
+	text, err := unpack.Text(fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +64,7 @@ func _Bits2Hex(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := _Text(fn, args, kwargs)
+	text, err := unpack.Text(fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +109,7 @@ func _Hex2Bits(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := _Text(fn, args, kwargs)
+	text, err := unpack.Text(fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +171,7 @@ func _Hex2Int(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := _Text(fn, args, kwargs)
+	text, err := unpack.Text(fn, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
