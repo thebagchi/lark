@@ -501,7 +501,7 @@ func TestWritelines_RefusesSomethingThatIsNotALine(t *testing.T) {
 // of them says so.
 //
 // Revisions:
-//   - 2026-09-25 00:18: initial creation
+//   - 2026-09-24 23:46: initial creation
 func TestErrFile_IsAnsweredWithoutBeingSaid(t *testing.T) {
 	root := t.TempDir()
 

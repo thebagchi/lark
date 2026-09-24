@@ -380,7 +380,7 @@ func _Supplying(ctx context.Context, supplied string) (context.Context, error) {
 // absent, so leaving it out is not the same as asking for nothing.
 //
 // Revisions:
-//   - 2026-09-24 23:48: initial creation
+//   - 2026-09-24 23:38: initial creation
 func _Allowing(ctx context.Context, memory int) (context.Context, error) {
 	if memory == 0 {
 		return ctx, nil

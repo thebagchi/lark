@@ -27,7 +27,7 @@ const (
 // _Reading is a script that reads the named file and answers with its length.
 //
 // Revisions:
-//   - 2026-09-24 23:54: initial creation
+//   - 2026-09-24 23:40: initial creation
 func _Reading(t *testing.T) []byte {
 	t.Helper()
 
@@ -49,7 +49,7 @@ func _Reading(t *testing.T) []byte {
 // nothing else would notice breaking.
 //
 // Revisions:
-//   - 2026-09-24 23:54: initial creation
+//   - 2026-09-24 23:40: initial creation
 func TestCeiling_AHostChoosesWhatARunMayHold(t *testing.T) {
 	src := _Reading(t)
 
@@ -86,7 +86,7 @@ func TestCeiling_AHostChoosesWhatARunMayHold(t *testing.T) {
 // of this library's work.
 //
 // Revisions:
-//   - 2026-09-24 23:54: initial creation
+//   - 2026-09-24 23:40: initial creation
 func TestCeiling_IsGivenBackBetweenReads(t *testing.T) {
 	named := filepath.Join(t.TempDir(), "blob.bin")
 

@@ -21,7 +21,7 @@ type _Failed struct {
 // Error is what went wrong, and nothing about what kind of thing it was.
 //
 // Revisions:
-//   - 2026-09-25 00:12: initial creation
+//   - 2026-09-24 23:45: initial creation
 func (f *_Failed) Error() string {
 	return f.cause.Error()
 }
@@ -29,7 +29,7 @@ func (f *_Failed) Error() string {
 // Unwrap is the cause and the module's sentinel, so errors.Is finds both.
 //
 // Revisions:
-//   - 2026-09-25 00:12: initial creation
+//   - 2026-09-24 23:45: initial creation
 func (f *_Failed) Unwrap() []error {
 	return []error{f.cause, ErrFile}
 }
@@ -42,7 +42,7 @@ func (f *_Failed) Unwrap() []error {
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-//   - 2026-09-25 00:12: carries ErrFile rather than wrapping its words in
+//   - 2026-09-24 23:45: carries ErrFile rather than wrapping its words in
 func _Refused(who string, cause error) error {
 	return &_Failed{cause: fmt.Errorf("%s: %w", who, cause)}
 }
@@ -53,7 +53,7 @@ func _Refused(who string, cause error) error {
 // carrying it.
 //
 // Revisions:
-//   - 2026-09-25 00:12: initial creation
+//   - 2026-09-24 23:45: initial creation
 func _Rejected(who string, named string, cause error) error {
 	return &_Failed{cause: fmt.Errorf("%s: %s: %w", who, named, cause)}
 }
