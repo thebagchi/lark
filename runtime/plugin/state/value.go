@@ -88,7 +88,7 @@ func _Stores(call *syntax.CallExpr) bool {
 // Revisions:
 //   - 2026-09-24 20:10: initial creation
 func _Names(arg syntax.Expr, declared map[string]bool) string {
-	switch held := arg.(type) {
+	switch held := _Bare(arg).(type) {
 	case *syntax.LambdaExpr:
 		return "a lambda"
 
@@ -99,4 +99,23 @@ func _Names(arg syntax.Expr, declared map[string]bool) string {
 	}
 
 	return ""
+}
+
+// _Bare is an expression with its parentheses taken off.
+//
+// Extra parentheses do not change what was written, so (helper) shows a
+// function as plainly as helper does. Without this the two spellings were
+// answered differently: one refused where it was written, the other carried
+// to the run and refused there - for the same mistake, with the same fix, at
+// two different moments.
+//
+// Revisions:
+//   - 2026-09-24 21:10: initial creation
+func _Bare(expr syntax.Expr) syntax.Expr {
+	held, ok := expr.(*syntax.ParenExpr)
+	if !ok {
+		return expr
+	}
+
+	return _Bare(held.X)
 }

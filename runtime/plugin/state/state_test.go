@@ -557,10 +557,13 @@ def main():
 //
 // Revisions:
 //   - 2026-09-24 20:22: initial creation
+//   - 2026-09-24 21:12: cover the parenthesized spellings
 func TestSet_RefusesAVisibleFunctionBeforeItRuns(t *testing.T) {
 	cases := map[string]string{
 		"a declared function": "def helper():\n    return 1\n\ndef main():\n    state.set(\"k\", helper)\n",
 		"a lambda":            "def main():\n    state.set(\"k\", lambda: 1)\n",
+		"in parentheses":      "def helper():\n    return 1\n\ndef main():\n    state.set(\"k\", (helper))\n",
+		"and nested ones":     "def helper():\n    return 1\n\ndef main():\n    state.set(\"k\", ((helper)))\n",
 	}
 
 	for name, script := range cases {
