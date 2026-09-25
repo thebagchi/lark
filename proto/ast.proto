@@ -33,7 +33,7 @@ message Span {
 // operators. The scanner's own token set is larger, and the rest of it never
 // survives parsing: a left paren is structure, not data.
 enum Token {
-  TOKEN_UNSPECIFIED = 0;
+  TOKEN_UNSPECIFIED   = 0;
 
   // Assignment, as carried by AssignStmt.op, and the keyword argument marker
   // carried by a call's or a parameter list's BinaryExpr.
@@ -51,52 +51,52 @@ enum Token {
   TOKEN_GTGT_EQ       = 12;
 
   // Branching, as carried by BranchStmt.token.
-  TOKEN_BREAK    = 13;
-  TOKEN_CONTINUE = 14;
-  TOKEN_PASS     = 15;
+  TOKEN_BREAK         = 13;
+  TOKEN_CONTINUE      = 14;
+  TOKEN_PASS          = 15;
 
   // Literal kinds, as carried by Literal.token.
-  TOKEN_STRING = 16;
-  TOKEN_BYTES  = 17;
-  TOKEN_INT    = 18;
-  TOKEN_FLOAT  = 19;
+  TOKEN_STRING        = 16;
+  TOKEN_BYTES         = 17;
+  TOKEN_INT           = 18;
+  TOKEN_FLOAT         = 19;
 
   // Arithmetic and bitwise, shared by UnaryExpr.op and BinaryExpr.op.
-  TOKEN_PLUS       = 20;
-  TOKEN_MINUS      = 21;
-  TOKEN_STAR       = 22;
-  TOKEN_STARSTAR   = 23;
-  TOKEN_SLASH      = 24;
-  TOKEN_SLASHSLASH = 25;
-  TOKEN_PERCENT    = 26;
-  TOKEN_AMP        = 27;
-  TOKEN_PIPE       = 28;
-  TOKEN_CIRCUMFLEX = 29;
-  TOKEN_LTLT       = 30;
-  TOKEN_GTGT       = 31;
-  TOKEN_TILDE      = 32;
+  TOKEN_PLUS          = 20;
+  TOKEN_MINUS         = 21;
+  TOKEN_STAR          = 22;
+  TOKEN_STARSTAR      = 23;
+  TOKEN_SLASH         = 24;
+  TOKEN_SLASHSLASH    = 25;
+  TOKEN_PERCENT       = 26;
+  TOKEN_AMP           = 27;
+  TOKEN_PIPE          = 28;
+  TOKEN_CIRCUMFLEX    = 29;
+  TOKEN_LTLT          = 30;
+  TOKEN_GTGT          = 31;
+  TOKEN_TILDE         = 32;
 
   // Comparison and logic, carried by BinaryExpr.op, plus the not that
   // UnaryExpr.op carries.
-  TOKEN_EQL    = 33;
-  TOKEN_NEQ    = 34;
-  TOKEN_LT     = 35;
-  TOKEN_GT     = 36;
-  TOKEN_LE     = 37;
-  TOKEN_GE     = 38;
-  TOKEN_IN     = 39;
-  TOKEN_NOT_IN = 40;
-  TOKEN_AND    = 41;
-  TOKEN_OR     = 42;
-  TOKEN_NOT    = 43;
+  TOKEN_EQL           = 33;
+  TOKEN_NEQ           = 34;
+  TOKEN_LT            = 35;
+  TOKEN_GT            = 36;
+  TOKEN_LE            = 37;
+  TOKEN_GE            = 38;
+  TOKEN_IN            = 39;
+  TOKEN_NOT_IN        = 40;
+  TOKEN_AND           = 41;
+  TOKEN_OR            = 42;
+  TOKEN_NOT           = 43;
 }
 
 // File is a parsed Starlark file: its path, and the statements at its top
 // level. The resolver's module, which the Go AST hangs here, is not carried -
 // it is the result of a later pass over this tree, not part of it.
 message File {
-  Span span         = 1;
-  string path       = 2;
+  Span span           = 1;
+  string path         = 2;
   repeated Stmt stmts = 3;
 }
 
@@ -120,10 +120,10 @@ message Stmt {
 // AssignStmt is an assignment: x = 0, or x, y = y, x, or x += 1. op says which,
 // and is one of the TOKEN_*_EQ values or TOKEN_EQ.
 message AssignStmt {
-  Span span  = 1;
-  Token op   = 2;
-  Expr lhs   = 3;
-  Expr rhs   = 4;
+  Span span = 1;
+  Token op  = 2;
+  Expr lhs  = 3;
+  Expr rhs  = 4;
 }
 
 // DefStmt is a function definition. Each param is an Expr rather than a shape
@@ -160,10 +160,10 @@ message IfStmt {
 // identifier and some with only a string, and the parser invents an identifier
 // for every string so both sides are uniform.
 message LoadStmt {
-  Span span            = 1;
-  Literal module       = 2;
-  repeated Ident from  = 3;
-  repeated Ident to    = 4;
+  Span span           = 1;
+  Literal module      = 2;
+  repeated Ident from = 3;
+  repeated Ident to   = 4;
 }
 
 // BranchStmt changes the flow of control: token is TOKEN_BREAK,
@@ -202,22 +202,22 @@ message WhileStmt {
 // is one in the Go AST, although it appears only inside a DictExpr.
 message Expr {
   oneof kind {
-    BinaryExpr binary       = 1;
-    CallExpr call           = 2;
-    Comprehension comp      = 3;
-    CondExpr cond           = 4;
-    DictEntry dict_entry    = 5;
-    DictExpr dict           = 6;
-    DotExpr dot             = 7;
-    Ident ident             = 8;
-    IndexExpr index         = 9;
-    LambdaExpr lambda       = 10;
-    ListExpr list           = 11;
-    Literal literal         = 12;
-    ParenExpr paren         = 13;
-    SliceExpr slice         = 14;
-    TupleExpr tuple         = 15;
-    UnaryExpr unary         = 16;
+    BinaryExpr binary    = 1;
+    CallExpr call        = 2;
+    Comprehension comp   = 3;
+    CondExpr cond        = 4;
+    DictEntry dict_entry = 5;
+    DictExpr dict        = 6;
+    DotExpr dot          = 7;
+    Ident ident          = 8;
+    IndexExpr index      = 9;
+    LambdaExpr lambda    = 10;
+    ListExpr list        = 11;
+    Literal literal      = 12;
+    ParenExpr paren      = 13;
+    SliceExpr slice      = 14;
+    TupleExpr tuple      = 15;
+    UnaryExpr unary      = 16;
   }
 }
 
@@ -236,14 +236,14 @@ message Ident {
 // inventing an arbitrary-precision message is its decimal text. A consumer that
 // ignores big_int silently reads a subset of the language.
 message Literal {
-  Span span    = 1;
-  Token token  = 2;
-  string raw   = 3;
+  Span span        = 1;
+  Token token      = 2;
+  string raw       = 3;
   oneof value {
-    string text   = 4;
-    int64 int     = 5;
+    string text    = 4;
+    int64 int      = 5;
     string big_int = 6;
-    double float  = 7;
+    double float   = 7;
   }
 }
 
@@ -276,9 +276,9 @@ message DotExpr {
 // {x: y for ...} and {x for ...} from [x for ...]; body is the element, which
 // is a DictEntry for the dict form.
 message Comprehension {
-  Span span              = 1;
-  bool curly             = 2;
-  Expr body              = 3;
+  Span span               = 1;
+  bool curly              = 2;
+  Expr body               = 3;
   repeated Clause clauses = 4;
 }
 

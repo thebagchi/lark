@@ -19,8 +19,8 @@ option go_package = "github.com/thebagchi/lark/proto/gen/artifact;artifact";
 // restored from here has none, and the entry-point rule cannot be applied a
 // second time.
 message Unit {
-  string name               = 1;
-  bytes code                = 2;
+  string name = 1;
+  bytes code  = 2;
   map<string, string> loads = 3;
 }
 

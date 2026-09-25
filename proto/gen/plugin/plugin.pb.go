@@ -22,7 +22,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Request is anything a plugin says. The first must be an Announce.
+// Request is anything a plugin says. The first must be a Register.
 //
 // Not a request in the usual sense: this is one half of a stream, it carries
 // two unrelated kinds of message, and nothing pairs one of these with one

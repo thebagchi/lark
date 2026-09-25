@@ -24,7 +24,7 @@ enum Status {
 // Call runs function, with args as the values at
 // this site, in order; two Calls of one function may differ here.
 message Call {
-  string function = 1;
+  string function                     = 1;
   repeated google.protobuf.Value args = 2;
 }
 
@@ -210,7 +210,7 @@ message Live {
 // spine is the thread whose id is thread_0, and its first step is the
 // artifact's entry point like any other.
 message Thread {
-  string id = 1;
+  string id       = 1;
 
   oneof state {
     Static static = 3;
@@ -299,8 +299,8 @@ message Arg {
 // filter another. The two maps share a namespace: both bind a
 // module-level name, and a name in both is refused.
 message Graph {
-  repeated Function functions        = 1;
-  repeated Thread threads            = 2;
+  repeated Function functions = 1;
+  repeated Thread threads     = 2;
   map<string, Constant> constants    = 3;
   map<string, Arg> args              = 4;
 }

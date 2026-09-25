@@ -33,7 +33,7 @@ service Service {
 message Request {
   oneof of {
     Register register = 1;
-    Answer answer = 2;
+    Answer answer     = 2;
   }
 }
 
@@ -42,7 +42,7 @@ message Request {
 message Response {
   oneof of {
     Accepted accepted = 1;
-    Ask ask = 2;
+    Ask ask           = 2;
   }
 }
 
@@ -52,10 +52,10 @@ message Register {
   // stream that does not present it is closed before any name of its is taken,
   // so a process that merely reached the socket cannot put names into a
   // script.
-  string token = 1;
+  string token          = 1;
 
   // name is the plugin, for a conflict report to point at.
-  string name = 2;
+  string name           = 2;
 
   // names are what a script may call, dotted for a module: "clock.now". Every
   // plugin the runtime already carries supplies a module, so a flat list would
@@ -70,9 +70,9 @@ message Accepted {}
 message Ask {
   // id pairs this with its Answer. A script may have several threads calling
   // one plugin at once, and the stream carries their asks interleaved.
-  uint64 id = 1;
+  uint64 id                           = 1;
 
-  string name = 2;
+  string name                         = 2;
 
   // args are what the script passed. google.protobuf.Value rather than a new
   // type of this repository's own, because a Call in workflow.proto already
@@ -86,11 +86,11 @@ message Ask {
 
 // Answer is what the name produced.
 message Answer {
-  uint64 id = 1;
+  uint64 id                    = 1;
 
   google.protobuf.Value result = 2;
 
   // failed is empty when the call worked. A string rather than a status code,
   // because what crosses here is what the script will see raised.
-  string failed = 3;
+  string failed                = 3;
 }
