@@ -30,6 +30,12 @@ const (
 	// the milliseconds they take.
 	_ATTACHED = 20 * time.Second
 	_NOTICED  = 20 * time.Second
+
+	// PROC is where this system publishes what every process is running, and
+	// CMDLINE the arguments it was given. Read to prove a secret is not among
+	// them.
+	PROC    = "/proc"
+	CMDLINE = "cmdline"
 )
 
 // _Clock builds the clock plugin and answers with the path to it.
@@ -378,4 +384,242 @@ func TestLark_PluginsFlag(t *testing.T) {
 	if code == 0 || !strings.Contains(string(out), "undefined: clock") {
 		t.Fatalf("-p on an empty directory: exit %d\n%s", code, out)
 	}
+}
+
+// TestPlugin_SocketIsPrivateAndGoesAway is the socket as a file: who may reach
+// it, and that it does not outlast the listener.
+//
+// Mode 0600 is the whole of the access control. A registered plugin's names go
+// into every script compiled against that registry and file reaches whatever
+// this process reaches, so the socket being readable by another user would put
+// the filesystem behind them.
+//
+// Revisions:
+//   - 2026-09-26 01:15: initial creation, from QA's probes
+func TestPlugin_SocketIsPrivateAndGoesAway(t *testing.T) {
+	dir, err := os.MkdirTemp("", "lk")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+
+	socket := filepath.Join(dir, "s")
+
+	listener, err := remote.Listen(socket, PLUGIN_TOKEN, plugin.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	about, err := os.Stat(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if about.Mode().Perm() != 0o600 {
+		t.Fatalf("socket mode %o, want 0600", about.Mode().Perm())
+	}
+
+	err = listener.Close()
+	if err != nil {
+		t.Fatalf("closing: %v", err)
+	}
+
+	_, err = os.Stat(socket)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the socket is still there after close: %v", err)
+	}
+}
+
+// TestPlugin_TheTokenIsNowhereAnyoneCanRead is the security claim tested
+// rather than trusted.
+//
+// The token is the only thing between a local process and putting names into
+// every script compiled against that registry. It is passed in the environment
+// for that reason, so it must appear in no process's argument list - which
+// /proc publishes to every user on the machine.
+//
+// Revisions:
+//   - 2026-09-26 01:15: initial creation, from QA's probes
+func TestPlugin_TheTokenIsNowhereAnyoneCanRead(t *testing.T) {
+	listener, socket := _Host(t)
+	binary := _Clock(t)
+
+	_Attached(t, listener, binary, socket)
+
+	// The search has to be able to find something before its not finding the
+	// token means anything. The plugin is running and was started by path, so
+	// it is there to be found.
+	if !_ArgsContain(t, binary) {
+		t.Fatal("the search cannot see a process it was told is running")
+	}
+
+	if _ArgsContain(t, PLUGIN_TOKEN) {
+		t.Fatal("the token is in a process argument list, where anyone can read it")
+	}
+}
+
+// TestPlugin_NothingOutlivesTheHost is the shutdown, checked by pid rather than
+// by assumption.
+//
+// Closing stops the server, which closes every stream and is how a plugin
+// learns its host has gone. Only what is still running after that is killed. A
+// plugin left behind would be a process nobody is waiting for, holding whatever
+// it had open.
+//
+// Revisions:
+//   - 2026-09-26 01:15: initial creation, from QA's probes
+func TestPlugin_NothingOutlivesTheHost(t *testing.T) {
+	listener, _ := _Host(t)
+
+	dir := t.TempDir()
+	named := filepath.Join(dir, "lark-clock.bin")
+
+	build := exec.Command("go", "build", "-o", named, "./cmd/clock")
+	build.Dir = _ModuleRoot(t)
+
+	out, err := build.CombinedOutput()
+	if err != nil {
+		t.Fatalf("building the plugin: %v\n%s", err, out)
+	}
+
+	loading, err := listener.Load(dir, remote.GLOB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loading.Loaded) != 1 {
+		t.Fatalf("loaded %v, want one", loading.Loaded)
+	}
+
+	if !_ArgsContain(t, named) {
+		t.Fatal("the plugin was reported loaded and is not running")
+	}
+
+	err = listener.Close()
+	if err != nil {
+		t.Fatalf("closing: %v", err)
+	}
+
+	// Killed if it did not go on its own, so this is bounded by LEAVING plus
+	// the moment the kill takes.
+	deadline := time.Now().Add(_NOTICED)
+
+	for time.Now().Before(deadline) {
+		if !_ArgsContain(t, named) {
+			return
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatal("the plugin was still running after its host closed")
+}
+
+// TestPlugin_SeveralThreadsCallOneClock is why an ask carries an id.
+//
+// Eight threads call one plugin through one stream, so their asks and answers
+// interleave. Each caller has to be handed its own answer.
+//
+// Revisions:
+//   - 2026-09-26 01:15: initial creation, from QA's probes
+func TestPlugin_SeveralThreadsCallOneClock(t *testing.T) {
+	listener, socket := _Host(t)
+	_Attached(t, listener, _Clock(t), socket)
+
+	built, err := runtime.NewCompiler(runtime.WithPlugins(listener.Registry())).
+		Compile("many.star", []byte(`
+def once():
+    return clock.add(1, 2)
+
+def main():
+    held = [spawn(once) for i in range(8)]
+
+    return join(*held)
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := built.Run(t.Context())
+	if err != nil {
+		t.Fatalf("eight threads through one plugin: %v", err)
+	}
+
+	if got.String() != "[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]" {
+		t.Fatalf("got %s", got)
+	}
+}
+
+// TestPlugin_AnExecutableThatIsNotAProgramIsSkipped is the other half of the
+// skip: a file that matches and has the execute bit and still is not a program.
+//
+// TestLoad_ADirectoryOfPluginsIsStartedAndKeptReady covers the one without the
+// bit, which fails at fork. This one gets further - the exec itself is refused
+// by the kernel for want of a header - so it is a second path to the same
+// answer.
+//
+// Revisions:
+//   - 2026-09-26 01:15: initial creation, from QA's probes
+func TestPlugin_AnExecutableThatIsNotAProgramIsSkipped(t *testing.T) {
+	listener, _ := _Host(t)
+
+	dir := t.TempDir()
+
+	err := os.WriteFile(filepath.Join(dir, "lark-quiet.bin"), []byte("not a program"), 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	loading, err := listener.Load(dir, remote.GLOB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loading.Loaded) != 0 {
+		t.Fatalf("loaded %v, want none", loading.Loaded)
+	}
+
+	if len(loading.Skipped) != 1 {
+		t.Fatalf("skipped %v, want one", loading.Skipped)
+	}
+
+	t.Logf("skipped: %v", loading.Skipped[0])
+}
+
+// _ArgsContain reports whether any process on this machine has needle in its
+// arguments.
+//
+// Reads /proc, which is how the arguments of every process are published to
+// every user - the reason a secret must not be one.
+//
+// Revisions:
+//   - 2026-09-26 01:15: initial creation, from QA's probes
+func _ArgsContain(t *testing.T, needle string) bool {
+	t.Helper()
+
+	held, err := os.ReadDir(PROC)
+	if err != nil {
+		t.Skipf("no process table to read on this system: %v", err)
+	}
+
+	for _, entry := range held {
+		if !entry.IsDir() {
+			continue
+		}
+
+		raw, err := os.ReadFile(filepath.Join(PROC, entry.Name(), CMDLINE))
+		if err != nil {
+			// A process that ended between the listing and the read.
+			continue
+		}
+
+		if strings.Contains(string(raw), needle) {
+			return true
+		}
+	}
+
+	return false
 }
