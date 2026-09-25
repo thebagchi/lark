@@ -23,3 +23,7 @@ testing.md
 # A WSL utility for deleting Windows Zone.Identifier sidecars. It lives here
 # because that is where it is run from, not because it belongs to this project.
 purge_zone_identifier.py
+
+# Editor settings. Whoever works here chooses their own; a copy in the tree
+# would make one person's choices everybody else's.
+.vscode/
