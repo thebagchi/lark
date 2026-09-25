@@ -5,6 +5,10 @@
 # owns is unactionable. .poc/go is a module of its own and is handled beside it.
 GO_FILES := $(shell find . -name '*.go' -not -path './proto/gen/*' -not -path './.poc/*' -print)
 
+# Hand-written schemas. Generated output is Go under proto/gen/, so a find
+# for .proto is already the files a formatter may touch.
+PROTO_FILES := $(shell find proto -name '*.proto' -print)
+
 # Everything a binary is built from. Wider than GO_FILES, which drops generated
 # code because a formatter has nothing to say about a file it does not own - a
 # build does. Two questions, two lists; sharing one would mean a change to a
@@ -40,10 +44,17 @@ lint-proto:
 #
 # The guard is not defensive clutter: GO_FILES is empty until the first
 # hand-written file lands in this module, and gofmt with no arguments reads
-# standard input and fails.
+# standard input and fails. Proto files have the same empty-list guard:
+# tools/fmt_proto.py with no arguments prints usage and exits 1.
 fmt:
 	@if [ -n "$(GO_FILES)" ]; then gofmt -l -w $(GO_FILES); fi
 	cd .poc/go && gofmt -l -w .
+# tools/fmt_proto.py is the proto formatter, and buf format is not. The two
+# disagree: this one aligns the = of a field with its neighbours, buf format
+# takes that alignment out. Running buf format would rewrite every .proto here -
+# measured 2026-09-25 at 775 diff lines - so it is not a step, not in a gate,
+# and not a tidy-up to reach for. buf lint and buf generate are unaffected.
+	@if [ -n "$(PROTO_FILES)" ]; then python3 tools/fmt_proto.py $(PROTO_FILES); fi
 
 # Both modules: the planning POCs are a module of their own.
 tidy:
