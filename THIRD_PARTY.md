@@ -7,9 +7,22 @@ asks that a licence be in the tree before the dependency is.
 | --- | --- | --- |
 | [`go.starlark.net`](https://github.com/google/starlark-go) | BSD-3-Clause | the interpreter this runtime is built on |
 | [`google.golang.org/protobuf`](https://github.com/protocolbuffers/protobuf-go) | BSD-3-Clause | the generated messages under `proto/gen/` |
+| [`google.golang.org/grpc`](https://github.com/grpc/grpc-go) | Apache-2.0 | the `Host` service in `proto/plugin.proto`, so a plugin can live in another process |
 
-Both are BSD-3-Clause, which asks that the copyright notice and the licence text be kept
-with any redistribution of their source or of a binary built from it.
+The first two are BSD-3-Clause, which asks that the copyright notice and the licence text be
+kept with any redistribution of their source or of a binary built from it.
+
+gRPC is **Apache-2.0, which asks for more than that.** A redistribution has to carry the
+licence text, state that files were changed if any were, keep the attribution notices found in
+the source, and — if the upstream ships a `NOTICE` file — reproduce what that file says. It also
+grants patent rights, and withdraws them from anyone who starts patent litigation over the work.
+None of that binds anything today, because nothing here is redistributed; all of it binds the
+first release.
+
+gRPC was already in the module graph before this, at v1.83.1, pulled in by `buf` as a tool
+dependency. What changed on 2026-09-25 is that this repository's own code imports it, so it is
+listed here and in the direct `require` block rather than being something the toolchain happened
+to fetch.
 
 `github.com/google/uuid` was here until 2026-09-23, for run ids. Nothing mints one any more:
 a host is handed the run itself, so there is nothing to name. It remains an indirect

@@ -9,3 +9,10 @@ plugins:
   - local: ["go", "tool", "protoc-gen-go"]
     out: proto/gen
     opt: module=github.com/thebagchi/lark/proto/gen
+
+  # The service in plugin.proto needs a client and a server as well as the
+  # messages, and protoc-gen-go does not write those. Same module= for the same
+  # reason: the generated package lands beside its messages.
+  - local: ["go", "tool", "protoc-gen-go-grpc"]
+    out: proto/gen
+    opt: module=github.com/thebagchi/lark/proto/gen

@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package plugin;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/thebagchi/lark/proto/gen/plugin;plugin";
+
+// Service is what the runtime serves, and a plugin process dials.
+//
+// One bidirectional stream rather than two unary calls. The other shape has
+// the plugin calling Register on the host and the host calling Call on the
+// plugin, which means both sides listen - and a plugin that has to listen has
+// lost the reason for dialling out in the first place. Here a plugin is only
+// ever a client: it opens Attach, announces itself, and answers asks coming
+// back down the same stream. Nothing has to reach a plugin, so a plugin needs
+// no port, no address anyone has to know, and no way in.
+service Service {
+  // Attach is a plugin's whole conversation with the host: announce, then
+  // answer until the stream closes. Closing it is how a plugin leaves.
+  rpc Attach(stream AttachRequest) returns (stream AttachResponse);
+}
+
+// AttachRequest is anything a plugin says. The first must be a Register.
+//
+// Named for the RPC rather than for the direction, which is the convention buf
+// enforces. It is worth knowing that it is not a request: this is one half of a
+// stream, it carries two unrelated kinds of message, and nothing pairs one of
+// these with one AttachResponse. The oneof is what says so.
+message AttachRequest {
+  oneof of {
+    Register register = 1;
+    Answer answer = 2;
+  }
+}
+
+// AttachResponse is anything the host says. Not a response to any one
+// AttachRequest; see above.
+message AttachResponse {
+  oneof of {
+    Accepted accepted = 1;
+    Ask ask = 2;
+  }
+}
+
+// Register is the announcement: who this is, and what it supplies.
+message Register {
+  // token is what the host issued to whoever was allowed to start a plugin. A
+  // stream that does not present it is closed before any name of its is taken,
+  // so a process that merely reached the socket cannot put names into a
+  // script.
+  string token = 1;
+
+  // name is the plugin, for a conflict report to point at.
+  string name = 2;
+
+  // names are what a script may call, dotted for a module: "clock.now". Every
+  // plugin the runtime already carries supplies a module, so a flat list would
+  // make a remote one the odd case.
+  repeated string names = 3;
+}
+
+// Accepted is the host agreeing to carry the names. Empty.
+message Accepted {}
+
+// Ask is one call of one name.
+message Ask {
+  // id pairs this with its Answer. A script may have several threads calling
+  // one plugin at once, and the stream carries their asks interleaved.
+  uint64 id = 1;
+
+  string name = 2;
+
+  // args are what the script passed. google.protobuf.Value rather than a new
+  // type of this repository's own, because a Call in workflow.proto already
+  // carries arguments that way and a second shape would be a second JSON.
+  //
+  // What cannot be one of these never leaves: a function, a thread handle and
+  // a module are refused on the host, so a plugin is never handed one and
+  // never has to have an opinion about it.
+  repeated google.protobuf.Value args = 3;
+}
+
+// Answer is what the name produced.
+message Answer {
+  uint64 id = 1;
+
+  google.protobuf.Value result = 2;
+
+  // failed is empty when the call worked. A string rather than a status code,
+  // because what crosses here is what the script will see raised.
+  string failed = 3;
+}
