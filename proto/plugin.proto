@@ -16,27 +16,30 @@ option go_package = "github.com/thebagchi/lark/proto/gen/plugin;plugin";
 // back down the same stream. Nothing has to reach a plugin, so a plugin needs
 // no port, no address anyone has to know, and no way in.
 service Service {
-  // Attach is a plugin's whole conversation with the host: announce, then
+  // Register is a plugin's whole conversation with the host: announce, then
   // answer until the stream closes. Closing it is how a plugin leaves.
-  rpc Attach(stream AttachRequest) returns (stream AttachResponse);
+  //
+  // Named for what opening it means rather than for the mechanism. A plugin
+  // registers itself, once, and everything after is that registration still
+  // being honoured.
+  rpc Register(stream Request) returns (stream Response);
 }
 
-// AttachRequest is anything a plugin says. The first must be a Register.
+// Request is anything a plugin says. The first must be a Register.
 //
-// Named for the RPC rather than for the direction, which is the convention buf
-// enforces. It is worth knowing that it is not a request: this is one half of a
-// stream, it carries two unrelated kinds of message, and nothing pairs one of
-// these with one AttachResponse. The oneof is what says so.
-message AttachRequest {
+// Not a request in the usual sense: this is one half of a stream, it carries
+// two unrelated kinds of message, and nothing pairs one of these with one
+// Response. The oneof is what says so.
+message Request {
   oneof of {
     Register register = 1;
     Answer answer = 2;
   }
 }
 
-// AttachResponse is anything the host says. Not a response to any one
-// AttachRequest; see above.
-message AttachResponse {
+// Response is anything the host says. Not a response to any one Request; see
+// above.
+message Response {
   oneof of {
     Accepted accepted = 1;
     Ask ask = 2;

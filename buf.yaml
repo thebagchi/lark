@@ -4,6 +4,20 @@ modules:
 lint:
   use:
     - STANDARD
+  # Two rules, one file. They ask that an rpc's argument and result be named
+  # after it - RegisterRequest and RegisterResponse for rpc Register - which is
+  # right when one request is answered by one response. Register is a
+  # bidirectional stream: a Request is an announcement or an answer, a Response
+  # is an acceptance or a call, and nothing pairs one with one. Naming them for
+  # a pairing that does not happen would describe the wrong protocol.
+  #
+  # Named per file rather than turned off, so a later service that does have
+  # request and response pairs is still held to the convention.
+  ignore_only:
+    RPC_REQUEST_STANDARD_NAME:
+      - proto/plugin.proto
+    RPC_RESPONSE_STANDARD_NAME:
+      - proto/plugin.proto
 breaking:
   use:
     - FILE

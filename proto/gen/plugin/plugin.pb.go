@@ -22,37 +22,36 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// AttachRequest is anything a plugin says. The first must be a Register.
+// Request is anything a plugin says. The first must be an Announce.
 //
-// Named for the RPC rather than for the direction, which is the convention buf
-// enforces. It is worth knowing that it is not a request: this is one half of a
-// stream, it carries two unrelated kinds of message, and nothing pairs one of
-// these with one AttachResponse. The oneof is what says so.
-type AttachRequest struct {
+// Not a request in the usual sense: this is one half of a stream, it carries
+// two unrelated kinds of message, and nothing pairs one of these with one
+// Response. The oneof is what says so.
+type Request struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Of:
 	//
-	//	*AttachRequest_Register
-	//	*AttachRequest_Answer
-	Of            isAttachRequest_Of `protobuf_oneof:"of"`
+	//	*Request_Register
+	//	*Request_Answer
+	Of            isRequest_Of `protobuf_oneof:"of"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AttachRequest) Reset() {
-	*x = AttachRequest{}
+func (x *Request) Reset() {
+	*x = Request{}
 	mi := &file_plugin_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AttachRequest) String() string {
+func (x *Request) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AttachRequest) ProtoMessage() {}
+func (*Request) ProtoMessage() {}
 
-func (x *AttachRequest) ProtoReflect() protoreflect.Message {
+func (x *Request) ProtoReflect() protoreflect.Message {
 	mi := &file_plugin_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -64,79 +63,79 @@ func (x *AttachRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AttachRequest.ProtoReflect.Descriptor instead.
-func (*AttachRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use Request.ProtoReflect.Descriptor instead.
+func (*Request) Descriptor() ([]byte, []int) {
 	return file_plugin_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *AttachRequest) GetOf() isAttachRequest_Of {
+func (x *Request) GetOf() isRequest_Of {
 	if x != nil {
 		return x.Of
 	}
 	return nil
 }
 
-func (x *AttachRequest) GetRegister() *Register {
+func (x *Request) GetRegister() *Register {
 	if x != nil {
-		if x, ok := x.Of.(*AttachRequest_Register); ok {
+		if x, ok := x.Of.(*Request_Register); ok {
 			return x.Register
 		}
 	}
 	return nil
 }
 
-func (x *AttachRequest) GetAnswer() *Answer {
+func (x *Request) GetAnswer() *Answer {
 	if x != nil {
-		if x, ok := x.Of.(*AttachRequest_Answer); ok {
+		if x, ok := x.Of.(*Request_Answer); ok {
 			return x.Answer
 		}
 	}
 	return nil
 }
 
-type isAttachRequest_Of interface {
-	isAttachRequest_Of()
+type isRequest_Of interface {
+	isRequest_Of()
 }
 
-type AttachRequest_Register struct {
+type Request_Register struct {
 	Register *Register `protobuf:"bytes,1,opt,name=register,proto3,oneof"`
 }
 
-type AttachRequest_Answer struct {
+type Request_Answer struct {
 	Answer *Answer `protobuf:"bytes,2,opt,name=answer,proto3,oneof"`
 }
 
-func (*AttachRequest_Register) isAttachRequest_Of() {}
+func (*Request_Register) isRequest_Of() {}
 
-func (*AttachRequest_Answer) isAttachRequest_Of() {}
+func (*Request_Answer) isRequest_Of() {}
 
-// AttachResponse is anything the host says. Not a response to any one
-// AttachRequest; see above.
-type AttachResponse struct {
+// Response is anything the host says. Not a response to any one Request; see
+// above.
+type Response struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Of:
 	//
-	//	*AttachResponse_Accepted
-	//	*AttachResponse_Ask
-	Of            isAttachResponse_Of `protobuf_oneof:"of"`
+	//	*Response_Accepted
+	//	*Response_Ask
+	Of            isResponse_Of `protobuf_oneof:"of"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AttachResponse) Reset() {
-	*x = AttachResponse{}
+func (x *Response) Reset() {
+	*x = Response{}
 	mi := &file_plugin_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AttachResponse) String() string {
+func (x *Response) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AttachResponse) ProtoMessage() {}
+func (*Response) ProtoMessage() {}
 
-func (x *AttachResponse) ProtoReflect() protoreflect.Message {
+func (x *Response) ProtoReflect() protoreflect.Message {
 	mi := &file_plugin_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -148,51 +147,51 @@ func (x *AttachResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AttachResponse.ProtoReflect.Descriptor instead.
-func (*AttachResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use Response.ProtoReflect.Descriptor instead.
+func (*Response) Descriptor() ([]byte, []int) {
 	return file_plugin_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AttachResponse) GetOf() isAttachResponse_Of {
+func (x *Response) GetOf() isResponse_Of {
 	if x != nil {
 		return x.Of
 	}
 	return nil
 }
 
-func (x *AttachResponse) GetAccepted() *Accepted {
+func (x *Response) GetAccepted() *Accepted {
 	if x != nil {
-		if x, ok := x.Of.(*AttachResponse_Accepted); ok {
+		if x, ok := x.Of.(*Response_Accepted); ok {
 			return x.Accepted
 		}
 	}
 	return nil
 }
 
-func (x *AttachResponse) GetAsk() *Ask {
+func (x *Response) GetAsk() *Ask {
 	if x != nil {
-		if x, ok := x.Of.(*AttachResponse_Ask); ok {
+		if x, ok := x.Of.(*Response_Ask); ok {
 			return x.Ask
 		}
 	}
 	return nil
 }
 
-type isAttachResponse_Of interface {
-	isAttachResponse_Of()
+type isResponse_Of interface {
+	isResponse_Of()
 }
 
-type AttachResponse_Accepted struct {
+type Response_Accepted struct {
 	Accepted *Accepted `protobuf:"bytes,1,opt,name=accepted,proto3,oneof"`
 }
 
-type AttachResponse_Ask struct {
+type Response_Ask struct {
 	Ask *Ask `protobuf:"bytes,2,opt,name=ask,proto3,oneof"`
 }
 
-func (*AttachResponse_Accepted) isAttachResponse_Of() {}
+func (*Response_Accepted) isResponse_Of() {}
 
-func (*AttachResponse_Ask) isAttachResponse_Of() {}
+func (*Response_Ask) isResponse_Of() {}
 
 // Register is the announcement: who this is, and what it supplies.
 type Register struct {
@@ -437,12 +436,12 @@ var File_plugin_proto protoreflect.FileDescriptor
 
 const file_plugin_proto_rawDesc = "" +
 	"\n" +
-	"\fplugin.proto\x12\x06plugin\x1a\x1cgoogle/protobuf/struct.proto\"o\n" +
-	"\rAttachRequest\x12.\n" +
+	"\fplugin.proto\x12\x06plugin\x1a\x1cgoogle/protobuf/struct.proto\"i\n" +
+	"\aRequest\x12.\n" +
 	"\bregister\x18\x01 \x01(\v2\x10.plugin.RegisterH\x00R\bregister\x12(\n" +
 	"\x06answer\x18\x02 \x01(\v2\x0e.plugin.AnswerH\x00R\x06answerB\x04\n" +
-	"\x02of\"g\n" +
-	"\x0eAttachResponse\x12.\n" +
+	"\x02of\"a\n" +
+	"\bResponse\x12.\n" +
 	"\baccepted\x18\x01 \x01(\v2\x10.plugin.AcceptedH\x00R\baccepted\x12\x1f\n" +
 	"\x03ask\x18\x02 \x01(\v2\v.plugin.AskH\x00R\x03askB\x04\n" +
 	"\x02of\"J\n" +
@@ -459,9 +458,9 @@ const file_plugin_proto_rawDesc = "" +
 	"\x06Answer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12.\n" +
 	"\x06result\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x06result\x12\x16\n" +
-	"\x06failed\x18\x03 \x01(\tR\x06failed2F\n" +
-	"\aService\x12;\n" +
-	"\x06Attach\x12\x15.plugin.AttachRequest\x1a\x16.plugin.AttachResponse(\x010\x01B3Z1github.com/thebagchi/lark/proto/gen/plugin;pluginb\x06proto3"
+	"\x06failed\x18\x03 \x01(\tR\x06failed2<\n" +
+	"\aService\x121\n" +
+	"\bRegister\x12\x0f.plugin.Request\x1a\x10.plugin.Response(\x010\x01B3Z1github.com/thebagchi/lark/proto/gen/plugin;pluginb\x06proto3"
 
 var (
 	file_plugin_proto_rawDescOnce sync.Once
@@ -477,8 +476,8 @@ func file_plugin_proto_rawDescGZIP() []byte {
 
 var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_plugin_proto_goTypes = []any{
-	(*AttachRequest)(nil),  // 0: plugin.AttachRequest
-	(*AttachResponse)(nil), // 1: plugin.AttachResponse
+	(*Request)(nil),        // 0: plugin.Request
+	(*Response)(nil),       // 1: plugin.Response
 	(*Register)(nil),       // 2: plugin.Register
 	(*Accepted)(nil),       // 3: plugin.Accepted
 	(*Ask)(nil),            // 4: plugin.Ask
@@ -486,14 +485,14 @@ var file_plugin_proto_goTypes = []any{
 	(*structpb.Value)(nil), // 6: google.protobuf.Value
 }
 var file_plugin_proto_depIdxs = []int32{
-	2, // 0: plugin.AttachRequest.register:type_name -> plugin.Register
-	5, // 1: plugin.AttachRequest.answer:type_name -> plugin.Answer
-	3, // 2: plugin.AttachResponse.accepted:type_name -> plugin.Accepted
-	4, // 3: plugin.AttachResponse.ask:type_name -> plugin.Ask
+	2, // 0: plugin.Request.register:type_name -> plugin.Register
+	5, // 1: plugin.Request.answer:type_name -> plugin.Answer
+	3, // 2: plugin.Response.accepted:type_name -> plugin.Accepted
+	4, // 3: plugin.Response.ask:type_name -> plugin.Ask
 	6, // 4: plugin.Ask.args:type_name -> google.protobuf.Value
 	6, // 5: plugin.Answer.result:type_name -> google.protobuf.Value
-	0, // 6: plugin.Service.Attach:input_type -> plugin.AttachRequest
-	1, // 7: plugin.Service.Attach:output_type -> plugin.AttachResponse
+	0, // 6: plugin.Service.Register:input_type -> plugin.Request
+	1, // 7: plugin.Service.Register:output_type -> plugin.Response
 	7, // [7:8] is the sub-list for method output_type
 	6, // [6:7] is the sub-list for method input_type
 	6, // [6:6] is the sub-list for extension type_name
@@ -507,12 +506,12 @@ func file_plugin_proto_init() {
 		return
 	}
 	file_plugin_proto_msgTypes[0].OneofWrappers = []any{
-		(*AttachRequest_Register)(nil),
-		(*AttachRequest_Answer)(nil),
+		(*Request_Register)(nil),
+		(*Request_Answer)(nil),
 	}
 	file_plugin_proto_msgTypes[1].OneofWrappers = []any{
-		(*AttachResponse_Accepted)(nil),
-		(*AttachResponse_Ask)(nil),
+		(*Response_Accepted)(nil),
+		(*Response_Ask)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

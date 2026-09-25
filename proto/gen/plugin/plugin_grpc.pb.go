@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Service_Attach_FullMethodName = "/plugin.Service/Attach"
+	Service_Register_FullMethodName = "/plugin.Service/Register"
 )
 
 // ServiceClient is the client API for Service service.
@@ -36,9 +36,13 @@ const (
 // back down the same stream. Nothing has to reach a plugin, so a plugin needs
 // no port, no address anyone has to know, and no way in.
 type ServiceClient interface {
-	// Attach is a plugin's whole conversation with the host: announce, then
+	// Register is a plugin's whole conversation with the host: announce, then
 	// answer until the stream closes. Closing it is how a plugin leaves.
-	Attach(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AttachRequest, AttachResponse], error)
+	//
+	// Named for what opening it means rather than for the mechanism. A plugin
+	// registers itself, once, and everything after is that registration still
+	// being honoured.
+	Register(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Request, Response], error)
 }
 
 type serviceClient struct {
@@ -49,18 +53,18 @@ func NewServiceClient(cc grpc.ClientConnInterface) ServiceClient {
 	return &serviceClient{cc}
 }
 
-func (c *serviceClient) Attach(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AttachRequest, AttachResponse], error) {
+func (c *serviceClient) Register(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Request, Response], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Service_ServiceDesc.Streams[0], Service_Attach_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &Service_ServiceDesc.Streams[0], Service_Register_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[AttachRequest, AttachResponse]{ClientStream: stream}
+	x := &grpc.GenericClientStream[Request, Response]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Service_AttachClient = grpc.BidiStreamingClient[AttachRequest, AttachResponse]
+type Service_RegisterClient = grpc.BidiStreamingClient[Request, Response]
 
 // ServiceServer is the server API for Service service.
 // All implementations must embed UnimplementedServiceServer
@@ -76,9 +80,13 @@ type Service_AttachClient = grpc.BidiStreamingClient[AttachRequest, AttachRespon
 // back down the same stream. Nothing has to reach a plugin, so a plugin needs
 // no port, no address anyone has to know, and no way in.
 type ServiceServer interface {
-	// Attach is a plugin's whole conversation with the host: announce, then
+	// Register is a plugin's whole conversation with the host: announce, then
 	// answer until the stream closes. Closing it is how a plugin leaves.
-	Attach(grpc.BidiStreamingServer[AttachRequest, AttachResponse]) error
+	//
+	// Named for what opening it means rather than for the mechanism. A plugin
+	// registers itself, once, and everything after is that registration still
+	// being honoured.
+	Register(grpc.BidiStreamingServer[Request, Response]) error
 	mustEmbedUnimplementedServiceServer()
 }
 
@@ -89,8 +97,8 @@ type ServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedServiceServer struct{}
 
-func (UnimplementedServiceServer) Attach(grpc.BidiStreamingServer[AttachRequest, AttachResponse]) error {
-	return status.Error(codes.Unimplemented, "method Attach not implemented")
+func (UnimplementedServiceServer) Register(grpc.BidiStreamingServer[Request, Response]) error {
+	return status.Error(codes.Unimplemented, "method Register not implemented")
 }
 func (UnimplementedServiceServer) mustEmbedUnimplementedServiceServer() {}
 func (UnimplementedServiceServer) testEmbeddedByValue()                 {}
@@ -113,12 +121,12 @@ func RegisterServiceServer(s grpc.ServiceRegistrar, srv ServiceServer) {
 	s.RegisterService(&Service_ServiceDesc, srv)
 }
 
-func _Service_Attach_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ServiceServer).Attach(&grpc.GenericServerStream[AttachRequest, AttachResponse]{ServerStream: stream})
+func _Service_Register_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ServiceServer).Register(&grpc.GenericServerStream[Request, Response]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Service_AttachServer = grpc.BidiStreamingServer[AttachRequest, AttachResponse]
+type Service_RegisterServer = grpc.BidiStreamingServer[Request, Response]
 
 // Service_ServiceDesc is the grpc.ServiceDesc for Service service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -129,8 +137,8 @@ var Service_ServiceDesc = grpc.ServiceDesc{
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Attach",
-			Handler:       _Service_Attach_Handler,
+			StreamName:    "Register",
+			Handler:       _Service_Register_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
