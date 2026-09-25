@@ -104,8 +104,16 @@ func _Attached(t *testing.T, listener *remote.Listener, binary string, socket st
 
 	before := len(listener.Names())
 
-	held := exec.Command(binary, "-socket", socket, "-token", PLUGIN_TOKEN)
+	held := exec.Command(binary)
 	held.Stderr = os.Stderr
+
+	// Where to dial and what to present, in the environment rather than in
+	// arguments: an argument is in the process table, and the token is the one
+	// thing between a local process and putting names into every script.
+	held.Env = append(os.Environ(),
+		remote.SOCKET_ENV+"="+socket,
+		remote.TOKEN_ENV+"="+PLUGIN_TOKEN,
+	)
 
 	err := held.Start()
 	if err != nil {
@@ -225,5 +233,72 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 	_, err = compiler.Compile("again.star", src)
 	if !errors.Is(err, plugin.ErrConflict) {
 		t.Fatalf("a second plugin after the kill: %v, want ErrConflict", err)
+	}
+}
+
+// TestLoad_ADirectoryOfPluginsIsStartedAndKeptReady is the whole feature as a
+// host uses it: point at a directory, and what is in it becomes names.
+//
+// The directory also holds a file that matches the glob and is not a program,
+// because a glob reads a name rather than the execute bit - go-plugin's own
+// Discover says as much about its own. One plugin loads, one is skipped, and
+// the host runs.
+//
+// Revisions:
+//   - 2026-09-26 00:22: initial creation
+func TestLoad_ADirectoryOfPluginsIsStartedAndKeptReady(t *testing.T) {
+	listener, _ := _Host(t)
+
+	dir := t.TempDir()
+
+	build := exec.Command("go", "build", "-o", filepath.Join(dir, "lark-clock.bin"), "./cmd/clock")
+	build.Dir = _ModuleRoot(t)
+
+	out, err := build.CombinedOutput()
+	if err != nil {
+		t.Fatalf("building the plugin: %v\n%s", err, out)
+	}
+
+	// Matches lark-*.bin, is not a program.
+	err = os.WriteFile(filepath.Join(dir, "lark-broken.bin"), []byte("not a program"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// And one that is a program but is not ours to start.
+	err = os.WriteFile(filepath.Join(dir, "other.bin"), []byte("not ours"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	loading, err := listener.Load(dir, "")
+	if err != nil {
+		t.Fatalf("loading %s: %v", dir, err)
+	}
+
+	if len(loading.Loaded) != 1 {
+		t.Fatalf("loaded %v, want one", loading.Loaded)
+	}
+
+	if len(loading.Skipped) != 1 {
+		t.Fatalf("skipped %v, want one", loading.Skipped)
+	}
+
+	t.Logf("skipped: %v", loading.Skipped[0])
+
+	// The names it announced work, which is what loading was for.
+	built, err := runtime.NewCompiler(runtime.WithPlugins(listener.Registry())).
+		Compile("loaded.star", []byte("def main():\n    return clock.add(2, 3)\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := built.Run(t.Context())
+	if err != nil {
+		t.Fatalf("calling a loaded plugin: %v", err)
+	}
+
+	if got.String() != "5.0" {
+		t.Fatalf("got %s, want 5.0", got)
 	}
 }

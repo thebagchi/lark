@@ -1,10 +1,17 @@
 // Command clock is a plugin that lives in its own process, and the worked
 // example of how to write one.
 //
-//	clock -socket /run/lark.sock -token $LARK_PLUGIN_TOKEN
+// It is started by a host rather than run by hand. lark finds it in the
+// directory it was pointed at, starts it, and tells it where to dial and what
+// to present through the environment: LARK_PLUGIN_SOCKET and
+// LARK_PLUGIN_TOKEN. Run without those it says so and stops.
 //
-// The host listens; this dials it. Nothing has to reach here, so there is no
-// port to open and no address anyone needs to know.
+// The host starts it but still listens, and this dials back - so nothing has
+// to reach here, and there is no port to open and no address anyone needs to
+// know. The token is in the environment rather than in an argument because an
+// argument is in the process table, readable by anyone on the machine, and the
+// token is the only thing between a local process and putting names into every
+// script the host compiles.
 //
 // Read it for the shape rather than for what it does. It supplies two names,
 // clock.now and clock.add, and the interesting part is what it does not do: it
@@ -28,15 +35,12 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	pluginpb "github.com/thebagchi/lark/proto/gen/plugin"
+	"github.com/thebagchi/lark/runtime/plugin/remote"
 )
 
 const (
-	SOCKET_FLAG  = "socket"
-	SOCKET_USAGE = "path of the host socket to dial"
-	TOKEN_FLAG   = "token"
-	TOKEN_USAGE  = "the token the host issued"
-	NAME_FLAG    = "name"
-	NAME_USAGE   = "what this plugin calls itself, for a conflict report"
+	NAME_FLAG  = "name"
+	NAME_USAGE = "what this plugin calls itself, for a conflict report"
 
 	// NAME is what this plugin is called, and NOW and ADD what it supplies.
 	// Dotted, so a script reaches them through a clock module as it does every
@@ -48,10 +52,10 @@ const (
 	// LAYOUT is how now renders the time: the one format that sorts as text.
 	LAYOUT = time.RFC3339
 
-	// NO_SOCKET is the exit code for a plugin that was told nowhere to dial,
-	// and FAILED for one that could not.
-	NO_SOCKET = 2
-	FAILED    = 1
+	// NO_HOST is the exit code for a plugin nobody started, and FAILED for one
+	// that could not reach the host that did.
+	NO_HOST = 2
+	FAILED  = 1
 
 	// UNIX is the only network a host listens on.
 	UNIX = "unix"
@@ -62,20 +66,21 @@ const (
 // Revisions:
 //   - 2026-09-25 06:58: initial creation
 func main() {
-	var (
-		socket = flag.String(SOCKET_FLAG, "", SOCKET_USAGE)
-		token  = flag.String(TOKEN_FLAG, "", TOKEN_USAGE)
-		name   = flag.String(NAME_FLAG, NAME, NAME_USAGE)
-	)
+	name := flag.String(NAME_FLAG, NAME, NAME_USAGE)
 
 	flag.Parse()
 
-	if *socket == "" {
-		flag.Usage()
-		os.Exit(NO_SOCKET)
+	socket := os.Getenv(remote.SOCKET_ENV)
+	token := os.Getenv(remote.TOKEN_ENV)
+
+	if socket == "" {
+		fmt.Fprintf(os.Stderr,
+			"clock: %s is not set, so nothing started this. A host does.\n",
+			remote.SOCKET_ENV)
+		os.Exit(NO_HOST)
 	}
 
-	err := _Serve(*socket, *token, *name)
+	err := _Serve(socket, token, *name)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "clock: %v\n", err)
 		os.Exit(FAILED)

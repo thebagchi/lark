@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"sync"
 
 	"google.golang.org/grpc"
@@ -54,6 +55,7 @@ type Listener struct {
 
 	guard    sync.Mutex
 	attached []*_Remote
+	started  []*exec.Cmd
 }
 
 // Listen serves on socket, installing whatever attaches into registry.
@@ -98,12 +100,18 @@ func Listen(socket string, token string, registry *plugin.Registry) (*Listener, 
 	return listener, nil
 }
 
-// Close stops serving and drops every attached plugin.
+// Close stops serving, kills every plugin this listener started, and drops
+// every plugin attached to it.
 //
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
+//   - 2026-09-25 23:56: sees off what it started, stopping the server first so
+//     a plugin is told before it is killed
 func (l *Listener) Close() error {
+	// The server first: that closes every stream, which is how a plugin learns
+	// its host has gone and the reason most of them need no killing.
 	l.server.Stop()
+	l._Stop()
 
 	l.guard.Lock()
 	attached := l.attached
