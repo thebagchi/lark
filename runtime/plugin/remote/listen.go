@@ -107,6 +107,7 @@ func Listen(socket string, token string, registry *plugin.Registry) (*Listener, 
 //   - 2026-09-25 00:20: initial creation
 //   - 2026-09-25 23:56: sees off what it started, stopping the server first so
 //     a plugin is told before it is killed
+//   - 2026-09-26 00:45: a socket the listener already unlinked is not a failure
 func (l *Listener) Close() error {
 	// The server first: that closes every stream, which is how a plugin learns
 	// its host has gone and the reason most of them need no killing.
@@ -122,7 +123,16 @@ func (l *Listener) Close() error {
 		remote._Left()
 	}
 
-	return os.Remove(l.socket)
+	// Go's unix listener unlinks the socket when it closes, so by here the file
+	// is usually gone already and removing it is tidying up after a case that
+	// did not happen. Reporting that as a failure made a run that worked say it
+	// had failed.
+	err := os.Remove(l.socket)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	return nil
 }
 
 // Register is a plugin's whole conversation: it announces itself, then answers

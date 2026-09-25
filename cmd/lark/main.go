@@ -28,6 +28,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -42,6 +44,7 @@ import (
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/runtime"
 	"github.com/thebagchi/lark/runtime/graph"
+	"github.com/thebagchi/lark/runtime/plugin"
 	_ "github.com/thebagchi/lark/runtime/plugin/args"
 	_ "github.com/thebagchi/lark/runtime/plugin/base32"
 	_ "github.com/thebagchi/lark/runtime/plugin/base64"
@@ -55,6 +58,7 @@ import (
 	_ "github.com/thebagchi/lark/runtime/plugin/path"
 	_ "github.com/thebagchi/lark/runtime/plugin/random"
 	_ "github.com/thebagchi/lark/runtime/plugin/regexp"
+	"github.com/thebagchi/lark/runtime/plugin/remote"
 	_ "github.com/thebagchi/lark/runtime/plugin/state"
 	_ "github.com/thebagchi/lark/runtime/plugin/time"
 	_ "github.com/thebagchi/lark/runtime/plugin/utils"
@@ -74,8 +78,19 @@ const (
 	BUNDLE_USAGE    = "compile into a bundle at this path instead of running"
 	ARGS_FLAG       = "a"
 	ARGS_USAGE      = "the arguments this run supplies, as a JSON object"
-	MEMORY_FLAG     = "m"
-	MEMORY_USAGE    = "the memory this run may use, in megabytes"
+	PLUGINS_FLAG    = "p"
+	PLUGINS_USAGE   = "directory of lark-*.bin plugins to start and keep for this run"
+
+	// PLUGIN_DIR is what the directory holding this run's plugin socket is
+	// called, and PLUGIN_SOCKET the socket in it. Short, because a unix socket
+	// path has a low length limit.
+	PLUGIN_DIR    = "lark"
+	PLUGIN_SOCKET = "p"
+
+	// TOKEN_BYTES is how much secret a run mints for its plugins.
+	TOKEN_BYTES  = 32
+	MEMORY_FLAG  = "m"
+	MEMORY_USAGE = "the memory this run may use, in megabytes"
 
 	// MEGABYTE is what -m counts in, because a ceiling is written by a person
 	// and nobody writes 268435456.
@@ -169,6 +184,7 @@ func main() {
 		bundle    = flag.String(BUNDLE_FLAG, "", BUNDLE_USAGE)
 		supplied  = flag.String(ARGS_FLAG, "", ARGS_USAGE)
 		memory    = flag.Int(MEMORY_FLAG, 0, MEMORY_USAGE)
+		plugins   = flag.String(PLUGINS_FLAG, "", PLUGINS_USAGE)
 	)
 
 	flag.Parse()
@@ -225,25 +241,33 @@ func main() {
 		os.Exit(NO_INPUT)
 	}
 
+	opts, hosted, err := _Hosting(*plugins)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		os.Exit(NO_FILE)
+	}
+
 	switch {
 	case noun == SCRIPT && *bundle != "":
-		err = _Bundle(path, src, *bundle)
+		err = _Bundle(path, src, *bundle, opts...)
 	case *bundle != "":
-		err = _BundleOf(path, src, *bundle)
+		err = _BundleOf(path, src, *bundle, opts...)
 	case noun == SCRIPT && *translate:
 		err = _Derive(path, src)
 	case noun == SCRIPT:
-		err = _Run(ctx, path, src)
+		err = _Run(ctx, path, src, opts...)
 	case *translate:
 		err = _Emit(path, src)
 	default:
-		err = _Play(ctx, path, src)
+		err = _Play(ctx, path, src, opts...)
 	}
 
 	// Closed here rather than deferred, because this function exits and a
 	// deferred close would not run. A transcript that could not be finished
-	// is reported, unless the run already had something worse to say.
-	closing := kept()
+	// is reported, unless the run already had something worse to say. The
+	// plugins go the same way, and for the same reason: nothing deferred here
+	// runs, so a deferred kill would leave them behind on every failing run.
+	closing := errors.Join(kept(), hosted())
 	if err == nil {
 		err = closing
 	}
@@ -410,8 +434,13 @@ func _Allowing(ctx context.Context, memory int) (context.Context, error) {
 //     the doc had claimed and the interpreter's default did not do
 //   - 2026-09-21 16:42: takes the reporter already on ctx, since a transcript
 //     wants the lane and a printer is handed only the line
-func _Run(ctx context.Context, path string, src []byte) error {
-	built, err := runtime.NewCompiler().Compile(path, src)
+func _Run(
+	ctx context.Context,
+	path string,
+	src []byte,
+	opts ...runtime.CompilerOption,
+) error {
+	built, err := runtime.NewCompiler(opts...).Compile(path, src)
 	if err != nil {
 		return err
 	}
@@ -428,8 +457,8 @@ func _Run(ctx context.Context, path string, src []byte) error {
 //
 // Revisions:
 //   - 2026-09-21 17:19: initial creation
-func _Bundle(path string, src []byte, out string) error {
-	built, err := runtime.NewCompiler().Compile(path, src)
+func _Bundle(path string, src []byte, out string, opts ...runtime.CompilerOption) error {
+	built, err := runtime.NewCompiler(opts...).Compile(path, src)
 	if err != nil {
 		return err
 	}
@@ -443,8 +472,8 @@ func _Bundle(path string, src []byte, out string) error {
 //
 // Revisions:
 //   - 2026-09-21 17:19: initial creation
-func _BundleOf(path string, src []byte, out string) error {
-	built, err := _Compiled(path, src)
+func _BundleOf(path string, src []byte, out string, opts ...runtime.CompilerOption) error {
+	built, err := _Compiled(path, src, opts...)
 	if err != nil {
 		return err
 	}
@@ -476,13 +505,18 @@ func _Kept(built *runtime.Artifact, out string) error {
 //
 // Revisions:
 //   - 2026-09-21 17:19: initial creation
-func _Compiled(path string, src []byte) (*runtime.Artifact, error) {
+func _Compiled(
+	path string,
+	src []byte,
+	opts ...runtime.CompilerOption,
+) (*runtime.Artifact, error) {
 	described, out, err := _Described(path, src)
 	if err != nil {
 		return nil, err
 	}
 
-	return runtime.NewCompiler(runtime.WithAuthored(described)).Compile(path+GENERATED, out)
+	return runtime.NewCompiler(append(opts, runtime.WithAuthored(described))...).
+		Compile(path+GENERATED, out)
 }
 
 // _Derive prints the graph of the script at path as JSON.
@@ -550,8 +584,13 @@ func _Emit(path string, src []byte) error {
 //
 // Revisions:
 //   - 2026-09-21 16:25: initial creation
-func _Play(ctx context.Context, path string, src []byte) error {
-	built, err := _Compiled(path, src)
+func _Play(
+	ctx context.Context,
+	path string,
+	src []byte,
+	opts ...runtime.CompilerOption,
+) error {
+	built, err := _Compiled(path, src, opts...)
 	if err != nil {
 		return err
 	}
@@ -610,4 +649,87 @@ func _Written(out string) error {
 	}
 
 	return nil
+}
+
+// _Hosting starts the plugins in dir and answers with what a compiler needs to
+// see them, and with how to see them off.
+//
+// Empty dir is no plugins, which is not a failure: every plugin here is
+// optional, and a host that wants none says nothing.
+//
+// The token is minted here and never leaves this process except in a child's
+// environment. It is the only thing between a local process and putting names
+// into every script this run compiles, so it is not an argument - an argument
+// is in the process table, readable by anyone on the machine.
+//
+// A plugin that will not start is reported on standard error and the run goes
+// on without it. Returns an error only when dir itself could not be read.
+//
+// Revisions:
+//   - 2026-09-26 00:34: initial creation
+func _Hosting(dir string) ([]runtime.CompilerOption, func() error, error) {
+	nothing := func() error {
+		return nil
+	}
+
+	if dir == "" {
+		return nil, nothing, nil
+	}
+
+	token, err := _Token()
+	if err != nil {
+		return nil, nothing, err
+	}
+
+	// Its own directory, so the socket is short: a unix socket path has a low
+	// length limit and a temporary name under it is what fits.
+	held, err := os.MkdirTemp("", PLUGIN_DIR)
+	if err != nil {
+		return nil, nothing, fmt.Errorf("making somewhere for the plugin socket: %w", err)
+	}
+
+	registry := plugin.New()
+
+	// Everything a blank import installed, so plugins arrive beside the names
+	// this binary already has rather than instead of them.
+	for _, installed := range plugin.DEFAULT.Registered() {
+		registry.Register(installed)
+	}
+
+	listener, err := remote.Listen(filepath.Join(held, PLUGIN_SOCKET), token, registry)
+	if err != nil {
+		return nil, nothing, err
+	}
+
+	closing := func() error {
+		err := listener.Close()
+
+		return errors.Join(err, os.RemoveAll(held))
+	}
+
+	loading, err := listener.Load(dir, "")
+	if err != nil {
+		return nil, closing, err
+	}
+
+	for _, skipped := range loading.Skipped {
+		fmt.Fprintf(os.Stderr, "lark: %v\n", skipped)
+	}
+
+	return []runtime.CompilerOption{runtime.WithPlugins(registry)}, closing, nil
+}
+
+// _Token is a secret this run shares with the plugins it starts.
+//
+// Revisions:
+//   - 2026-09-26 00:34: initial creation
+func _Token() (string, error) {
+	held := make([]byte, TOKEN_BYTES)
+
+	_, err := rand.Read(held)
+	if err != nil {
+		return "", fmt.Errorf("minting a plugin token: %w", err)
+	}
+
+	return hex.EncodeToString(held), nil
 }

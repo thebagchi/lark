@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -300,5 +301,81 @@ func TestLoad_ADirectoryOfPluginsIsStartedAndKeptReady(t *testing.T) {
 
 	if got.String() != "5.0" {
 		t.Fatalf("got %s, want 5.0", got)
+	}
+}
+
+// TestLark_PluginsFlag is the feature from a command line, which is the only
+// place most people will meet it.
+//
+// Built and executed rather than called, because the exit code is part of what
+// is being checked and go run reports its own.
+//
+// Revisions:
+//   - 2026-09-26 00:48: initial creation
+func TestLark_PluginsFlag(t *testing.T) {
+	root := _ModuleRoot(t)
+	dir := t.TempDir()
+
+	lark := filepath.Join(dir, "lark")
+	plugins := filepath.Join(dir, "plugins")
+
+	err := os.Mkdir(plugins, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, item := range []struct{ out, from string }{
+		{lark, "./cmd/lark"},
+		{filepath.Join(plugins, "lark-clock.bin"), "./cmd/clock"},
+	} {
+		build := exec.Command("go", "build", "-o", item.out, item.from)
+		build.Dir = root
+
+		out, err := build.CombinedOutput()
+		if err != nil {
+			t.Fatalf("building %s: %v\n%s", item.from, err, out)
+		}
+	}
+
+	script := filepath.Join(dir, "run.star")
+
+	err = os.WriteFile(script, []byte("def main():\n    print(clock.add(2, 3))\n"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Without the flag the name is not there, and the failure says so rather
+	// than reading as a plugin that went away.
+	code, out := _LarkCode(t, lark, "-s", script)
+	if code == 0 {
+		t.Fatalf("no -p: exit 0, want a failure\n%s", out)
+	}
+
+	if !strings.Contains(string(out), "undefined: clock") {
+		t.Fatalf("no -p: %s, want an undefined name", out)
+	}
+
+	// With it, the plugin is started, answers, and the run succeeds.
+	code, out = _LarkCode(t, lark, "-s", script, "-p", plugins)
+	if code != 0 {
+		t.Fatalf("-p: exit %d\n%s", code, out)
+	}
+
+	if !strings.Contains(string(out), "5.0") {
+		t.Fatalf("-p: %s, want 5.0 from the plugin", out)
+	}
+
+	// A directory with nothing in it is not a failure, and leaves the name
+	// undefined rather than present and broken.
+	empty := filepath.Join(dir, "none")
+
+	err = os.Mkdir(empty, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, out = _LarkCode(t, lark, "-s", script, "-p", empty)
+	if code == 0 || !strings.Contains(string(out), "undefined: clock") {
+		t.Fatalf("-p on an empty directory: exit %d\n%s", code, out)
 	}
 }

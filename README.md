@@ -1080,18 +1080,45 @@ compiler := runtime.NewCompiler(runtime.WithPlugins(mine))
 A plugin does not have to be a package this binary imports. The host can listen,
 and a plugin elsewhere can dial in and say what it supplies:
 
+Build the plugin, put it in a directory, and point lark at the directory:
+
+```
+go build -o plugins/lark-clock.bin ./cmd/clock
+lark -s build.star -p plugins
+```
+
+lark searches for `lark-*.bin` — the extension says what kind of artefact a file
+is and the prefix says whose, so the directory can hold binaries that are
+nothing to do with this runtime. It starts each one, waits for it to say what it
+supplies, and keeps it for the life of the run. A host embedding the runtime does
+the same thing by hand:
+
 ```go
-listener, err := remote.Listen("/run/lark.sock", token, mine)
+listener, err := remote.Listen(socket, token, mine)
 if err != nil {
     return err
 }
 
 defer listener.Close()
+
+loading, err := listener.Load("plugins", "")
 ```
 
-```
-clock -socket /run/lark.sock -token $TOKEN
-```
+**A plugin that will not start is skipped and named on standard error**, and the
+run goes on without it. A glob reads a name rather than the execute bit, so a
+file that matches and is not a program is an ordinary thing to find. `Loading`
+carries what loaded and what did not, for a host that would rather refuse.
+
+**lark starts them, and they still dial back.** That is not the long way round:
+because the host listens, nothing has to reach a plugin, so a plugin needs no
+port, no address anyone has to know, and no way in. It also means there is no
+handshake line to parse on a child's standard output. lark decides what code
+runs, which is the part that needs the host to be the parent.
+
+**The token is minted per run and travels in the environment**, never in an
+argument — an argument is in the process table and readable by anyone on the
+machine. A plugin reads `LARK_PLUGIN_SOCKET` and `LARK_PLUGIN_TOKEN`, and lark
+sets both when it starts one.
 
 What the runtime sees is an ordinary plugin: `Name` and `Values`, neither of
 which mentions a socket, so nothing about compiling or running a script had to
@@ -1115,11 +1142,11 @@ a dial, cannot wait for a registration and cannot close a socket when the host
 exits. Registering by import stays for names the runtime owns; this is for the
 ones it does not.
 
-**Unix sockets only, and a token.** A registered plugin's names go into every
-script compiled with that registry, and `file` reaches whatever the host process
-reaches — so an open port would put the filesystem behind whoever could dial it.
-There is no TCP option. The token is checked before any name is taken, so a
-process that merely found the socket installs nothing.
+**Unix sockets only.** A registered plugin's names go into every script compiled
+with that registry, and `file` reaches whatever the host process reaches — so an
+open port would put the filesystem behind whoever could dial it. There is no TCP
+option. The token is checked before any name is taken, so a process that merely
+found the socket installs nothing.
 
 **A plugin that dies fails its names and leaves them.** The call fails rather
 than waiting on a stream nobody is reading, and the host stays up. The names
