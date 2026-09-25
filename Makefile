@@ -57,7 +57,7 @@ build:
 # .exe on Windows. Adding a cmd/ means adding its target in the same change.
 #
 # Binaries land in bin/. tools/bin/ is for code generators, and there are none.
-binaries: bin/lark.bin
+binaries: bin/lark.bin bin/clock.bin
 
 # The prerequisites are the point. Without them make sees the file, calls it up
 # to date and does nothing, so the binary is built once and never again - which
@@ -65,6 +65,13 @@ binaries: bin/lark.bin
 bin/lark.bin: $(GO_SOURCES)
 	@mkdir -p $(@D)
 	go build -o $@ ./cmd/lark
+
+# clock is a plugin that lives in its own process, and the worked example of
+# how to write one. It is built because an example nobody compiles is an
+# example that stops being true.
+bin/clock.bin: $(GO_SOURCES)
+	@mkdir -p $(@D)
+	go build -o $@ ./cmd/clock
 
 vet:
 	go vet ./...

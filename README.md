@@ -1075,6 +1075,57 @@ mine.Register(&plugin{})
 compiler := runtime.NewCompiler(runtime.WithPlugins(mine))
 ```
 
+### A plugin in another process
+
+A plugin does not have to be a package this binary imports. The host can listen,
+and a plugin elsewhere can dial in and say what it supplies:
+
+```go
+listener, err := remote.Listen("/run/lark.sock", token, mine)
+if err != nil {
+    return err
+}
+
+defer listener.Close()
+```
+
+```
+clock -socket /run/lark.sock -token $TOKEN
+```
+
+What the runtime sees is an ordinary plugin: `Name` and `Values`, neither of
+which mentions a socket, so nothing about compiling or running a script had to
+learn that a plugin might be somewhere else. A script cannot tell either — it
+writes `clock.now()` as it would for any module.
+
+`cmd/clock` is the worked example, and the interesting thing about it is what it
+does not do. It imports the generated schema in `proto/plugin.proto` and nothing
+else: no `starlark.StringDict`, no mention of the runtime. That is what lets a
+plugin be written in a language this repository does not speak.
+
+**Only data crosses.** A function, a thread handle or a module has no meaning to
+another process, so passing one is refused — at compile when the source shows it
+plainly, and when it runs otherwise. A plugin is never handed one and so never
+has to have an opinion about it. Numbers cross as protobuf numbers, which are
+float64: an integer comes back as a float, and one past 2^53 is refused rather
+than quietly rounded.
+
+**`Listen` returns an error, and that is the point.** A blank import cannot fail
+a dial, cannot wait for a registration and cannot close a socket when the host
+exits. Registering by import stays for names the runtime owns; this is for the
+ones it does not.
+
+**Unix sockets only, and a token.** A registered plugin's names go into every
+script compiled with that registry, and `file` reaches whatever the host process
+reaches — so an open port would put the filesystem behind whoever could dial it.
+There is no TCP option. The token is checked before any name is taken, so a
+process that merely found the socket installs nothing.
+
+**A plugin that dies fails its names and leaves them.** The call fails rather
+than waiting on a stream nobody is reading, and the host stays up. The names
+stay too: a run has already built its environment, and making them vanish
+partway would turn one failure into a stranger one.
+
 ## The dialect
 
 Sets, `while` loops and recursion are enabled. Reassigning a top-level name is
