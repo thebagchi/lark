@@ -1,10 +1,8 @@
-# A compiled artefact always carries an extension that says what it is, per
-# CLAUDE.md's Build section: .bin an executable, .exe where Windows needs one,
-# .so a Go shared object. All three are here because a cross-compile follows
-# the target rather than the host.
+# Compiled binaries always carry an extension, per CLAUDE.md's Build section:
+# .bin on Linux and macOS, .exe on Windows. Both are here because a
+# cross-compile follows the target rather than the host.
 *.bin
 *.exe
-*.so
 
 # Anything fetched that the module system does not manage lands here, unpacked,
 # and is reproducible from the pins. See .guidelines/bootstrapping.md.
