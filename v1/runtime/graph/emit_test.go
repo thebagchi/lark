@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	// GREET is the worked example throughout .doc/workflow.md.
+	// GREET is the smallest graph worth emitting: one thread, one call.
 	GREET = "greet"
 
 	// SCRIPT is what a compiler is handed, so a test names it once.

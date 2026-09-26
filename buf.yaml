@@ -9,7 +9,7 @@ lint:
   # that cleared these was tried and rejected, and clearing them now would mean
   # moving every file or renaming every fully-qualified type.
   #
-  # They were accepted-and-counted in .doc/todo.md for a week, which made
+  # They were accepted-and-counted rather than excepted for a week, which made
   # buf lint exit 100, which made make lint fail, which made make all fail - so
   # the one target naming every gate was the one nobody could run. A finding
   # nobody may act on is noise, and noise in a gate teaches a reader to ignore

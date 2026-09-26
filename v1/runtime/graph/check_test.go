@@ -118,7 +118,7 @@ func TestCheck_RefusesAThreadThatNamesNothing(t *testing.T) {
 	}
 }
 
-// TestCheck_RefusesAnIdThatDoesNotNameItsParent is .doc/workflow.md §9's worry
+// TestCheck_RefusesAnIdThatDoesNotNameItsParent is the numbering worry
 // in the shape a hierarchical id gives it.
 //
 // §9 removed the id so a user interface could not send one that disagreed with

@@ -70,7 +70,7 @@ const (
 // The second half is the whole of it. A thread that names a function and holds
 // no steps says nothing more about it - that is how a spawn points at a leaf.
 // Treating that as "generated" drops the leaf's authored body and emits an
-// empty function, which is the concurrent graph in .doc/workflow.md rendering
+// empty function, which is the concurrent graph above rendering
 // first and second as pass.
 //
 // Revisions:

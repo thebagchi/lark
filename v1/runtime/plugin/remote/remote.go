@@ -12,9 +12,16 @@
 // one be written in a language this repository does not.
 //
 // What cannot cross does not: a function, a thread handle and a module are
-// refused here, so a plugin is never handed one. The argument for that, and the
-// decisions this package follows, are in .doc/plugin.md and
-// .doc/impl/lark-plugin-grpc.md.
+// refused here, so a plugin is never handed one - the wire carries what
+// google.protobuf.Value can name and nothing else.
+//
+// Why the host listens and the plugin dials, rather than the other way round: the
+// host decides what code runs, and nothing has to reach a plugin, so a plugin
+// needs no port and no address anyone has to know. Why not a shared object opened
+// in this process: Go's own plugin documentation argues against the mechanism,
+// the race detector cannot see inside one while the test gate is -race, and
+// HashiCorp declined it for the same memory-isolation reason after starting from
+// it.
 package remote
 
 import (

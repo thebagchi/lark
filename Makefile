@@ -107,7 +107,7 @@ bin/lark-clock.bin: $(GO_SOURCES)
 # Every finding in the whole tree, with the output caps off. The caps are why
 # this was mismeasured for a week: golangci-lint stops at 50 per linter by
 # default, so a survey that reported 50 was reporting a ceiling. Not a gate -
-# the count is recorded in .doc/todo.md and cleared when somebody asks.
+# the count is what it is, and cleared when somebody asks.
 audit:
 	go tool golangci-lint run --max-issues-per-linter=0 --max-same-issues=0
 

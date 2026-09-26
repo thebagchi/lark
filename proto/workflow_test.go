@@ -157,7 +157,7 @@ func TestGraph_NameOnlyStillDecodes(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-20 18:40: initial creation, as TestGraphThread_HasNoIndex
-//   - 2026-09-21 00:59: a thread carries an id, reversing .doc/workflow.md
+//   - 2026-09-21 00:59: a thread carries an id, reversing the earlier plan
 //     §9, because a hierarchical id states parentage and a slot cannot
 //   - 2026-09-21 23:53: the first step is what the thread runs, so the fork
 //     it makes is the one after

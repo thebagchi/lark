@@ -16,7 +16,7 @@ var (
 	// ErrParentage is returned for a thread id that does not descend from the
 	// thread that forks it.
 	//
-	// This is .doc/workflow.md §9's worry in the shape a hierarchical id gives
+	// This is the worry a hierarchical id gives
 	// it. §9 removed the id so a user interface could not send an index that
 	// disagreed with list position; an id disagreeing with its parentage is
 	// checkable where an inconsistent index was not, because an id has a rule

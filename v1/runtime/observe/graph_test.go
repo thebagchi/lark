@@ -323,7 +323,7 @@ func TestGraph_AForkedLaneWithNothingOnItIsStillALane(t *testing.T) {
 // spine and two forks. A third spawn runs past them.
 const AUTHORED = 3
 
-// TestGraph_LiveNumberingFollowsAuthoredSlots is the claim .doc/workflow.md §9
+// TestGraph_LiveNumberingFollowsAuthoredSlots is the claim
 // makes about a snapshot, and §4 about its nodes, checked end to end.
 //
 // It is the assumption everything else here rests on. A graph places a function

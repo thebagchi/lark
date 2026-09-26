@@ -12,7 +12,8 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/graph"
 )
 
-// CONCURRENT is the graph .doc/workflow.md shows: a spine that forks two
+// CONCURRENT is the worked example this package is built around: a spine that
+// forks two
 // threads and joins them, and two leaves that say what they return.
 //
 // Revisions:
