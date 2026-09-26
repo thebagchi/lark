@@ -27,3 +27,14 @@ purge_zone_identifier.py
 # Editor settings. Whoever works here chooses their own; a copy in the tree
 # would make one person's choices everybody else's.
 .vscode/
+
+# Things that land in a working directory and belong to no project: a package
+# downloaded to install something, an archive unpacked in place. One of these
+# reached a commit on 2026-09-27 because a `git add -A` swept it up, and left
+# again in the next commit. Naming them here is cheaper than remembering.
+*.deb
+*.rpm
+*.zip
+*.tar
+*.tar.gz
+*.tgz
