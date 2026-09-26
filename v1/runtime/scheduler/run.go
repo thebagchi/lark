@@ -9,6 +9,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/thebagchi/lark/v1/runtime/guard"
+	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
 var (
@@ -35,8 +36,8 @@ const (
 	// An id names its parent: the spine's children are thread_1 and thread_2,
 	// and thread_1's own first child is thread_1_1. The spine contributes no
 	// prefix, because a prefix every id carries says nothing.
-	SPINE       = "thread_0"
-	THREAD      = "thread_"
+	SPINE       = spelling.SPINE
+	THREAD      = spelling.THREAD
 	FIRST_SPAWN = 1
 
 	// NO_ATTEMPT is what an evaluation outside a repeat or a retry reports.
@@ -263,11 +264,7 @@ func (r *_Run) _Number(parent string) string {
 // Revisions:
 //   - 2026-09-21 00:59: initial creation
 func _Child(parent string, ordinal int32) string {
-	if parent == SPINE {
-		return fmt.Sprintf("%s%d", THREAD, ordinal)
-	}
-
-	return fmt.Sprintf("%s_%d", parent, ordinal)
+	return spelling.Child(parent, int(ordinal))
 }
 
 // _Of returns the evaluation a thread belongs to.

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
+	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
 var (
@@ -29,29 +30,22 @@ var (
 )
 
 const (
-	// HANDLE prefixes a spawned thread's handle, and THREAD prefixes every
-	// thread id. A handle is its thread's id with the one swapped for the
-	// other, so thread_1 is h1 and thread_1_1 is h1_1 - unique because the id
-	// is, and readable back to the thread it waits for.
-	HANDLE = "h"
-	THREAD = "thread_"
+	// The vocabulary a script and a graph share, from the one package that
+	// holds it. These were declared here for three increments, with a comment
+	// saying they were repeated rather than imported because generating a
+	// script should not depend on compiling one. That reason was right; the
+	// copy was not, and spelling is the reason without the copy.
+	HANDLE = spelling.HANDLE
+	THREAD = spelling.THREAD
+	SPINE  = spelling.SPINE
+	SPAWN  = spelling.SPAWN
+	JOIN   = spelling.JOIN
+	CANCEL = spelling.CANCEL
+	ENTRY  = spelling.ENTRY
 
-	// SPINE is the entry point's thread. It must stay equal to scheduler.SPINE,
-	// which the same test asserts as ENTRY.
-	SPINE = THREAD + "0"
-
-	// SPAWN, JOIN and CANCEL are the builtins that name threads rather than
-	// values, and LAMBDA is how a site that passes arguments is wrapped.
-	SPAWN  = "spawn"
-	JOIN   = "join"
-	CANCEL = "cancel"
+	// LAMBDA is how a site that passes arguments is wrapped. Only a generated
+	// script says this, so it is not shared.
 	LAMBDA = "lambda: "
-
-	// ENTRY is the function the spine runs, which it carries as its first
-	// step like any other thread. This must stay equal to artifact.ENTRY,
-	// which a test asserts. It is repeated rather than imported because
-	// generating a script should not depend on compiling one.
-	ENTRY = "main"
 
 	// FIRST_STEP is where a thread says what it runs, and BODY_FROM where the
 	// steps of that function begin.

@@ -9,10 +9,7 @@ import (
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/v1/runtime"
-	"github.com/thebagchi/lark/v1/runtime/artifact"
 	"github.com/thebagchi/lark/v1/runtime/graph"
-	"github.com/thebagchi/lark/v1/runtime/plugin/core"
-	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
 // CONCURRENT is the graph .doc/workflow.md shows: a spine that forks two
@@ -234,37 +231,5 @@ func TestSteps_TheScriptRuns(t *testing.T) {
 	_, err = art.Run(t.Context())
 	if err != nil {
 		t.Fatalf("want it to run, got %v\n%s", err, out)
-	}
-}
-
-// TestSteps_TheNamesMatchTheRuntime pins the five strings this package repeats
-// rather than imports.
-//
-// Generating a script must not depend on compiling or running one, so the
-// entry point's name, the spine's id and the three thread builtins are
-// declared here as well as where they are defined. That is a duplication, and this is what stops
-// it
-// drifting: a rename on either side fails here rather than producing a script
-// that calls something nothing registers.
-//
-// Revisions:
-//   - 2026-09-21 00:59: initial creation
-func TestSteps_TheNamesMatchTheRuntime(t *testing.T) {
-	cases := []struct {
-		mine   string
-		theirs string
-		what   string
-	}{
-		{graph.ENTRY, artifact.ENTRY, "the entry point"},
-		{graph.SPINE, scheduler.SPINE, "the spine"},
-		{graph.SPAWN, core.SPAWN, "spawn"},
-		{graph.JOIN, core.JOIN, "join"},
-		{graph.CANCEL, core.CANCEL, "cancel"},
-	}
-
-	for _, item := range cases {
-		if item.mine != item.theirs {
-			t.Fatalf("%s is %q here and %q there", item.what, item.mine, item.theirs)
-		}
 	}
 }

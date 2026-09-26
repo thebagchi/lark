@@ -7,6 +7,7 @@ import (
 	"go.starlark.net/syntax"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
+	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
 // Both directions of one subject live here: reading a script's threads out of
@@ -264,11 +265,7 @@ func (r *_Reading) _Gave(what string, why string) {
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
 func _Child(parent string, ordinal int) string {
-	if parent == SPINE {
-		return fmt.Sprintf("%s%d", THREAD, ordinal)
-	}
-
-	return fmt.Sprintf("%s_%d", parent, ordinal)
+	return spelling.Child(parent, ordinal)
 }
 
 // _Waited is the step a join or a cancel is, naming these threads.

@@ -13,15 +13,16 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/thebagchi/lark/v1/runtime/plugin"
+	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
 const (
 	// NAME is what this plugin is called when a conflict has to name it.
 	NAME = "core"
 
-	SPAWN  = "spawn"
-	JOIN   = "join"
-	CANCEL = "cancel"
+	SPAWN  = spelling.SPAWN
+	JOIN   = spelling.JOIN
+	CANCEL = spelling.CANCEL
 	ASSERT = "assert"
 	SLEEP  = "sleep"
 )

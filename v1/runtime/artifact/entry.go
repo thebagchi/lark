@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"go.starlark.net/syntax"
+
+	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
 // ErrNoMain is returned for a script with no entry point, or one a run cannot
@@ -12,7 +14,7 @@ import (
 var ErrNoMain = errors.New("no entry point")
 
 // ENTRY is the one top-level function a final compilation unit must define.
-const ENTRY = "main"
+const ENTRY = spelling.ENTRY
 
 // _RequireEntry reports whether tree defines the entry point as a function that
 // can be called with no arguments.
