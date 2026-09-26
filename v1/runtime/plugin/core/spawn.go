@@ -58,7 +58,8 @@ func _Named(args starlark.Tuple, kwargs []starlark.Tuple) (*starlark.Function, e
 	}
 
 	if target.NumParams() > 0 {
-		return nil, fmt.Errorf("%s got %s, which takes arguments: %w", SPAWN, target.Name(), ErrNotAName)
+		return nil, fmt.Errorf("%s got %s, which takes arguments: %w",
+			SPAWN, target.Name(), ErrNotAName)
 	}
 
 	return target, nil

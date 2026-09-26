@@ -142,12 +142,14 @@ func TestEmit_DeclarationsSurviveTheRoundTrip(t *testing.T) {
 
 	for bound, declared := range first.GetArgs() {
 		if !proto.Equal(declared, again.GetArgs()[bound]) {
-			t.Fatalf("%s went out as %v and came back as %v", bound, declared, again.GetArgs()[bound])
+			t.Fatalf("%s went out as %v and came back as %v",
+				bound, declared, again.GetArgs()[bound])
 		}
 	}
 
 	if len(again.GetArgs()) != len(first.GetArgs()) {
-		t.Fatalf("emitted %d arguments and read back %d", len(first.GetArgs()), len(again.GetArgs()))
+		t.Fatalf("emitted %d arguments and read back %d",
+			len(first.GetArgs()), len(again.GetArgs()))
 	}
 }
 
@@ -240,6 +242,7 @@ func TestEmit_AHostileNameStaysAString(t *testing.T) {
 	}
 
 	if again.GetArgs()["taken"].GetName() != payload {
-		t.Fatalf("came back as %q, want the payload unchanged", again.GetArgs()["taken"].GetName())
+		t.Fatalf("came back as %q, want the payload unchanged",
+			again.GetArgs()["taken"].GetName())
 	}
 }

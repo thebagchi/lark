@@ -268,7 +268,8 @@ func TestRun_AModuleLevelFailureFailsTheRunNotTheCompile(t *testing.T) {
 		}
 
 		if !strings.Contains(err.Error(), BREAKS_TEXT) {
-			t.Fatalf("run %d failed with %v, want it to name %q", attempt, err, BREAKS_TEXT)
+			t.Fatalf("run %d failed with %v, want it to name %q",
+				attempt, err, BREAKS_TEXT)
 		}
 	}
 }
@@ -354,7 +355,8 @@ func TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken(t *testing.T) {
 
 			_, err := compiler.Compile(name+".star", []byte(script))
 			if err != nil {
-				t.Fatalf("a file that took the name by %s was refused: %v", name, err)
+				t.Fatalf("a file that took the name by %s was refused: %v",
+					name, err)
 			}
 		})
 	}

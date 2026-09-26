@@ -90,7 +90,11 @@ func TestPath_ReadsAPathApart(t *testing.T) {
 func TestPath_JoinsAndCleans(t *testing.T) {
 	_Check(t, []struct{ name, expression, want string }{
 		{"two", `path.join("srv", "work")`, `"srv/work"`},
-		{"many", `path.join("/srv", "work", "logs", "run.log")`, `"/srv/work/logs/run.log"`},
+		{
+			"many",
+			`path.join("/srv", "work", "logs", "run.log")`,
+			`"/srv/work/logs/run.log"`,
+		},
 		{"spare separators", `path.join("a/", "/b")`, `"a/b"`},
 		{"an empty piece", `path.join("a", "", "b")`, `"a/b"`},
 		{"one", `path.join("a")`, `"a"`},

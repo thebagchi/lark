@@ -111,7 +111,8 @@ func TestCompile_RefusesACycleWithoutRunningAnything(t *testing.T) {
 	}
 
 	if loader.calls[CYCLE_A_FIXTURE] != 0 {
-		t.Fatalf("the module closing the cycle was fetched %d times", loader.calls[CYCLE_A_FIXTURE])
+		t.Fatalf("the module closing the cycle was fetched %d times",
+			loader.calls[CYCLE_A_FIXTURE])
 	}
 
 	t.Logf("refused: %v", err)
@@ -133,7 +134,8 @@ func TestCompile_FetchesEachModuleOnce(t *testing.T) {
 
 	for _, name := range []string{LIB_FIXTURE, HELPER_FIXTURE} {
 		if loader.calls[name] != EXPECTED_FETCH {
-			t.Fatalf("%s was fetched %d times, want %d", name, loader.calls[name], EXPECTED_FETCH)
+			t.Fatalf("%s was fetched %d times, want %d",
+				name, loader.calls[name], EXPECTED_FETCH)
 		}
 	}
 }

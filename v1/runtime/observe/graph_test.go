@@ -309,7 +309,8 @@ func TestGraph_AForkedLaneWithNothingOnItIsStillALane(t *testing.T) {
 		}
 
 		if len(lane.GetLive().GetNodes()) != 0 {
-			t.Fatalf("want an empty lane, got %d nodes", len(lane.GetLive().GetNodes()))
+			t.Fatalf("want an empty lane, got %d nodes",
+				len(lane.GetLive().GetNodes()))
 		}
 
 		return
@@ -458,7 +459,8 @@ func TestGraph_LeavesALambdaAnonymousWithoutOne(t *testing.T) {
 			}
 
 			if lane.GetId() != SPINE && node.GetFunction() != "" {
-				t.Fatalf("want the spawned lane anonymous, got %q", node.GetFunction())
+				t.Fatalf("want the spawned lane anonymous, got %q",
+					node.GetFunction())
 			}
 		}
 	}

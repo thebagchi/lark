@@ -481,7 +481,8 @@ func TestRun_LeavesNoGoroutineBehind(t *testing.T) {
 	finish()
 
 	if !_Settled(before) {
-		t.Fatalf("goroutines did not settle: %d before, %d after", before, runtime.NumGoroutine())
+		t.Fatalf("goroutines did not settle: %d before, %d after",
+			before, runtime.NumGoroutine())
 	}
 }
 

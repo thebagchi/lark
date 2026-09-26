@@ -171,7 +171,8 @@ func TestEnvironment_ReportsOneConflictTheSameWayEveryRun(t *testing.T) {
 		}
 
 		if err.Error() != first {
-			t.Fatalf("attempt %d reported %q, first reported %q", attempt, err.Error(), first)
+			t.Fatalf("attempt %d reported %q, first reported %q",
+				attempt, err.Error(), first)
 		}
 	}
 }

@@ -153,7 +153,8 @@ func (r *_Reading) _Read(tree *syntax.File, name string, src string) error {
 func (r *_Reading) _Loads(load *syntax.LoadStmt, from string) error {
 	for idx := range load.From {
 		if load.From[idx].Name != load.To[idx].Name {
-			return fmt.Errorf("%s as %s: %w", load.To[idx].Name, load.From[idx].Name, ErrAlias)
+			return fmt.Errorf("%s as %s: %w",
+				load.To[idx].Name, load.From[idx].Name, ErrAlias)
 		}
 	}
 

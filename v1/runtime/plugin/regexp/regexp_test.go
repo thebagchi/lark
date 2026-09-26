@@ -139,7 +139,11 @@ func TestSub_NamesGroupsTheEnginesWay(t *testing.T) {
 		{"a literal dollar", `regexp.sub(r"x", "$$", "x")`, `"$"`},
 		{"every one by default", `regexp.sub(r"a", "-", "banana")`, `"b-n-n-"`},
 		{"counted", `regexp.sub(r"a", "-", "banana", count = 2)`, `"b-n-na"`},
-		{"counted past the end", `regexp.sub(r"a", "-", "banana", count = 99)`, `"b-n-n-"`},
+		{
+			"counted past the end",
+			`regexp.sub(r"a", "-", "banana", count = 99)`,
+			`"b-n-n-"`,
+		},
 	})
 }
 

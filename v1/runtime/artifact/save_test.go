@@ -196,7 +196,8 @@ func TestSave_CarriesTheGraphWithoutBodies(t *testing.T) {
 
 	for _, fn := range described.GetFunctions() {
 		if fn.GetBody() != "" {
-			t.Fatalf("%s carries its body, which the compiled code already is", fn.GetName())
+			t.Fatalf("%s carries its body, which the compiled code already is",
+				fn.GetName())
 		}
 
 		if fn.GetName() == GRAPHED_FUNC {

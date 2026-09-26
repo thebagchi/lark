@@ -36,8 +36,18 @@ generate:
 
 lint: lint-go lint-proto
 
+# --new-from-rev is CLAUDE.md's rule made mechanical: "New rules apply to new and
+# edited code immediately; do not sweep existing code unless asked." The seven
+# checkers go.md names were enabled on 2026-09-26 and found 130 findings in code
+# written before they ran - 107 of them one formatting rule that had never been
+# measured as written. Sweeping those is a cosmetic change to 41 files; letting
+# them through unremarked is a gate nobody believes. So the gate holds what is
+# being written now, and `make audit` is the backlog.
+#
+# HEAD~ rather than HEAD, so a change is still checked after it is committed
+# rather than only while it is uncommitted.
 lint-go:
-	go tool golangci-lint run
+	go tool golangci-lint run --new-from-rev=HEAD~
 
 lint-proto:
 	go tool buf lint
@@ -88,6 +98,13 @@ bin/lark.bin: $(GO_SOURCES)
 bin/lark-clock.bin: $(GO_SOURCES)
 	@mkdir -p $(@D)
 	go build -o $@ ./cmd/clock
+
+# Every finding in the whole tree, with the output caps off. The caps are why
+# this was mismeasured for a week: golangci-lint stops at 50 per linter by
+# default, so a survey that reported 50 was reporting a ceiling. Not a gate -
+# the count is recorded in .doc/todo.md and cleared when somebody asks.
+audit:
+	go tool golangci-lint run --max-issues-per-linter=0 --max-same-issues=0
 
 vet:
 	go vet ./...

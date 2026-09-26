@@ -73,7 +73,11 @@ func TestPointer_ResolvesRFC6901(t *testing.T) {
 	const doc = `{"a": {"b": [10, 20]}, "e/f": 1, "g~h": 2, "": 3}`
 
 	_Check(t, []struct{ name, expression, want string }{
-		{"whole document", `extract_json(` + doc + `, "")`, `{"a": {"b": [10, 20]}, "e/f": 1, "g~h": 2, "": 3}`},
+		{
+			"whole document",
+			`extract_json(` + doc + `, "")`,
+			`{"a": {"b": [10, 20]}, "e/f": 1, "g~h": 2, "": 3}`,
+		},
 		{"member", `extract_json(` + doc + `, "/a")`, `{"b": [10, 20]}`},
 		{"nested member", `extract_json(` + doc + `, "/a/b")`, `[10, 20]`},
 		{"list index", `extract_json(` + doc + `, "/a/b/1")`, `20`},
@@ -174,12 +178,24 @@ func TestPatch_AppliesRFC6902(t *testing.T) {
 //   - 2026-09-20 01:29: initial creation
 func TestPatch_RefusesWhatTheSpecificationRefuses(t *testing.T) {
 	cases := []struct{ name, expression, carries string }{
-		{"unknown op", `patch_json({}, [{"op": "invent", "path": "/a"}])`, "unknown patch operation"},
+		{
+			"unknown op",
+			`patch_json({}, [{"op": "invent", "path": "/a"}])`,
+			"unknown patch operation",
+		},
 		{"missing path", `patch_json({}, [{"op": "remove"}])`, "missing a field"},
 		{"missing value", `patch_json({}, [{"op": "add", "path": "/a"}])`, "missing a field"},
 		{"remove what is not there", `patch_json({}, [{"op": "remove", "path": "/a"}])`, "no such path"},
-		{"replace what is not there", `patch_json({}, [{"op": "replace", "path": "/a", "value": 1}])`, "no such path"},
-		{"test that fails", `patch_json({"a": 1}, [{"op": "test", "path": "/a", "value": 2}])`, "test failed"},
+		{
+			"replace what is not there",
+			`patch_json({}, [{"op": "replace", "path": "/a", "value": 1}])`,
+			"no such path",
+		},
+		{
+			"test that fails",
+			`patch_json({"a": 1}, [{"op": "test", "path": "/a", "value": 2}])`,
+			"test failed",
+		},
 		{
 			"move into its own child",
 			`patch_json({"a": {"b": 1}}, [{"op": "move", "from": "/a", "path": "/a/b"}])`,
@@ -195,7 +211,8 @@ func TestPatch_RefusesWhatTheSpecificationRefuses(t *testing.T) {
 			}
 
 			if !strings.Contains(err.Error(), item.carries) {
-				t.Fatalf("%s failed with %v, want it to mention %q", item.expression, err, item.carries)
+				t.Fatalf("%s failed with %v, want it to mention %q",
+					item.expression, err, item.carries)
 			}
 		})
 	}

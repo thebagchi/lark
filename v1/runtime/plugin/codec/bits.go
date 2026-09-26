@@ -57,7 +57,8 @@ func _Bits2Bytes(
 	}
 
 	if len(text)%BITS_PER_BYTE != 0 {
-		return nil, fmt.Errorf("%s got %d bits, not whole bytes: %w", fn.Name(), len(text), ErrBits)
+		return nil, fmt.Errorf("%s got %d bits, not whole bytes: %w",
+			fn.Name(), len(text), ErrBits)
 	}
 
 	data := make([]byte, 0, len(text)/BITS_PER_BYTE)

@@ -120,7 +120,11 @@ func TestURLEncode_UsesTheOtherTwoCharacters(t *testing.T) {
 		{"url is unpadded", `base64.urlencode("f")`, `"Zg"`},
 		{"url decode unpadded", `base64.urldecode("Zg")`, `b"f"`},
 		{"url decode padded", `base64.urldecode("Zg==")`, `b"f"`},
-		{"round trip", `base64.urldecode(base64.urlencode(b"\xfb\xff\xbf"))`, `b"\xfb\xff\xbf"`},
+		{
+			"round trip",
+			`base64.urldecode(base64.urlencode(b"\xfb\xff\xbf"))`,
+			`b"\xfb\xff\xbf"`,
+		},
 	})
 }
 
@@ -138,7 +142,11 @@ func TestBase64_RefusesWhatItCannotRead(t *testing.T) {
 	}{
 		{"of a number", `base64.encode(1)`, unpack.ErrData.Error()},
 		{"not base64", `base64.decode("!!!!")`, ENCODED.Error()},
-		{"the url alphabet is not the standard one", `base64.decode("-_-_")`, ENCODED.Error()},
+		{
+			"the url alphabet is not the standard one",
+			`base64.decode("-_-_")`,
+			ENCODED.Error(),
+		},
 	}
 
 	for _, item := range cases {

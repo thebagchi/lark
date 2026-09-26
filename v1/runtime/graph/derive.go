@@ -144,7 +144,8 @@ func (r *_Reading) _Constants(tree *syntax.File, module string) error {
 
 		owner, known := r.owner[name.Name]
 		if known && owner != module {
-			return fmt.Errorf("%s in %s and %s: %w", name.Name, owner, module, ErrCollision)
+			return fmt.Errorf("%s in %s and %s: %w",
+				name.Name, owner, module, ErrCollision)
 		}
 
 		declared, err := r._Declared(assign.RHS)

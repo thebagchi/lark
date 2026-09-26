@@ -130,7 +130,11 @@ func TestInts_ConvertToAndFromBytes(t *testing.T) {
 		{"int2bytes", `int2bytes(256, 2)`, `b"\x01\x00"`},
 		{"int2bytes zero padded", `int2bytes(1, 4)`, `b"\x00\x00\x00\x01"`},
 		{"int2bytes exact fit", `int2bytes(255, 1)`, `b"\xff"`},
-		{"int2bytes past 64 bits", `int2bytes(18446744073709551616, 9)`, `b"\x01\x00\x00\x00\x00\x00\x00\x00\x00"`},
+		{
+			"int2bytes past 64 bits",
+			`int2bytes(18446744073709551616, 9)`,
+			`b"\x01\x00\x00\x00\x00\x00\x00\x00\x00"`,
+		},
 	})
 
 	_Refuse(t, []struct {

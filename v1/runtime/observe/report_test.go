@@ -189,7 +189,8 @@ func TestReport_CarriesTheAttemptARetryReached(t *testing.T) {
 func TestReport_GivesAPlainCallNoAttempt(t *testing.T) {
 	spawned, _ := _Node(_Ran(t, BRANCHING), "alpha")
 	if spawned.GetAttempt() != 0 {
-		t.Fatalf("want a spawned function to carry no attempt, got %d", spawned.GetAttempt())
+		t.Fatalf("want a spawned function to carry no attempt, got %d",
+			spawned.GetAttempt())
 	}
 
 	bounded, _ := _Node(_Ran(t, BOUNDED), "swift")
@@ -376,7 +377,8 @@ func TestReport_AFailureCarriesItsMessage(t *testing.T) {
 
 	good, _ := _Node(snap, "good")
 	if good.GetFailure() != "" {
-		t.Fatalf("want a node that did not fail to carry nothing, got %q", good.GetFailure())
+		t.Fatalf("want a node that did not fail to carry nothing, got %q",
+			good.GetFailure())
 	}
 }
 
@@ -429,7 +431,8 @@ func TestReport_SuccessCarriesNoMessage(t *testing.T) {
 	for _, lane := range snap.GetThreads() {
 		for _, node := range lane.GetLive().GetNodes() {
 			if node.GetFailure() != "" {
-				t.Fatalf("want %s to carry nothing, got %q", node.GetFunction(), node.GetFailure())
+				t.Fatalf("want %s to carry nothing, got %q",
+					node.GetFunction(), node.GetFailure())
 			}
 		}
 	}
@@ -464,7 +467,8 @@ func TestReport_TheCauseNamesItsFunctionAndThread(t *testing.T) {
 	}
 
 	if lane != cause.GetThread() {
-		t.Fatalf("want the cause's thread to be the node's, got %s and %s", cause.GetThread(), lane)
+		t.Fatalf("want the cause's thread to be the node's, got %s and %s",
+			cause.GetThread(), lane)
 	}
 
 	if node.GetStatus() != workflowpb.Status_STATUS_FAILED {

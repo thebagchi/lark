@@ -30,7 +30,8 @@ func _Counted(fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple
 	value := number.BigInt()
 
 	if value.Sign() < 0 {
-		return nil, 0, fmt.Errorf("%s got %s, which is negative: %w", fn.Name(), value, ErrRange)
+		return nil, 0, fmt.Errorf("%s got %s, which is negative: %w",
+			fn.Name(), value, ErrRange)
 	}
 
 	if width < 1 {

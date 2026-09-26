@@ -4,6 +4,23 @@ modules:
 lint:
   use:
     - STANDARD
+  # Three rules this repository does not follow, by a decision taken 2026-09-19
+  # and reaffirmed 2026-09-26: every .proto sits directly in proto/. A layout
+  # that cleared these was tried and rejected, and clearing them now would mean
+  # moving every file or renaming every fully-qualified type.
+  #
+  # They were accepted-and-counted in .doc/todo.md for a week, which made
+  # buf lint exit 100, which made make lint fail, which made make all fail - so
+  # the one target naming every gate was the one nobody could run. A finding
+  # nobody may act on is noise, and noise in a gate teaches a reader to ignore
+  # the gate.
+  #
+  # except rather than per file, because the decision is about the layout of the
+  # whole directory: a new .proto here will sit in proto/ like the others.
+  except:
+    - DIRECTORY_SAME_PACKAGE
+    - PACKAGE_DIRECTORY_MATCH
+    - PACKAGE_VERSION_SUFFIX
   # Two rules, one file. They ask that an rpc's argument and result be named
   # after it - RegisterRequest and RegisterResponse for rpc Register - which is
   # right when one request is answered by one response. Register is a

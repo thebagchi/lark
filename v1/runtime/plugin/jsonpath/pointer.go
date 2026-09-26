@@ -53,7 +53,8 @@ func _Steps(pointer string) ([]string, error) {
 	}
 
 	if !strings.HasPrefix(pointer, SEPARATOR) {
-		return nil, fmt.Errorf("%q does not start with %q: %w", pointer, SEPARATOR, ErrPointer)
+		return nil, fmt.Errorf("%q does not start with %q: %w",
+			pointer, SEPARATOR, ErrPointer)
 	}
 
 	raw := strings.Split(strings.TrimPrefix(pointer, SEPARATOR), SEPARATOR)
@@ -83,7 +84,8 @@ func _Walk(doc starlark.Value, steps []string) (starlark.Value, error) {
 	for index, step := range steps {
 		next, err := _Step(at, step)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", SEPARATOR+strings.Join(steps[:index+1], SEPARATOR), err)
+			return nil, fmt.Errorf("%s: %w",
+				SEPARATOR+strings.Join(steps[:index+1], SEPARATOR), err)
 		}
 
 		at = next
