@@ -35,7 +35,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	pluginpb "github.com/thebagchi/lark/proto/gen/plugin"
-	"github.com/thebagchi/lark/runtime/plugin/remote"
+	"github.com/thebagchi/lark/v1/runtime/plugin/remote"
 )
 
 const (
