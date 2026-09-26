@@ -36,6 +36,13 @@ var ErrMemory = errors.New("past the memory this run may use")
 // it is handed over, because from then on Go's collector decides when it goes.
 // So this bounds one allocation, and every allocation in flight at once - not
 // the total a script has accumulated and still holds.
+//
+// And it does not bound a script's own memory at all, which is the thing most
+// likely to be assumed. A script appending 400,000 strings to a list uses 72MB
+// under a ceiling of one, measured 2026-09-27, because every byte of it was
+// allocated by the interpreter rather than through here. This is a guard on the
+// calls that charge it, not a sandbox, and a caller wanting a sandbox wants an
+// operating-system limit.
 type Budget struct {
 	ceiling int64
 	held    atomic.Int64

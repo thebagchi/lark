@@ -522,17 +522,11 @@ until the process died.
 
 **A large file is bounded by what the run may hold, not by a size limit.**
 `read` allocates the bytes and copies them into a string, so it costs twice the
-file: measured, 512MB of file peaked at 1057MB of memory. It now charges that
-against the run's budget *from the stat*, before allocating, so a file the run
-cannot afford costs one syscall rather than the process. Nothing here says how
-big a file may be — only how much memory a run may use, which is a question the
-host already knows the answer to.
-
-The default is 256MB. `lark -m 64` sets it in megabytes; a host embedding the
-runtime calls `scheduler.Allowing(ctx, ceiling)` on the context it passes to
-`Run`. What a read reserves is given back as the value is handed over, so a
-loop reading a thousand files is bounded by the largest of them rather than by
-their sum — measured, a hundred reads of a 1MB file run under a ceiling of 8MB.
+file, and it charges that against the run's budget *from the stat*, before
+allocating — so a file the run cannot afford costs one syscall rather than the
+process. Nothing here says how big a file may be, only how much memory a run may
+use, which is a question the host already knows the answer to. *What a run may
+use* has the ceiling and how to set it.
 
 **`lines` walks a file a line at a time**, so what it costs is set by the
 longest line rather than by the file, and a log far too big to `read` is
@@ -822,6 +816,71 @@ its own.
 `Run` does not return until every thread it started has stopped. A handle nobody
 joined is cancelled rather than waited for, so a forgotten `spawn` cannot hold a
 call open.
+
+## What a run may use
+
+**A run is not bounded.** `-m` bounds one thing — the memory *this library*
+allocates on a script's behalf — and that is narrower than it sounds. Read this
+section before running a script you did not write.
+
+A run carries a budget for what the library allocates for it. The default is
+256MB:
+
+```
+lark -s build.star -m 64
+```
+
+```go
+built.Run(scheduler.Allowing(ctx, 64<<20))
+```
+
+`file.read` charges it *from the stat*, before allocating, so a file the run
+cannot afford costs one syscall rather than the process — measured, 512MB of file
+peaks at 1057MB of memory, because the bytes and the string copied from them are
+both live. `file.lines` charges a line at a time. What a value reserves is given
+back as it is handed over, so a loop reading a thousand files is bounded by the
+largest of them rather than their sum.
+
+**What the budget does not cover is a script's own memory**, and the gap is
+wide. This is a script that asks the library for nothing:
+
+```python
+def main():
+    held = []
+
+    for i in range(400000):
+        held.append("a string long enough to be worth counting, number %d" % i)
+
+    return len(held)
+```
+
+Under `-m 1` — a one-megabyte ceiling — it uses **72MB** and succeeds. The
+budget is never consulted, because every byte was allocated by the interpreter
+rather than by this library. Raise the loop count and the process dies, whatever
+`-m` says.
+
+So `-m` is a guard on `file.read` and its neighbours, not a sandbox.
+`starlark-go` has no memory accounting of its own, so what the budget counts is
+what could be counted honestly, not what would be useful. It also bounds one
+allocation and every allocation in flight at once, rather than the total a script
+still holds: a value is credited back as it is handed over, after which Go's
+collector owns it.
+
+**Compute is not bounded either.** No step limit, no deadline. A script can loop
+forever; measured, one ran until it was killed from outside, and nothing in the
+runtime stopped it. A run ends when its context is cancelled, which is why `lark`
+handles an interrupt and why a host should pass a context it can cancel.
+
+Recursion is the sharpest edge, because it takes the **process** and not just the
+run. The dialect enables it, and a runaway recursive function exhausts the stack.
+A panicking builtin is recovered and becomes an error; a stack overflow is not
+recoverable in Go, so `WithRecover` cannot help.
+
+**The honest summary: run a script you do not trust in a process you can afford
+to lose**, under an operating-system limit rather than this one. A step limit, a
+deadline, and accounting for the interpreter's own allocations are all unchosen.
+`starlark-go` offers `SetMaxExecutionSteps`, which would bound the loop but not
+the stack and not the memory.
 
 ## A bundle carries its own picture
 
@@ -1179,12 +1238,16 @@ handle.Thread()   // its thread number
 - **Nothing rebuilds a runnable artifact from a bundle.** A bundle is written
   to be shown: a reader decodes it, draws the graph it carries and renders
   status from that. Running comes from the script or the graph.
-- **A runaway recursive script will exhaust the stack and take the process
-  down.** Recursion is enabled and nothing bounds a run. A panicking builtin is
-  recovered and becomes an error; a stack overflow is not recoverable in Go.
-- **Nothing executes a graph directly.** A graph becomes a script and the
-  script runs; an interpreter that walks the graph itself is the brief's
-  largest unbuilt item.
+- **Nothing bounds a run.** `-m` bounds what this library allocates for a
+  script, not what a script allocates itself: measured, a script building a list
+  used 72MB under a 1MB ceiling. There is no step limit and no deadline either,
+  and a runaway recursive script takes the process down, because Go cannot recover
+  a stack overflow the way a panicking builtin is recovered. See *What a run may
+  use*.
+- **Nothing executes a graph directly, by decision.** A graph becomes a script
+  and the script runs. One execution path rather than two means the two cannot
+  disagree about what a graph means, which is the cost a second interpreter
+  would carry.
 - **Nothing persists across process restart**, and nothing talks to a remote.
 
 ## Licence
