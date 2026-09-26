@@ -42,7 +42,12 @@ def main():
 
 	_, err := _RunCtx(t, scheduler.Allowing(t.Context(), int64(len(body)*2-1)), src)
 	if !errors.Is(err, scheduler.ErrMemory) {
-		t.Fatalf("a file of %d bytes under a ceiling of %d: %v", len(body), len(body)*2-1, err)
+		t.Fatalf(
+			"a file of %d bytes under a ceiling of %d: %v",
+			len(body),
+			len(body)*2-1,
+			err,
+		)
 	}
 
 	value, err := _RunCtx(t, scheduler.Allowing(t.Context(), int64(len(body)*2)), src)
@@ -282,7 +287,9 @@ func TestLark_MemoryFlag(t *testing.T) {
 	}
 
 	script := filepath.Join(dir, "hi.star")
-	if err := os.WriteFile(script, []byte("def main():\n    print(\"hi\")\n"), 0o644); err != nil {
+	src := []byte("def main():\n    print(\"hi\")\n")
+
+	if err := os.WriteFile(script, src, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

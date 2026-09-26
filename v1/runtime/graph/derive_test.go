@@ -23,6 +23,14 @@ const (
 
 	// LIBRARY is the one sample that defines no entry point.
 	LIBRARY = "strings.star"
+
+	// REPEAT_COUNT and RETRY_ATTEMPTS are what the fixtures below ask for, so
+	// the assertion names the number rather than repeating it.
+	REPEAT_COUNT   = 3
+	RETRY_ATTEMPTS = 5
+
+	// WAITED_ON is the lanes a join in the fixture waits for, in order.
+	WAITED_ON = "thread_3 thread_4 thread_5 thread_6"
 )
 
 // _Derived is the report a script yields, or a failure.
@@ -70,7 +78,9 @@ func _Spun(report *graph.Report) []string {
 
 	// Past the first, which is what the spine itself runs rather than
 	// something it does.
-	for _, step := range report.Graph.GetThreads()[0].GetStatic().GetSteps()[graph.BODY_FROM:] {
+	steps := report.Graph.GetThreads()[0].GetStatic().GetSteps()
+
+	for _, step := range steps[graph.BODY_FROM:] {
 		names = append(names, _Kind(step))
 	}
 
@@ -379,7 +389,9 @@ func TestOf_TwoSpawnsOfOneFunctionAreTwoThreads(t *testing.T) {
 		t.Fatalf("want seven threads, got %d: %v", got, _Ids(report))
 	}
 
-	if got := strings.Join(_Waited(report, 1), " "); got != "thread_3 thread_4 thread_5 thread_6" {
+	got := strings.Join(_Waited(report, 1), " ")
+
+	if got != WAITED_ON {
 		t.Fatalf("want the second join to name its own four threads, got %q", got)
 	}
 }
@@ -667,7 +679,11 @@ func TestOf_CarriesParameters(t *testing.T) {
 //   - 2026-09-21 08:09: a refusal, since the graph it recorded generated a
 //     program the script was not
 func TestOf_RefusesASignatureItCannotCarry(t *testing.T) {
-	for _, def := range []string{"def main(x = 1):", "def main(*rest):", "def main(**named):"} {
+	for _, def := range []string{
+		"def main(x = 1):",
+		"def main(*rest):",
+		"def main(**named):",
+	} {
 		t.Run(def, func(t *testing.T) {
 			_, err := graph.Of([]byte(def+"\n    print(1)\n"), SOURCED, nil)
 			if !errors.Is(err, graph.ErrSignature) {
@@ -687,7 +703,10 @@ func TestOf_RefusesASignatureItCannotCarry(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestOf_ATabIndentedBodyIsDedented(t *testing.T) {
-	report := _Derived(t, "def main():\n\ttotal = 0\n\tfor i in range(2):\n\t\ttotal += i\n\tprint(total)\n")
+	report := _Derived(
+		t,
+		"def main():\n\ttotal = 0\n\tfor i in range(2):\n\t\ttotal += i\n\tprint(total)\n",
+	)
 
 	want := "total = 0\nfor i in range(2):\n\ttotal += i\nprint(total)"
 
@@ -702,7 +721,8 @@ func TestOf_ATabIndentedBodyIsDedented(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestOf_ASleepNeedsANumber(t *testing.T) {
-	report := _Derived(t, "def step():\n    return 1\n\ndef main():\n    sleep(\"1\")\n    repeat(True, step)\n")
+	report := _Derived(t, "def step():\n    return 1\n\ndef main():\n    sleep(\"1\")\n"+
+		"    repeat(True, step)\n")
 
 	if got := _Spun(report); len(got) != 0 {
 		t.Fatalf("want neither statement modelled, got %v", got)
@@ -801,7 +821,11 @@ func TestOf_CarriesAComputedConstant(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
 func TestOf_RefusesAConstantItCannotCarry(t *testing.T) {
-	_, err := graph.Of([]byte("LIMIT = 1 + 2\n\ndef main():\n    print(LIMIT)\n"), SOURCED, nil)
+	_, err := graph.Of(
+		[]byte("LIMIT = 1 + 2\n\ndef main():\n    print(LIMIT)\n"),
+		SOURCED,
+		nil,
+	)
 	if !errors.Is(err, graph.ErrConstant) {
 		t.Fatalf("want ErrConstant, got %v", err)
 	}
@@ -853,7 +877,11 @@ func TestOf_TheFlagshipSampleRoundTrips(t *testing.T) {
 	}
 
 	if strings.TrimSpace(string(out)) != strings.TrimSpace(code) {
-		t.Fatalf("want the sample's own code back\n--- authored\n%s\n--- derived\n%s", code, out)
+		t.Fatalf(
+			"want the sample's own code back\n--- authored\n%s\n--- derived\n%s",
+			code,
+			out,
+		)
 	}
 }
 
@@ -894,11 +922,17 @@ func TestOf_ABareWrapperIsAStep(t *testing.T) {
 		}
 	}
 
-	if repeat.GetRepeat().GetCount() != 3 || repeat.GetRepeat().GetCall().GetFunction() != "tick" {
+	counted := repeat.GetRepeat().GetCount() == REPEAT_COUNT
+	called := repeat.GetRepeat().GetCall().GetFunction() == "tick"
+
+	if !counted || !called {
 		t.Fatalf("want repeat(3, tick), got %v", repeat)
 	}
 
-	if retry.GetRetry().GetAttempts() != 5 || retry.GetRetry().GetCall().GetFunction() != "flaky" {
+	tried := retry.GetRetry().GetAttempts() == RETRY_ATTEMPTS
+	called = retry.GetRetry().GetCall().GetFunction() == "flaky"
+
+	if !tried || !called {
 		t.Fatalf("want retry(5, flaky), got %v", retry)
 	}
 
@@ -956,7 +990,10 @@ func TestOf_AnIfWithTwoSidesIsAnIf(t *testing.T) {
 			t.Fatalf("want the condition carried, got %v", branch.GetCondition())
 		}
 
-		if branch.GetThen().GetFunction() != "announce" || branch.GetElse().GetFunction() != "hush" {
+		taken := branch.GetThen().GetFunction() == "announce"
+		otherwise := branch.GetElse().GetFunction() == "hush"
+
+		if !taken || !otherwise {
 			t.Fatalf("want both sides carried, got %v", branch)
 		}
 
@@ -1016,7 +1053,10 @@ func TestOf_AMatchIsOneStepNotTwo(t *testing.T) {
 			t.Fatalf("want two cases, got %d", len(match.GetCases()))
 		}
 
-		if match.GetCases()[0].GetValue() != "alpha" || match.GetCases()[1].GetValue() != "beta" {
+		first := match.GetCases()[0].GetValue() == "alpha"
+		second := match.GetCases()[1].GetValue() == "beta"
+
+		if !first || !second {
 			t.Fatalf("want the case values carried, got %v", match.GetCases())
 		}
 

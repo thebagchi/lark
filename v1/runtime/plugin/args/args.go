@@ -112,7 +112,15 @@ func _Declare(
 		fallback starlark.Value
 	)
 
-	err := starlark.UnpackArgs(fn.Name(), args, kwargs, SUPPLIED, &name, DEFAULT+"?", &fallback)
+	err := starlark.UnpackArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		SUPPLIED,
+		&name,
+		DEFAULT+"?",
+		&fallback,
+	)
 	if err != nil {
 		return nil, err
 	}

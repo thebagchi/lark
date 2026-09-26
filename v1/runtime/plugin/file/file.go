@@ -127,10 +127,13 @@ func (f *_File) Values() starlark.StringDict {
 				SIZE:   starlark.NewBuiltin(NAME+"."+SIZE, _Size),
 				MKDIR:  starlark.NewBuiltin(NAME+"."+MKDIR, _Mkdir),
 
-				STAT:        starlark.NewBuiltin(NAME+"."+STAT, _Stat),
-				LINES:       starlark.NewBuiltin(NAME+"."+LINES, _Reading),
-				WRITELINES:  starlark.NewBuiltin(NAME+"."+WRITELINES, _Writelines),
-				APPENDLINES: starlark.NewBuiltin(NAME+"."+APPENDLINES, _Appendlines),
+				STAT:       starlark.NewBuiltin(NAME+"."+STAT, _Stat),
+				LINES:      starlark.NewBuiltin(NAME+"."+LINES, _Reading),
+				WRITELINES: starlark.NewBuiltin(NAME+"."+WRITELINES, _Writelines),
+				APPENDLINES: starlark.NewBuiltin(
+					NAME+"."+APPENDLINES,
+					_Appendlines,
+				),
 			},
 		},
 	}

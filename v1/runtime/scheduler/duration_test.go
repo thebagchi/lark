@@ -35,7 +35,8 @@ func TestDuration_RefusesWhatATimerCannotHold(t *testing.T) {
 	// And the rounding is real: this is the value that used to pass the
 	// comparison it should have failed.
 	if !(float64(math.MaxInt64) == math.Ldexp(1, 63)) {
-		t.Fatal("MaxInt64 no longer rounds to 2^63 as a float, so this guard needs rereading")
+		t.Fatal("MaxInt64 no longer rounds to 2^63 as a float, " +
+			"so this guard needs rereading")
 	}
 }
 
@@ -46,10 +47,12 @@ func TestDuration_RefusesWhatATimerCannotHold(t *testing.T) {
 //   - 2026-09-24 16:15: initial creation
 func TestDuration_KeepsWhatATimerCanHold(t *testing.T) {
 	cases := map[string]starlark.Value{
-		"a second":        starlark.MakeInt(1),
-		"a millisecond":   starlark.Float(0.001),
-		"nothing at all":  starlark.MakeInt(0),
-		"the largest fit": starlark.Float(math.Nextafter(math.Ldexp(1, 63), 0) / float64(time.Second)),
+		"a second":       starlark.MakeInt(1),
+		"a millisecond":  starlark.Float(0.001),
+		"nothing at all": starlark.MakeInt(0),
+		"the largest fit": starlark.Float(
+			math.Nextafter(math.Ldexp(1, 63), 0) / float64(time.Second),
+		),
 	}
 
 	for name, given := range cases {

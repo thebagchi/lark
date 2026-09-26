@@ -159,12 +159,14 @@ func TestPatch_AppliesRFC6902(t *testing.T) {
 		},
 		{
 			"move onto itself changes nothing",
-			`patch_json({"a": {"b": 1}}, [{"op": "move", "from": "/a", "path": "/a"}])`,
+			`patch_json({"a": {"b": 1}}, [{"op": "move", "from": "/a", "path": ` +
+				`"/a"}])`,
 			`{"a": {"b": 1}}`,
 		},
 		{
 			"operations apply in order",
-			`patch_json({"a": 1}, [{"op": "add", "path": "/b", "value": 2}, {"op": "remove", "path": "/a"}])`,
+			`patch_json({"a": 1}, [{"op": "add", "path": "/b", "value": 2}, {"op": ` +
+				`"remove", "path": "/a"}])`,
 			`{"b": 2}`,
 		},
 	})
@@ -184,8 +186,16 @@ func TestPatch_RefusesWhatTheSpecificationRefuses(t *testing.T) {
 			"unknown patch operation",
 		},
 		{"missing path", `patch_json({}, [{"op": "remove"}])`, "missing a field"},
-		{"missing value", `patch_json({}, [{"op": "add", "path": "/a"}])`, "missing a field"},
-		{"remove what is not there", `patch_json({}, [{"op": "remove", "path": "/a"}])`, "no such path"},
+		{
+			"missing value",
+			`patch_json({}, [{"op": "add", "path": "/a"}])`,
+			"missing a field",
+		},
+		{
+			"remove what is not there",
+			`patch_json({}, [{"op": "remove", "path": "/a"}])`,
+			"no such path",
+		},
 		{
 			"replace what is not there",
 			`patch_json({}, [{"op": "replace", "path": "/a", "value": 1}])`,
@@ -198,7 +208,8 @@ func TestPatch_RefusesWhatTheSpecificationRefuses(t *testing.T) {
 		},
 		{
 			"move into its own child",
-			`patch_json({"a": {"b": 1}}, [{"op": "move", "from": "/a", "path": "/a/b"}])`,
+			`patch_json({"a": {"b": 1}}, [{"op": "move", "from": "/a", "path": ` +
+				`"/a/b"}])`,
 			"into itself",
 		},
 	}
@@ -265,8 +276,16 @@ func TestQueries_AnswerQuestionsRatherThanFail(t *testing.T) {
 
 	_Check(t, []struct{ name, expression, want string }{
 		{"match", `match_json(` + doc + `, "/a/b/0", 1)`, `True`},
-		{"match is false, not an error, when missing", `match_json(` + doc + `, "/nope", 1)`, `False`},
-		{"match compares 1 and 1.0 as equal", `match_json(` + doc + `, "/a/b/0", 1.0)`, `True`},
+		{
+			"match is false, not an error, when missing",
+			`match_json(` + doc + `, "/nope", 1)`,
+			`False`,
+		},
+		{
+			"match compares 1 and 1.0 as equal",
+			`match_json(` + doc + `, "/a/b/0", 1.0)`,
+			`True`,
+		},
 		{"length of a list", `len_json(` + doc + `, "/a/b")`, `3`},
 		{"length of a string", `len_json(` + doc + `, "/text")`, `4`},
 		{"length of a dict", `len_json(` + doc + `, "/a")`, `1`},
@@ -357,7 +376,10 @@ out["b"]["x"].append(2)
 // Revisions:
 //   - 2026-09-24 16:15: initial creation
 func TestPatch_AMoveKeepsTheValueItTook(t *testing.T) {
-	got, err := _Eval(t, `patch_json({"a": [1]}, [{"op": "move", "from": "/a", "path": "/b"}])`)
+	got, err := _Eval(
+		t,
+		`patch_json({"a": [1]}, [{"op": "move", "from": "/a", "path": "/b"}])`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +424,12 @@ out["b"].append(2)
 		{"add leaves the document alone", ADDED, "doc", `{"a": [1]}`},
 		{"and the addition is its own list", ADDED, "out", `{"a": [1], "b": [1, 2]}`},
 		{"replace leaves it alone too", REPLACED, "doc", `{"a": [1], "b": [9]}`},
-		{"a value the caller still holds is not theirs to be changed", OWNED, "mine", `[1]`},
+		{
+			"a value the caller still holds is not theirs to be changed",
+			OWNED,
+			"mine",
+			`[1]`,
+		},
 	}
 
 	for _, item := range cases {

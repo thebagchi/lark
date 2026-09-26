@@ -409,9 +409,11 @@ func TestRemote_APluginThatLeavesFailsItsNames(t *testing.T) {
 func TestRemote_WhatThePluginRefusedReachesTheScript(t *testing.T) {
 	listener, socket := _Listening(t)
 
-	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, func(ask *pluginpb.Ask) *pluginpb.Answer {
+	broken := func(ask *pluginpb.Ask) *pluginpb.Answer {
 		return &pluginpb.Answer{Id: ask.GetId(), Failed: "the clock is broken"}
-	})
+	}
+
+	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, broken)
 	_Installed(t, listener, 1)
 
 	_, err := _Ran(t, listener, "def main():\n    return clock.now()\n")

@@ -30,6 +30,10 @@ const (
 	// MILLIS is how many milliseconds a second holds. The schema counts
 	// milliseconds and the builtins take seconds.
 	MILLIS = 1000
+
+	// WRAPPED is how many arguments a wrapper takes: how much, and what to do
+	// that much of. A call with any other number is not one of these.
+	WRAPPED = 2
 )
 
 // _Bounded is a repeat, retry or timeout as the line that builds it and calls
@@ -130,7 +134,7 @@ func _Pause(sleep *workflowpb.Sleep) string {
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-09-21 08:09: a number only; repeat(True, f) used to derive as 0
 func (r *_Reading) _Wrapper(name string, call *syntax.CallExpr) *workflowpb.Step {
-	if len(call.Args) != 2 {
+	if len(call.Args) != WRAPPED {
 		return nil
 	}
 

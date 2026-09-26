@@ -166,7 +166,11 @@ func _SpliceIn(holder *starlark.List, step string, value starlark.Value) (starla
 //
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
-func _SpliceOver(holder *starlark.List, step string, value starlark.Value) (starlark.Value, error) {
+func _SpliceOver(
+	holder *starlark.List,
+	step string,
+	value starlark.Value,
+) (starlark.Value, error) {
 	if step == APPEND {
 		return nil, fmt.Errorf("%q names no element: %w", APPEND, ErrMissing)
 	}

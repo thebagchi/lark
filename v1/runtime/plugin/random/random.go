@@ -52,6 +52,10 @@ const (
 	CHOICE  = "choice"
 	SHUFFLE = "shuffle"
 	BYTES   = "bytes"
+
+	// BYTE is how many values a byte has, which is the range each one is drawn
+	// from.
+	BYTE = 256
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -358,7 +362,7 @@ func _Bytes(
 	held := make([]byte, count)
 
 	for index := range held {
-		held[index] = byte(source.held.UintN(256))
+		held[index] = byte(source.held.UintN(BYTE))
 	}
 
 	return starlark.Bytes(held), nil

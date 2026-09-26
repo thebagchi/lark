@@ -46,6 +46,9 @@ const (
 
 	// DEGREES is how many a turn has, which the two conversions share.
 	DEGREES = 360
+
+	// TURN is a full circle in radians, which is what tau names for a script.
+	TURN = 2 * math.Pi
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -78,7 +81,7 @@ func (m *_Math) Values() starlark.StringDict {
 	members := starlark.StringDict{
 		"e":   starlark.Float(math.E),
 		"pi":  starlark.Float(math.Pi),
-		"tau": starlark.Float(2 * math.Pi),
+		"tau": starlark.Float(TURN),
 		"inf": starlark.Float(math.Inf(1)),
 		"nan": starlark.Float(math.NaN()),
 
@@ -344,7 +347,12 @@ func _GCD(
 		return nil, err
 	}
 
-	held := new(big.Int).GCD(nil, nil, new(big.Int).Abs(first.BigInt()), new(big.Int).Abs(second.BigInt()))
+	held := new(
+		big.Int).GCD(nil,
+		nil,
+		new(big.Int).Abs(first.BigInt()),
+		new(big.Int).Abs(second.BigInt()),
+	)
 
 	return starlark.MakeBigInt(held), nil
 }
@@ -385,7 +393,7 @@ func _Float(who string, given starlark.Value) (float64, error) {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func _Degrees(x float64) float64 {
-	return DEGREES * x / (2 * math.Pi)
+	return DEGREES * x / TURN
 }
 
 // _Radians is a turn in degrees as one in radians.
@@ -393,5 +401,5 @@ func _Degrees(x float64) float64 {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func _Radians(x float64) float64 {
-	return 2 * math.Pi * x / DEGREES
+	return TURN * x / DEGREES
 }

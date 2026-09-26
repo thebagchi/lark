@@ -134,7 +134,11 @@ func TestCheck_RefusesAnIdThatDoesNotNameItsParent(t *testing.T) {
 		Steps: []*workflowpb.Step{_CallOf("alpha"), _Fork("thread_9_4")},
 	}}
 
-	built := _Authored([]*workflowpb.Step{_Fork("thread_1")}, deep, _Runs("thread_9_4", "deep"))
+	built := _Authored(
+		[]*workflowpb.Step{_Fork("thread_1")},
+		deep,
+		_Runs("thread_9_4", "deep"),
+	)
 
 	err := graph.Check(built)
 	if !errors.Is(err, graph.ErrParentage) {
@@ -241,7 +245,10 @@ func TestCheck_RefusesAnIdWithNoOrdinal(t *testing.T) {
 			held := _Authored([]*workflowpb.Step{_Fork(odd)}, _Runs(odd, "alpha"))
 
 			if !errors.Is(graph.Check(held), graph.ErrParentage) {
-				t.Fatalf("%q was accepted, and no ordinal is spelled that way", odd)
+				t.Fatalf(
+					"%q was accepted, and no ordinal is spelled that way",
+					odd,
+				)
 			}
 		})
 	}

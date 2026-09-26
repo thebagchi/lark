@@ -32,7 +32,10 @@ func TestValue_CrossesAndComesBack(t *testing.T) {
 		{"bytes arrive as a string", starlark.Bytes("hi"), `"hi"`},
 		{
 			"a list",
-			starlark.NewList([]starlark.Value{starlark.MakeInt(1), starlark.String("a")}),
+			starlark.NewList([]starlark.Value{
+				starlark.MakeInt(1),
+				starlark.String("a"),
+			}),
 			`[1.0, "a"]`,
 		},
 		{

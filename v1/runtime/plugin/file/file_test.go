@@ -75,7 +75,8 @@ func TestFile_WritesAndReadsBack(t *testing.T) {
 	cases := []struct{ name, expression, want string }{
 		{
 			"write then read",
-			`file.write(path.join(root, "a.txt"), "hello") or file.read(path.join(root, "a.txt"))`,
+			`file.write(path.join(root, "a.txt"), "hello") or ` +
+				`file.read(path.join(root, "a.txt"))`,
 			`"hello"`,
 		},
 		{
@@ -85,12 +86,14 @@ func TestFile_WritesAndReadsBack(t *testing.T) {
 		},
 		{
 			"write bytes",
-			`file.write(path.join(root, "b.bin"), b"\x00\xff") or file.bytes(path.join(root, "b.bin"))`,
+			`file.write(path.join(root, "b.bin"), b"\x00\xff") or ` +
+				`file.bytes(path.join(root, "b.bin"))`,
 			`b"\x00\xff"`,
 		},
 		{
 			"append",
-			`file.append(path.join(root, "a.txt"), " there") or file.read(path.join(root, "a.txt"))`,
+			`file.append(path.join(root, "a.txt"), " there") or ` +
+				`file.read(path.join(root, "a.txt"))`,
 			`"hello there"`,
 		},
 		{
@@ -141,7 +144,8 @@ func TestFile_AsksAndLists(t *testing.T) {
 		{"list is sorted", `file.list(root)`, `["a.txt", "b.txt", "c.txt"]`},
 		{
 			"remove then gone",
-			`file.remove(path.join(root, "a.txt")) or file.exists(path.join(root, "a.txt"))`,
+			`file.remove(path.join(root, "a.txt")) or file.exists(path.join(root, ` +
+				`"a.txt"))`,
 			"False",
 		},
 	}
@@ -367,10 +371,17 @@ func TestRead_RefusesWhatIsNotARegularFile(t *testing.T) {
 			select {
 			case err := <-done:
 				if !errors.Is(err, larkfile.ErrNotAFile) {
-					t.Fatalf("reading %s gave %v, want ErrNotAFile", _DEVICE, err)
+					t.Fatalf(
+						"reading %s gave %v, want ErrNotAFile",
+						_DEVICE,
+						err,
+					)
 				}
 			case <-time.After(_DEADLINE):
-				t.Fatalf("reading %s did not return: the read is unbounded again", _DEVICE)
+				t.Fatalf(
+					"reading %s did not return: the read is unbounded again",
+					_DEVICE,
+				)
 			}
 		})
 	}

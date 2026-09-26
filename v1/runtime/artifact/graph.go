@@ -276,7 +276,12 @@ func (g *_Graph) _Reach(from string, target string) (string, error) {
 // Revisions:
 //   - 2026-09-19 18:36: initial creation
 //   - 2026-09-22 22:24: assembles without initialising, which moved to the run
-func _Link(entry string, env starlark.StringDict, units map[string]*_Unit, order []string) *Artifact {
+func _Link(
+	entry string,
+	env starlark.StringDict,
+	units map[string]*_Unit,
+	order []string,
+) *Artifact {
 	message := &artifactpb.Artifact{
 		Entry: entry,
 		Units: make([]*artifactpb.Unit, 0, len(order)),
@@ -317,7 +322,10 @@ func (a *Artifact) _Initialise(ctx context.Context) (starlark.StringDict, error)
 	for _, path := range a.order {
 		unit := a.units[path]
 
-		load := func(thread *starlark.Thread, spelling string) (starlark.StringDict, error) {
+		load := func(
+			thread *starlark.Thread,
+			spelling string,
+		) (starlark.StringDict, error) {
 			globals, found := built[unit.saved.GetLoads()[spelling]]
 			if !found {
 				return nil, fmt.Errorf("%s: %w", spelling, ErrNoUnit)

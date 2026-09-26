@@ -298,7 +298,13 @@ func _Test(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 	}
 
 	if !same {
-		return nil, fmt.Errorf("%s is %s, not %s: %w", path, got.String(), want.String(), ErrTest)
+		return nil, fmt.Errorf(
+			"%s is %s, not %s: %w",
+			path,
+			got.String(),
+			want.String(),
+			ErrTest,
+		)
 	}
 
 	return doc, nil

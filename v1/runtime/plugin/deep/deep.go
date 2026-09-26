@@ -90,7 +90,10 @@ func Into(
 // Revisions:
 //   - 2026-09-20 00:44: initial creation
 //   - 2026-09-21 08:09: reuses a copy already made
-func _List(original *starlark.List, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+func _List(
+	original *starlark.List,
+	seen map[starlark.Value]starlark.Value,
+) (starlark.Value, error) {
 	copied, found := seen[original]
 	if found {
 		return copied, nil
@@ -122,7 +125,10 @@ func _List(original *starlark.List, seen map[starlark.Value]starlark.Value) (sta
 // Revisions:
 //   - 2026-09-20 00:45: initial creation
 //   - 2026-09-21 08:09: reuses a copy already made
-func _Dict(original *starlark.Dict, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+func _Dict(
+	original *starlark.Dict,
+	seen map[starlark.Value]starlark.Value,
+) (starlark.Value, error) {
 	copied, found := seen[original]
 	if found {
 		return copied, nil
@@ -160,7 +166,10 @@ func _Dict(original *starlark.Dict, seen map[starlark.Value]starlark.Value) (sta
 //
 // Revisions:
 //   - 2026-09-20 00:46: initial creation
-func _Tuple(original starlark.Tuple, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+func _Tuple(
+	original starlark.Tuple,
+	seen map[starlark.Value]starlark.Value,
+) (starlark.Value, error) {
 	made := make(starlark.Tuple, 0, len(original))
 
 	for _, element := range original {

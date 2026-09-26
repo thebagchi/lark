@@ -41,19 +41,28 @@ func TestBounded_TheWrappersGenerateTheirLines(t *testing.T) {
 	}{
 		{
 			step: &workflowpb.Step{Action: &workflowpb.Step_Repeat{
-				Repeat: &workflowpb.Repeat{Call: &workflowpb.Call{Function: "greet"}, Count: 3},
+				Repeat: &workflowpb.Repeat{
+					Call:  &workflowpb.Call{Function: "greet"},
+					Count: 3,
+				},
 			}},
 			want: "repeat(3, greet)",
 		},
 		{
 			step: &workflowpb.Step{Action: &workflowpb.Step_Retry{
-				Retry: &workflowpb.Retry{Call: &workflowpb.Call{Function: "fetch"}, Attempts: 5},
+				Retry: &workflowpb.Retry{
+					Call:     &workflowpb.Call{Function: "fetch"},
+					Attempts: 5,
+				},
 			}},
 			want: "retry(5, fetch)",
 		},
 		{
 			step: &workflowpb.Step{Action: &workflowpb.Step_Timeout{
-				Timeout: &workflowpb.Timeout{Call: &workflowpb.Call{Function: "slow"}, TimeoutMs: 2000},
+				Timeout: &workflowpb.Timeout{
+					Call:      &workflowpb.Call{Function: "slow"},
+					TimeoutMs: 2000,
+				},
 			}},
 			want: "timeout(2, slow)",
 		},
@@ -112,7 +121,11 @@ func TestBounded_RefusesADelay(t *testing.T) {
 		Functions: []*workflowpb.Function{_Fn("main", "")},
 		Threads: []*workflowpb.Thread{_Spine(&workflowpb.Step{
 			Action: &workflowpb.Step_Repeat{
-				Repeat: &workflowpb.Repeat{Call: &workflowpb.Call{Function: "greet"}, Count: 3, DelayMs: 500},
+				Repeat: &workflowpb.Repeat{
+					Call:    &workflowpb.Call{Function: "greet"},
+					Count:   3,
+					DelayMs: 500,
+				},
 			},
 		})},
 	})
@@ -160,7 +173,10 @@ func TestBounded_TheScriptRuns(t *testing.T) {
 		},
 		Threads: []*workflowpb.Thread{_Spine(
 			&workflowpb.Step{Action: &workflowpb.Step_Repeat{
-				Repeat: &workflowpb.Repeat{Call: &workflowpb.Call{Function: "step"}, Count: 3},
+				Repeat: &workflowpb.Repeat{
+					Call:  &workflowpb.Call{Function: "step"},
+					Count: 3,
+				},
 			}},
 			_Sleep(0.01),
 		)},

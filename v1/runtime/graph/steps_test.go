@@ -113,7 +113,8 @@ func TestSteps_TheConcurrentGraphGeneratesItsScript(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "def main():\n    h1 = spawn(first)\n    h2 = spawn(second)\n    join(h1, h2)\n    pass\n"
+	want := "def main():\n    h1 = spawn(first)\n    h2 = spawn(second)\n    join(h1, h2)\n" +
+		"    pass\n"
 
 	if !strings.Contains(string(out), want) {
 		t.Fatalf("want\n%q\ngot\n%q", want, out)
@@ -134,7 +135,10 @@ func TestSteps_ALeafKeepsItsBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, want := range []string{"def first():\n    return 1\n", "def second():\n    return 2\n"} {
+	for _, want := range []string{
+		"def first():\n    return 1\n",
+		"def second():\n    return 2\n",
+	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("want %q kept, got\n%s", want, out)
 		}
@@ -238,7 +242,8 @@ func TestSteps_TheScriptRuns(t *testing.T) {
 //
 // Generating a script must not depend on compiling or running one, so the
 // entry point's name, the spine's id and the three thread builtins are
-// declared here as well as where they are defined. That is a duplication, and this is what stops it
+// declared here as well as where they are defined. That is a duplication, and this is what stops
+// it
 // drifting: a rename on either side fails here rather than producing a script
 // that calls something nothing registers.
 //

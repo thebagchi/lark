@@ -54,7 +54,11 @@ func Lock(thread *starlark.Thread, name string) (func(), error) {
 	}
 
 	if locals.inside != "" {
-		return nil, fmt.Errorf("started inside an update of %q: %w", locals.inside, ErrNested)
+		return nil, fmt.Errorf(
+			"started inside an update of %q: %w",
+			locals.inside,
+			ErrNested,
+		)
 	}
 
 	slot := locals.run._Slot(name)
@@ -62,7 +66,12 @@ func Lock(thread *starlark.Thread, name string) (func(), error) {
 	select {
 	case slot <- struct{}{}:
 	case <-locals.ctx.Done():
-		return nil, fmt.Errorf("waiting for %q: %w: %w", name, ErrCancelled, locals.ctx.Err())
+		return nil, fmt.Errorf(
+			"waiting for %q: %w: %w",
+			name,
+			ErrCancelled,
+			locals.ctx.Err(),
+		)
 	}
 
 	locals.inside = name

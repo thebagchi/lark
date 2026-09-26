@@ -112,7 +112,12 @@ func _Begun(t *testing.T, ctx context.Context) (*starlark.Thread, func()) {
 //
 // Revisions:
 //   - 2026-09-21 09:46: initial creation
-func _Call(t *testing.T, thread *starlark.Thread, name string, args ...starlark.Value) (starlark.Value, error) {
+func _Call(
+	t *testing.T,
+	thread *starlark.Thread,
+	name string,
+	args ...starlark.Value,
+) (starlark.Value, error) {
 	t.Helper()
 
 	return starlark.Call(thread, core.Builtins()[name], starlark.Tuple(args), nil)
@@ -498,7 +503,11 @@ func TestRun_LeavesNoGoroutineBehind(t *testing.T) {
 func TestAssert_UsesStarlarkTruthiness(t *testing.T) {
 	bare := &starlark.Thread{Name: SCRIPT_NAME}
 
-	for _, value := range []starlark.Value{starlark.MakeInt(0), starlark.NewList(nil), starlark.None} {
+	for _, value := range []starlark.Value{
+		starlark.MakeInt(0),
+		starlark.NewList(nil),
+		starlark.None,
+	} {
 		_, err := _Call(t, bare, core.ASSERT, value)
 		if !errors.Is(err, core.ErrAssert) {
 			t.Fatalf("assert(%v) gave %v, want ErrAssert", value, err)
@@ -546,7 +555,13 @@ func TestAssert_RefusesALoneString(t *testing.T) {
 		t.Fatalf("assert(msg = ...) gave %v, want ErrAssert carrying the message", err)
 	}
 
-	_, err = _Call(t, bare, core.ASSERT, starlark.String("a truthy condition"), starlark.String(WHY))
+	_, err = _Call(
+		t,
+		bare,
+		core.ASSERT,
+		starlark.String("a truthy condition"),
+		starlark.String(WHY),
+	)
 	if err != nil {
 		t.Fatalf("a string condition with a message gave %v, want it to pass", err)
 	}
@@ -591,7 +606,11 @@ func TestSleep_RefusesWhatIsNotADuration(t *testing.T) {
 	thread, finish := _Begun(t, t.Context())
 	defer finish()
 
-	for _, given := range []starlark.Value{starlark.String("1"), starlark.MakeInt(-1), starlark.Float(1e300)} {
+	for _, given := range []starlark.Value{
+		starlark.String("1"),
+		starlark.MakeInt(-1),
+		starlark.Float(1e300),
+	} {
 		_, err := _Call(t, thread, core.SLEEP, given)
 		if !errors.Is(err, scheduler.ErrDuration) {
 			t.Fatalf("sleep(%v) gave %v, want ErrDuration", given, err)

@@ -175,7 +175,85 @@ var (
 //   - 2026-09-21 17:19: compiles into a bundle under -b
 //   - 2026-09-22 22:24: supplies a run's arguments under -a
 //   - 2026-09-23 07:06: an interrupt stops the run and exits 4
-func main() {
+//
+// _Prepared is the context a run is given, what to close when it is over, and
+// what the compiler needs.
+//
+// One function because these are one job - everything a run is told before it
+// starts - and they read in the order they are layered: where a transcript
+// goes, what arguments were supplied, how much memory may be used, and which
+// plugins are hosted.
+//
+// Exits rather than returning an error, as _Flags does, because there is no
+// caller but main.
+//
+// Revisions:
+//   - 2026-09-26 03:24: initial creation, lifted out of main
+func _Prepared(
+	stopping context.Context,
+	asked *_Asked,
+	path string,
+) (context.Context, func() error, []runtime.CompilerOption) {
+	ctx, kept, err := _Reporting(stopping, asked.logs, path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		os.Exit(NO_FILE)
+	}
+
+	ctx, err = _Supplying(ctx, asked.supplied)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		flag.Usage()
+		os.Exit(NO_INPUT)
+	}
+
+	ctx, err = _Allowing(ctx, asked.memory)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		flag.Usage()
+		os.Exit(NO_INPUT)
+	}
+
+	opts, hosted, err := _Hosting(asked.plugins)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		os.Exit(NO_FILE)
+	}
+
+	// Both closes, in one call, because main exits rather than returns and a
+	// deferred close would not run: the transcript has to be finished and the
+	// plugins have to be seen off on every path out.
+	closing := func() error {
+		return errors.Join(kept(), hosted())
+	}
+
+	return ctx, closing, opts
+}
+
+// _Asked is everything the command line said, after the pairs that cannot be
+// asked for together have been refused.
+//
+// A struct rather than eight returns, per CLAUDE.md: the caller would otherwise
+// take them in an order nothing checks.
+type _Asked struct {
+	path      string
+	noun      string
+	translate bool
+	logs      string
+	bundle    string
+	supplied  string
+	memory    int
+	plugins   string
+}
+
+// _Flags is the command line, read and checked.
+//
+// Exits rather than returning an error, because there is no caller but main and
+// a usage message is what a person wants here rather than a wrapped cause.
+//
+// Revisions:
+//   - 2026-09-26 03:20: initial creation, lifted out of main
+func _Flags() *_Asked {
 	var (
 		script    = flag.String(SCRIPT_FLAG, "", SCRIPT_USAGE)
 		described = flag.String(GRAPH_FLAG, "", GRAPH_USAGE)
@@ -201,13 +279,30 @@ func main() {
 		os.Exit(NO_INPUT)
 	}
 
-	path := *script
-	noun := SCRIPT
+	held := &_Asked{
+		path:      *script,
+		noun:      SCRIPT,
+		translate: *translate,
+		logs:      *logs,
+		bundle:    *bundle,
+		supplied:  *supplied,
+		memory:    *memory,
+		plugins:   *plugins,
+	}
 
 	if *described != "" {
-		path = *described
-		noun = GRAPH
+		held.path = *described
+		held.noun = GRAPH
 	}
+
+	return held
+}
+
+func main() {
+	asked := _Flags()
+
+	path := asked.path
+	noun := asked.noun
 
 	src, err := os.ReadFile(path)
 	if err != nil {
@@ -218,45 +313,25 @@ func main() {
 	// Stopping is the signal cancelling this context, which reaches the
 	// interpreter between instructions, so a script with no sleep in it stops
 	// as readily as one that blocks.
-	stopping, released := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	stopping, released := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
 	defer released()
 
-	ctx, kept, err := _Reporting(stopping, *logs, path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
-		os.Exit(NO_FILE)
-	}
-
-	ctx, err = _Supplying(ctx, *supplied)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
-		flag.Usage()
-		os.Exit(NO_INPUT)
-	}
-
-	ctx, err = _Allowing(ctx, *memory)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		flag.Usage()
-		os.Exit(NO_INPUT)
-	}
-
-	opts, hosted, err := _Hosting(*plugins)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
-		os.Exit(NO_FILE)
-	}
+	ctx, closing, opts := _Prepared(stopping, asked, path)
 
 	switch {
-	case noun == SCRIPT && *bundle != "":
-		err = _Bundle(path, src, *bundle, opts...)
-	case *bundle != "":
-		err = _BundleOf(path, src, *bundle, opts...)
-	case noun == SCRIPT && *translate:
+	case noun == SCRIPT && asked.bundle != "":
+		err = _Bundle(path, src, asked.bundle, opts...)
+	case asked.bundle != "":
+		err = _BundleOf(path, src, asked.bundle, opts...)
+	case noun == SCRIPT && asked.translate:
 		err = _Derive(path, src)
 	case noun == SCRIPT:
 		err = _Run(ctx, path, src, opts...)
-	case *translate:
+	case asked.translate:
 		err = _Emit(path, src)
 	default:
 		err = _Play(ctx, path, src, opts...)
@@ -267,9 +342,9 @@ func main() {
 	// is reported, unless the run already had something worse to say. The
 	// plugins go the same way, and for the same reason: nothing deferred here
 	// runs, so a deferred kill would leave them behind on every failing run.
-	closing := errors.Join(kept(), hosted())
+	ending := closing()
 	if err == nil {
-		err = closing
+		err = ending
 	}
 
 	if err == nil {
@@ -357,7 +432,11 @@ func (c *_Console) _Close() error {
 //
 // Revisions:
 //   - 2026-09-21 16:42: initial creation
-func _Reporting(ctx context.Context, dir string, path string) (context.Context, func() error, error) {
+func _Reporting(
+	ctx context.Context,
+	dir string,
+	path string,
+) (context.Context, func() error, error) {
 	console := new(_Console)
 
 	if dir == "" {

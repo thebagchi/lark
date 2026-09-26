@@ -115,7 +115,10 @@ func TestCheck_ANestedOrdinalIsADecimal(t *testing.T) {
 		t.Fatalf("thread_1 forking thread_1_2: %v", err)
 	}
 	if !errors.Is(graph.Check(_Forking("thread_1", "thread_1_02")), graph.ErrParentage) {
-		t.Fatalf("thread_1 forking thread_1_02: %v", graph.Check(_Forking("thread_1", "thread_1_02")))
+		t.Fatalf(
+			"thread_1 forking thread_1_02: %v",
+			graph.Check(_Forking("thread_1", "thread_1_02")),
+		)
 	}
 }
 
@@ -153,8 +156,12 @@ func _Forking(parent string, id string) *workflowpb.Graph {
 			Id: parent,
 			State: &workflowpb.Thread_Static{Static: &workflowpb.Static{
 				Steps: []*workflowpb.Step{
-					{Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: graph.ENTRY}}},
-					{Action: &workflowpb.Step_Fork{Fork: &workflowpb.Fork{Thread: id}}},
+					{Action: &workflowpb.Step_Call{
+						Call: &workflowpb.Call{Function: graph.ENTRY},
+					}},
+					{Action: &workflowpb.Step_Fork{
+						Fork: &workflowpb.Fork{Thread: id},
+					}},
 				},
 			}},
 		}},

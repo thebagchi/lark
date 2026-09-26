@@ -98,7 +98,11 @@ func TestHandle_FreezeChangesNothing(t *testing.T) {
 
 	handle.Freeze()
 
-	if handle.String() != before || handle.Name() != WORKER_NAME || handle.Thread() != WORKER_THREAD {
+	same := handle.String() == before
+	named := handle.Name() == WORKER_NAME
+	lane := handle.Thread() == WORKER_THREAD
+
+	if !same || !named || !lane {
 		t.Fatal("freezing a handle changed it")
 	}
 }

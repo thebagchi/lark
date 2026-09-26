@@ -69,7 +69,11 @@ func TestNumber_NamesAThreadAfterItsParent(t *testing.T) {
 	deep := run._Number(first)
 
 	if first != "thread_1" || second != "thread_2" {
-		t.Fatalf("the spine's children are %s and %s, want thread_1 and thread_2", first, second)
+		t.Fatalf(
+			"the spine's children are %s and %s, want thread_1 and thread_2",
+			first,
+			second,
+		)
 	}
 
 	if deep != "thread_1_1" {
@@ -172,7 +176,10 @@ func TestFail_EndsTheRunUnlessSomethingIsCatching(t *testing.T) {
 	caught := _Started(t.Context())
 
 	catching := _Thread(caught)
-	catching.SetLocal(LOCALS_KEY, &_Locals{run: caught, thread: SPINE, ctx: caught.ctx, catching: 1})
+	catching.SetLocal(
+		LOCALS_KEY,
+		&_Locals{run: caught, thread: SPINE, ctx: caught.ctx, catching: 1},
+	)
 
 	if err := Fail(catching, ErrNested); !errors.Is(err, ErrNested) {
 		t.Fatalf("want the cause back, got %v", err)

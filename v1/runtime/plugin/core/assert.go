@@ -80,7 +80,8 @@ func _Assert(
 	text, bare := cond.(starlark.String)
 	if bare && len(args) == 1 {
 		return nil, scheduler.Fail(thread, fmt.Errorf(
-			"%s got only the message %s: write %s(False, msg) to fail, or %s(msg = ...): %w",
+			"%s got only the message %s: write %s(False, msg) to fail, "+
+				"or %s(msg = ...): %w",
 			ASSERT,
 			text.String(),
 			ASSERT,

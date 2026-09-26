@@ -136,12 +136,14 @@ func TestRoundTrip_EverySampleDerivesRegeneratesAndBehaves(t *testing.T) {
 			}
 
 			if was.printed != now.printed {
-				t.Fatalf("printed differs\n--- was\n%s\n--- now\n%s\n--- generated\n%s",
+				t.Fatalf("printed differs\n--- was\n%s\n--- now\n%s\n"+
+					"--- generated\n%s",
 					was.printed, now.printed, out)
 			}
 
 			if was.failure != now.failure {
-				t.Fatalf("ended differently\n was: %s\n now: %s\n--- generated\n%s",
+				t.Fatalf("ended differently\n was: %s\n now: %s\n--- generated\n"+
+					"%s",
 					was.failure, now.failure, out)
 			}
 		})
@@ -207,7 +209,11 @@ func TestRoundTrip_ASecondPassChangesNothing(t *testing.T) {
 			twice := _Emitted(t, once, SAMPLES+name)
 
 			if string(once) != string(twice) {
-				t.Fatalf("a second pass differs\n--- once\n%s\n--- twice\n%s", once, twice)
+				t.Fatalf(
+					"a second pass differs\n--- once\n%s\n--- twice\n%s",
+					once,
+					twice,
+				)
 			}
 		})
 	}

@@ -175,7 +175,11 @@ func TestHost_CanDrawABundleBeforeItRuns(t *testing.T) {
 	for _, lane := range snap.GetThreads() {
 		for _, node := range lane.GetLive().GetNodes() {
 			if node.GetStatus() != workflowpb.Status_STATUS_PENDING {
-				t.Fatalf("%s is %v, want pending", node.GetFunction(), node.GetStatus())
+				t.Fatalf(
+					"%s is %v, want pending",
+					node.GetFunction(),
+					node.GetStatus(),
+				)
 			}
 		}
 	}

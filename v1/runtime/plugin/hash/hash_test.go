@@ -117,7 +117,8 @@ func TestHMAC_MatchesRFC4231(t *testing.T) {
 		},
 		{
 			"named either way round",
-			`hash.hmac(algorithm = "sha256", key = "Jefe", data = "what do ya want for nothing?")`,
+			`hash.hmac(algorithm = "sha256", key = "Jefe", data = "what do ya want ` +
+				`for nothing?")`,
 			"5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
 		},
 	})

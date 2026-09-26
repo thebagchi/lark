@@ -43,6 +43,10 @@ const (
 	SPLIT   = "split"
 	QUOTE   = "quote"
 
+	// BOUNDS is how many numbers FindSubmatchIndex gives per group: where it
+	// started and where it ended. So the group count is the slice over this.
+	BOUNDS = 2
+
 	// TEXT, START, END, GROUPS and NAMED are what a match calls its parts.
 	TEXT   = "text"
 	START  = "start"
@@ -385,10 +389,12 @@ func (r *_Regexp) _Given(
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func _Match(held *regexp.Regexp, text string, found []int) starlark.Value {
-	groups := make([]starlark.Value, 0, len(found)/2-1)
-	named := starlark.NewDict(len(found) / 2)
+	count := len(found) / BOUNDS
 
-	for index := 1; index < len(found)/2; index++ {
+	groups := make([]starlark.Value, 0, count-1)
+	named := starlark.NewDict(count)
+
+	for index := 1; index < count; index++ {
 		caught := _Caught(text, found, index)
 
 		groups = append(groups, caught)

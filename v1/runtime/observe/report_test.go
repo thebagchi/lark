@@ -249,7 +249,8 @@ func TestReport_NeverShowsACaughtFailure(t *testing.T) {
 			attempts[node.GetAttempt()] = true
 
 			if node.GetStatus() == workflowpb.Status_STATUS_FAILED {
-				t.Fatalf("attempt %d was reported failed while the retry was still going",
+				t.Fatalf("attempt %d was reported failed while the retry "+
+					"was still going",
 					node.GetAttempt())
 			}
 		}

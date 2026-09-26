@@ -91,7 +91,10 @@ func TestOf_AConstantIsNotAnArgument(t *testing.T) {
 	derived := _Derived(t, DECLARING).Graph
 
 	if derived.GetConstants()["limit"].GetValue().GetNumberValue() != 3 {
-		t.Fatalf("limit was carried as %v, want the constant 3", derived.GetConstants()["limit"])
+		t.Fatalf(
+			"limit was carried as %v, want the constant 3",
+			derived.GetConstants()["limit"],
+		)
 	}
 
 	if derived.GetArgs()["limit"] != nil {
@@ -116,7 +119,11 @@ func TestOf_AMalformedDeclarationIsRefused(t *testing.T) {
 
 	for name, declaring := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := graph.Of([]byte(declaring+"\ndef main():\n    pass\n"), SOURCED, nil)
+			_, err := graph.Of(
+				[]byte(declaring+"\ndef main():\n    pass\n"),
+				SOURCED,
+				nil,
+			)
 			if !errors.Is(err, graph.ErrNotCarried) {
 				t.Fatalf("got %v, want ErrNotCarried", err)
 			}

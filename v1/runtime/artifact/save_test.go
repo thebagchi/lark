@@ -122,7 +122,8 @@ func TestSave_IsInInitialisationOrder(t *testing.T) {
 		for spelling, name := range unit.GetLoads() {
 			if !seen[name] {
 				t.Fatalf(
-					"%s loads %q, resolved to %s, which is not saved before it",
+					"%s loads %q, resolved to %s, "+
+						"which is not saved before it",
 					unit.GetName(),
 					spelling,
 					name,

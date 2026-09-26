@@ -1,5 +1,6 @@
 // These tests are table driven because the thing under test is a
-// specification, and the rows are somebody else's: the check value every CRC catalogue publishes. A table written
+// specification, and the rows are somebody else's: the check value every CRC catalogue publishes.
+// A table written
 // from the implementation would agree with it by construction.
 //
 // The base encodings' vectors moved with them, to packages of their own.
@@ -60,7 +61,11 @@ func TestCRC32_RefusesASeedTooWideToBeAChecksum(t *testing.T) {
 	})
 
 	_Check(t, []struct{ name, expression, want string }{
-		{"the widest seed that fits still works", `crc32(b"abc", 4294967295)`, "899311407"},
+		{
+			"the widest seed that fits still works",
+			`crc32(b"abc", 4294967295)`,
+			"899311407",
+		},
 		{"and the plain checksum is unchanged", `crc32(b"abc")`, "891568578"},
 		{"and a seed of nothing is the plain checksum", `crc32(b"abc", 0)`, "891568578"},
 	})

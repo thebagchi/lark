@@ -60,7 +60,11 @@ func _Within(t *testing.T, root string, ceiling int64, expression string) (strin
 	}
 
 	thread := &starlark.Thread{Name: SCRIPT}
-	ending := scheduler.Begin(scheduler.Allowing(context.Background(), ceiling), thread, SCRIPT)
+	ending := scheduler.Begin(
+		scheduler.Allowing(context.Background(), ceiling),
+		thread,
+		SCRIPT,
+	)
 
 	value, err := starlark.EvalOptions(dialect.OPTIONS, thread, SCRIPT, expression, held)
 
@@ -215,14 +219,20 @@ func TestAppendlines_JoinsWhateverWasAlreadyThere(t *testing.T) {
 			named := _Put(t, root, "log.txt", item.start)
 
 			got, err := _Eval(t, root, fmt.Sprintf(
-				`file.appendlines(%q, ["c", "d"]) or [line for line in file.lines(%q)]`,
+				`file.appendlines(%q, ["c", "d"]) or [line for line in `+
+					`file.lines(%q)]`,
 				named, named))
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			if got != item.want {
-				t.Fatalf("starting from %q gave %s, want %s", item.start, got, item.want)
+				t.Fatalf(
+					"starting from %q gave %s, want %s",
+					item.start,
+					got,
+					item.want,
+				)
 			}
 		})
 	}
@@ -535,7 +545,8 @@ func TestErrFile_IsAnsweredWithoutBeingSaid(t *testing.T) {
 
 	narrow := map[string]string{
 		"a read past the ceiling": `file.read(path.join(root, "big.txt"))`,
-		"a line past the ceiling": `[line for line in file.lines(path.join(root, "big.txt"))]`,
+		"a line past the ceiling": `[line for line in file.lines(path.join(root, ` +
+			`"big.txt"))]`,
 	}
 
 	for name, expression := range narrow {
@@ -550,7 +561,10 @@ func TestErrFile_IsAnsweredWithoutBeingSaid(t *testing.T) {
 			}
 
 			if strings.Contains(err.Error(), larkfile.ErrFile.Error()) {
-				t.Fatalf("a memory refusal claimed the filesystem refused it: %v", err)
+				t.Fatalf(
+					"a memory refusal claimed the filesystem refused it: %v",
+					err,
+				)
 			}
 		})
 	}

@@ -266,7 +266,10 @@ def main():
 	sort.Ints(got)
 	sort.Ints(want)
 	if len(got) != 1600 || !_SlicesEqual(got, want) {
-		t.Fatalf("parallel bag differs from one thread drawing 1600 times, len %d", len(got))
+		t.Fatalf(
+			"parallel bag differs from one thread drawing 1600 times, len %d",
+			len(got),
+		)
 	}
 }
 
@@ -403,7 +406,8 @@ def main():
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `["127.0.0.1", "GET", "/apache_pb.gif", "200", "é", 3, 5, "é", ["a", "b", "c"], "b-n-n-", "b-n-n-"]`
+	want := `["127.0.0.1", "GET", "/apache_pb.gif", "200", "é", 3, 5, "é", ["a", "b", "c"], ` +
+		`"b-n-n-", "b-n-n-"]`
 	if value.String() != want {
 		t.Fatalf("got %s\nwant %s", value.String(), want)
 	}
@@ -421,7 +425,10 @@ def main():
 		t.Fatal(err)
 	}
 	if value.String() != "[[1], [1, 2]]" {
-		t.Fatalf("got %s, want the original left at [1] and the added list its own", value.String())
+		t.Fatalf(
+			"got %s, want the original left at [1] and the added list its own",
+			value.String(),
+		)
 	}
 }
 
@@ -462,12 +469,14 @@ func TestPatch_MovesInsideOneList(t *testing.T) {
 	cases := []struct{ name, expression, want string }{
 		{
 			"low index to a high one",
-			`patch_json({"a": ["a", "b", "c", "d"]}, [{"op": "move", "from": "/a/0", "path": "/a/3"}])`,
+			`patch_json({"a": ["a", "b", "c", "d"]}, [{"op": "move", "from": ` +
+				`"/a/0", "path": "/a/3"}])`,
 			`{"a": ["b", "c", "d", "a"]}`,
 		},
 		{
 			"high index to a low one",
-			`patch_json({"a": ["a", "b", "c", "d"]}, [{"op": "move", "from": "/a/3", "path": "/a/0"}])`,
+			`patch_json({"a": ["a", "b", "c", "d"]}, [{"op": "move", "from": ` +
+				`"/a/3", "path": "/a/0"}])`,
 			`{"a": ["d", "a", "b", "c"]}`,
 		},
 		{
@@ -509,7 +518,12 @@ func TestNumbers_AtTheEdge(t *testing.T) {
 	value, err := _Run(t, `
 def main():
     huge = 1208925819614629174706176
-    return [math.isnan(math.log(-1)), math.isinf(math.log(0)), math.ceil(huge) == huge, math.floor(huge) == huge]
+    return [
+        math.isnan(math.log(-1)),
+        math.isinf(math.log(0)),
+        math.ceil(huge) == huge,
+        math.floor(huge) == huge,
+    ]
 `)
 	if err != nil {
 		t.Fatal(err)

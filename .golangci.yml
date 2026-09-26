@@ -35,6 +35,20 @@ linters:
         - all
         - -ST1003
 
+    mnd:
+      # UnpackPositionalArgs takes the number of positional arguments it is
+      # about to fill, immediately before that many &pointers:
+      #
+      #   starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &name, &held)
+      #
+      # The number is not standing in for a meaning a name could carry - it is
+      # the count of the things beside it, and a reader checks it by counting
+      # them. Naming it would put the answer somewhere else and leave the
+      # reader unable to tell whether it was still right. Every other magic
+      # number this reported was named instead: BYTE, WRAPPED, TURN.
+      ignored-functions:
+        - 'starlark\.UnpackPositionalArgs'
+
     lll:
       # 99 columns, per CLAUDE.md. A tab counts as eight, which is what the
       # limit is measured in and what go.md says.
@@ -42,6 +56,18 @@ linters:
       tab-width: 8
 
   exclusions:
+    rules:
+      # funlen asks whether a function is doing too much, and answers by
+      # counting. That reads a test wrong: a table-driven test is long because
+      # the table is long, and an integration test is long because the scenario
+      # has phases. Splitting either to satisfy a count puts half a scenario in
+      # a function nobody calls twice, which is harder to follow than the long
+      # one. Product code is still held to it - cmd/lark's main was 62
+      # statements and was split when this went on.
+      - path: _test\.go
+        linters:
+          - funlen
+
     # strict rather than lax: lax also treats a file as generated on looser
     # hints, which lets a hand-written file leave the gate by mentioning the
     # wrong phrase in a header comment - a check that stopped looking, arriving

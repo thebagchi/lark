@@ -269,7 +269,13 @@ func TestLoad_ADirectoryOfPluginsIsStartedAndKeptReady(t *testing.T) {
 
 	dir := t.TempDir()
 
-	build := exec.Command("go", "build", "-o", filepath.Join(dir, "lark-clock.bin"), "./cmd/clock")
+	build := exec.Command(
+		"go",
+		"build",
+		"-o",
+		filepath.Join(dir, "lark-clock.bin"),
+		"./cmd/clock",
+	)
 	build.Dir = _ModuleRoot(t)
 
 	out, err := build.CombinedOutput()

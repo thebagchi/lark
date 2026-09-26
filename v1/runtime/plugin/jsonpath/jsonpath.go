@@ -210,7 +210,12 @@ func _LenJSON(
 		return starlark.MakeInt(sized.Len()), nil
 
 	default:
-		return nil, fmt.Errorf("%s: %s has no length: %w", fn.Name(), value.Type(), ErrKind)
+		return nil, fmt.Errorf(
+			"%s: %s has no length: %w",
+			fn.Name(),
+			value.Type(),
+			ErrKind,
+		)
 	}
 }
 

@@ -16,7 +16,11 @@ import (
 //
 // Revisions:
 //   - 2026-09-21 10:35: initial creation
-func _Counted(fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (*big.Int, int, error) {
+func _Counted(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (*big.Int, int, error) {
 	var (
 		number starlark.Int
 		width  int

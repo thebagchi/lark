@@ -116,7 +116,12 @@ func TestState_IsPerExecutionNotPerCompile(t *testing.T) {
 		}
 
 		if value.String() != FIRST_RUN {
-			t.Fatalf("run %d saw a count of %s, want %s", attempt, value.String(), FIRST_RUN)
+			t.Fatalf(
+				"run %d saw a count of %s, want %s",
+				attempt,
+				value.String(),
+				FIRST_RUN,
+			)
 		}
 	}
 }
@@ -266,7 +271,10 @@ func TestUpdate_AContendedNameEndsWithTheRun(t *testing.T) {
 	}
 
 	if time.Since(started) > PROMPT {
-		t.Fatalf("a run with a thread blocked on a lock took %s to end", time.Since(started))
+		t.Fatalf(
+			"a run with a thread blocked on a lock took %s to end",
+			time.Since(started),
+		)
 	}
 }
 
@@ -302,7 +310,10 @@ func TestState_AChangeIsInvisibleUntilPublished(t *testing.T) {
 	}
 
 	if value.String() != `[["one"], ["one", "two"]]` {
-		t.Fatalf("got %s, want the store unchanged beside the changed copy", value.String())
+		t.Fatalf(
+			"got %s, want the store unchanged beside the changed copy",
+			value.String(),
+		)
 	}
 }
 
@@ -345,7 +356,10 @@ func TestSet_IsNotLostToAnUpdateThatStartedEarlier(t *testing.T) {
 	}
 
 	if got.String() != `"from-set"` {
-		t.Fatalf("got %s, want the set that finished last to be what is stored", got.String())
+		t.Fatalf(
+			"got %s, want the set that finished last to be what is stored",
+			got.String(),
+		)
 	}
 }
 
@@ -560,10 +574,13 @@ def main():
 //   - 2026-09-24 21:12: cover the parenthesized spellings
 func TestSet_RefusesAVisibleFunctionBeforeItRuns(t *testing.T) {
 	cases := map[string]string{
-		"a declared function": "def helper():\n    return 1\n\ndef main():\n    state.set(\"k\", helper)\n",
-		"a lambda":            "def main():\n    state.set(\"k\", lambda: 1)\n",
-		"in parentheses":      "def helper():\n    return 1\n\ndef main():\n    state.set(\"k\", (helper))\n",
-		"and nested ones":     "def helper():\n    return 1\n\ndef main():\n    state.set(\"k\", ((helper)))\n",
+		"a declared function": "def helper():\n    return 1\n\ndef main():\n" +
+			"    state.set(\"k\", helper)\n",
+		"a lambda": "def main():\n    state.set(\"k\", lambda: 1)\n",
+		"in parentheses": "def helper():\n    return 1\n\ndef main():\n" +
+			"    state.set(\"k\", (helper))\n",
+		"and nested ones": "def helper():\n    return 1\n\ndef main():\n" +
+			"    state.set(\"k\", ((helper)))\n",
 	}
 
 	for name, script := range cases {

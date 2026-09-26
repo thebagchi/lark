@@ -126,7 +126,11 @@ func TestInts_ConvertToAndFromBytes(t *testing.T) {
 	_Check(t, []struct{ name, expression, want string }{
 		{"bytes2int", `bytes2int(b"\x01\x00")`, `256`},
 		{"bytes2int of nothing", `bytes2int(b"")`, `0`},
-		{"bytes2int past 64 bits", `bytes2int(b"\x01" + b"\x00" * 8)`, `18446744073709551616`},
+		{
+			"bytes2int past 64 bits",
+			`bytes2int(b"\x01" + b"\x00" * 8)`,
+			`18446744073709551616`,
+		},
 		{"int2bytes", `int2bytes(256, 2)`, `b"\x01\x00"`},
 		{"int2bytes zero padded", `int2bytes(1, 4)`, `b"\x00\x00\x00\x01"`},
 		{"int2bytes exact fit", `int2bytes(255, 1)`, `b"\xff"`},

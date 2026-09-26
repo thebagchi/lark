@@ -172,7 +172,10 @@ func TestRandom_ShufflesWithoutTouchingWhatItWasGiven(t *testing.T) {
 	}
 
 	if got.String() != `[[1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 8]]` {
-		t.Fatalf("got %s, want the original untouched and the shuffle a permutation", got.String())
+		t.Fatalf(
+			"got %s, want the original untouched and the shuffle a permutation",
+			got.String(),
+		)
 	}
 }
 
@@ -214,10 +217,12 @@ func TestRandom_RefusesWhatItCannotDo(t *testing.T) {
 //   - 2026-09-24 16:23: initial creation
 func TestInt_SpansTheWholeRange(t *testing.T) {
 	cases := map[string]string{
-		"to the top":        "return random.int(0, 9223372036854775807)",
-		"the whole of it":   "return random.int(-9223372036854775808, 9223372036854775807)",
-		"from the bottom":   "return random.int(-9223372036854775808, 0)",
-		"one short of full": "return random.int(-9223372036854775807, 9223372036854775807)",
+		"to the top": "return random.int(0, 9223372036854775807)",
+		"the whole of it": "return random.int(" +
+			"-9223372036854775808, 9223372036854775807)",
+		"from the bottom": "return random.int(-9223372036854775808, 0)",
+		"one short of full": "return random.int(" +
+			"-9223372036854775807, 9223372036854775807)",
 	}
 
 	for name, body := range cases {
@@ -240,12 +245,18 @@ func TestInt_SpansTheWholeRange(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 16:23: initial creation
 func TestInt_KeepsTheOrdinaryRanges(t *testing.T) {
-	got, err := _Expression(t, "return [random.int(0, 0), random.int(-1, -1), random.int(4, 4)]")
+	got, err := _Expression(
+		t,
+		"return [random.int(0, 0), random.int(-1, -1), random.int(4, 4)]",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if got.String() != "[0, -1, 4]" {
-		t.Fatalf("got %s, want each single-value range to give its one value", got.String())
+		t.Fatalf(
+			"got %s, want each single-value range to give its one value",
+			got.String(),
+		)
 	}
 }

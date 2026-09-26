@@ -108,7 +108,11 @@ func _Cancel(
 //
 // Revisions:
 //   - 2026-09-19 20:45: initial creation
-func _Handles(name string, args starlark.Tuple, kwargs []starlark.Tuple) ([]*scheduler.Handle, error) {
+func _Handles(
+	name string,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) ([]*scheduler.Handle, error) {
 	if len(kwargs) > 0 {
 		return nil, fmt.Errorf("%s takes no keyword arguments: %w", name, ErrNotAHandle)
 	}
