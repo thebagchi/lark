@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"sync"
 
 	"google.golang.org/grpc"
@@ -54,7 +55,7 @@ type Listener struct {
 	socket   string
 
 	guard    sync.Mutex
-	attached []*_Remote
+	attached map[string]*_Remote
 	started  []*exec.Cmd
 }
 
@@ -88,6 +89,7 @@ func Listen(socket string, token string, registry *plugin.Registry) (*Listener, 
 		registry: registry,
 		server:   grpc.NewServer(),
 		socket:   socket,
+		attached: map[string]*_Remote{},
 	}
 
 	pluginpb.RegisterServiceServer(listener.server, listener)
@@ -116,11 +118,14 @@ func (l *Listener) Close() error {
 
 	l.guard.Lock()
 	attached := l.attached
-	l.attached = nil
 	l.guard.Unlock()
 
+	// The adapters stay in the map, because they are still in the registry and
+	// their names are still in environments built from them. What ends is each
+	// one's stream.
 	for _, remote := range attached {
-		remote._Left()
+		_, gone := remote._Stream()
+		remote._Left(gone)
 	}
 
 	// Go's unix listener unlinks the socket when it closes, so by here the file
@@ -159,24 +164,22 @@ func (l *Listener) Register(stream pluginpb.Service_RegisterServer) error {
 		return ErrToken
 	}
 
-	remote := &_Remote{
-		name:    announced.GetName(),
-		names:   announced.GetNames(),
-		asks:    make(chan *pluginpb.Ask, _PENDING),
-		waiting: map[uint64]chan *pluginpb.Answer{},
-		gone:    make(chan struct{}),
+	remote, fresh := l._Adapter(announced.GetName())
+
+	// Into the registry the host was given, never DEFAULT, and only the first
+	// time this name is seen. A plugin that restarts reuses the adapter that is
+	// already registered, because the registry has no removal and a second one
+	// would clash with the first for as long as the host lived.
+	if fresh {
+		l.registry.Register(remote)
 	}
 
-	l.guard.Lock()
-	l.attached = append(l.attached, remote)
-	l.guard.Unlock()
+	asks, gone, err := remote._Attach(announced.GetNames())
+	if err != nil {
+		return err
+	}
 
-	// Into the registry the host was given, never DEFAULT. A remote plugin
-	// that comes and goes has no business in the registry every compiler in
-	// the process shares.
-	l.registry.Register(remote)
-
-	defer remote._Left()
+	defer remote._Left(gone)
 
 	err = stream.Send(&pluginpb.Response{
 		Of: &pluginpb.Response_Accepted{Accepted: &pluginpb.Accepted{}},
@@ -185,7 +188,7 @@ func (l *Listener) Register(stream pluginpb.Service_RegisterServer) error {
 		return err
 	}
 
-	return _Carry(stream, remote)
+	return _Carry(stream, remote, asks, gone)
 }
 
 // _Carry runs the stream until it closes: asks out, answers in.
@@ -196,7 +199,12 @@ func (l *Listener) Register(stream pluginpb.Service_RegisterServer) error {
 //
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
-func _Carry(stream pluginpb.Service_RegisterServer, remote *_Remote) error {
+func _Carry(
+	stream pluginpb.Service_RegisterServer,
+	remote *_Remote,
+	asks chan *pluginpb.Ask,
+	gone chan struct{},
+) error {
 	var sending sync.WaitGroup
 
 	sending.Add(1)
@@ -206,17 +214,17 @@ func _Carry(stream pluginpb.Service_RegisterServer, remote *_Remote) error {
 
 		for {
 			select {
-			case ask := <-remote.asks:
+			case ask := <-asks:
 				err := stream.Send(&pluginpb.Response{
 					Of: &pluginpb.Response_Ask{Ask: ask},
 				})
 				if err != nil {
-					remote._Left()
+					remote._Left(gone)
 
 					return
 				}
 
-			case <-remote.gone:
+			case <-gone:
 				return
 			}
 		}
@@ -227,7 +235,7 @@ func _Carry(stream pluginpb.Service_RegisterServer, remote *_Remote) error {
 	for {
 		held, err := stream.Recv()
 		if err != nil {
-			remote._Left()
+			remote._Left(gone)
 
 			if errors.Is(err, io.EOF) {
 				return nil
@@ -249,15 +257,47 @@ func _Carry(stream pluginpb.Service_RegisterServer, remote *_Remote) error {
 //   - 2026-09-25 00:20: initial creation
 func (l *Listener) Names() []string {
 	l.guard.Lock()
-	defer l.guard.Unlock()
+	attached := make([]*_Remote, 0, len(l.attached))
+
+	for _, remote := range l.attached {
+		attached = append(attached, remote)
+	}
+	l.guard.Unlock()
 
 	held := []string{}
 
-	for _, remote := range l.attached {
-		held = append(held, remote.names...)
+	for _, remote := range attached {
+		_, names := remote._Named()
+		held = append(held, names...)
 	}
 
+	sort.Strings(held)
+
 	return held
+}
+
+// _Adapter is the adapter for this plugin name, made if this is the first time
+// the name has been seen, and whether it was.
+//
+// Revisions:
+//   - 2026-09-26 01:48: initial creation
+func (l *Listener) _Adapter(name string) (*_Remote, bool) {
+	l.guard.Lock()
+	defer l.guard.Unlock()
+
+	held, found := l.attached[name]
+	if found {
+		return held, false
+	}
+
+	held = &_Remote{
+		name:    name,
+		waiting: map[uint64]chan *pluginpb.Answer{},
+	}
+
+	l.attached[name] = held
+
+	return held, true
 }
 
 // Registry is where this listener installs what attaches.
@@ -266,4 +306,37 @@ func (l *Listener) Names() []string {
 //   - 2026-09-25 00:20: initial creation
 func (l *Listener) Registry() *plugin.Registry {
 	return l.registry
+}
+
+// Live is the name of every plugin with a stream open now.
+//
+// Different from Names, which is what this listener carries: a plugin that has
+// died leaves its names behind, because they are in environments already built
+// from them, and only reappears here when a process attaches for it again. So
+// this is the question "is my plugin up", and Names is "what can a script
+// call".
+//
+// Revisions:
+//   - 2026-09-26 01:56: initial creation
+func (l *Listener) Live() []string {
+	l.guard.Lock()
+	attached := make([]*_Remote, 0, len(l.attached))
+
+	for _, remote := range l.attached {
+		attached = append(attached, remote)
+	}
+	l.guard.Unlock()
+
+	held := []string{}
+
+	for _, remote := range attached {
+		if remote._Live() {
+			name, _ := remote._Named()
+			held = append(held, name)
+		}
+	}
+
+	sort.Strings(held)
+
+	return held
 }

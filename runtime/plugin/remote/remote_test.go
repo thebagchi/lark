@@ -535,3 +535,114 @@ def main():
 			"not waiting on its caller", _STALLED)
 	}
 }
+
+// TestRemote_OneNameIsAnsweredByOneProcess is what keeps two plugins from each
+// answering half of one name's calls.
+//
+// The adapter now outlives a connection so that a plugin can be restarted. That
+// means a second process claiming a live name is a different thing from a
+// restart, and has to be told apart from one: the first is a mistake, the second
+// is the whole point.
+//
+// Revisions:
+//   - 2026-09-26 02:00: initial creation
+func TestRemote_OneNameIsAnsweredByOneProcess(t *testing.T) {
+	listener, socket := _Listening(t)
+
+	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, _Clock)
+	_Installed(t, listener, 1)
+
+	// A second process, same plugin name, while the first is still answering.
+	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, _Clock)
+
+	// Long enough that a second registration would have landed.
+	time.Sleep(200 * time.Millisecond)
+
+	if len(listener.Live()) != 1 {
+		t.Fatalf("%v are live, want one", listener.Live())
+	}
+
+	// And the first one is still the one answering.
+	got, err := _Ran(t, listener, "def main():\n    return clock.now()\n")
+	if err != nil {
+		t.Fatalf("the surviving plugin: %v", err)
+	}
+
+	if got != `"tick"` {
+		t.Fatalf("got %s", got)
+	}
+}
+
+// TestRemote_ARestartMayNotChangeWhatItSupplies is why a returning plugin is
+// held to the names it announced before.
+//
+// Its old names are already in environments that were built from them, and the
+// registry has no removal. A plugin that came back supplying something else
+// would leave the first set answering ErrGone forever with nothing able to take
+// them away.
+//
+// Revisions:
+//   - 2026-09-26 02:00: initial creation
+func TestRemote_ARestartMayNotChangeWhatItSupplies(t *testing.T) {
+	listener, socket := _Listening(t)
+
+	leave := _Answering(t, socket, TOKEN, CLOCK, []string{NOW, ADD}, _Clock)
+	_Installed(t, listener, 2)
+
+	leave()
+
+	deadline := time.Now().Add(_SETTLED)
+
+	for time.Now().Before(deadline) && len(listener.Live()) > 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Back with fewer names than it had.
+	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, _Clock)
+
+	time.Sleep(200 * time.Millisecond)
+
+	if len(listener.Live()) != 0 {
+		t.Fatalf("%v are live, want none: a renamed plugin was accepted", listener.Live())
+	}
+
+	// The names it had are still the names it has, so a script still compiles
+	// against them.
+	held := listener.Names()
+	if len(held) != 2 {
+		t.Fatalf("carries %v, want both of the original names", held)
+	}
+
+	// Back with the same names, in a different order, and it is the same set.
+	_Answering(t, socket, TOKEN, CLOCK, []string{ADD, NOW}, _Clock)
+	_Live(t, listener)
+
+	got, err := _Ran(t, listener, "def main():\n    return clock.add(2, 3)\n")
+	if err != nil {
+		t.Fatalf("after a restart announcing the same set: %v", err)
+	}
+
+	if got != "5.0" {
+		t.Fatalf("got %s", got)
+	}
+}
+
+// _Live waits until a plugin is answering.
+//
+// Revisions:
+//   - 2026-09-26 02:00: initial creation
+func _Live(t *testing.T, listener *remote.Listener) {
+	t.Helper()
+
+	deadline := time.Now().Add(_SETTLED)
+
+	for time.Now().Before(deadline) {
+		if len(listener.Live()) > 0 {
+			return
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatal("no plugin is answering")
+}

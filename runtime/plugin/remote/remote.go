@@ -44,6 +44,14 @@ var (
 	// ErrGone is returned when the plugin that supplied a name has left.
 	ErrGone = errors.New("the plugin that supplied this name has gone")
 
+	// ErrAttached is returned to a plugin claiming a name another process is
+	// already answering for.
+	ErrAttached = errors.New("a plugin of this name is already attached")
+
+	// ErrRenamed is returned to a returning plugin announcing different names
+	// from the ones it announced before.
+	ErrRenamed = errors.New("a plugin may not change what it supplies by restarting")
+
 	// ErrRemote is returned for a failure the plugin itself reported.
 	ErrRemote = errors.New("the plugin refused")
 
@@ -51,20 +59,106 @@ var (
 	ErrArgument = errors.New("not data a plugin can be given")
 )
 
-// _Remote is one attached plugin, seen by the host as an ordinary Plugin.
+// _Remote is one plugin as the host sees it, across however many times its
+// process has attached.
 //
 // This is what makes the wire look like the registry: Name and Values are all
 // the runtime ever asks for, and neither says anything about gRPC.
+//
+// One of these per plugin name, not per connection, and that is the whole of
+// how a plugin can be restarted. The registry only ever appends - it has no
+// removal, deliberately, because a name that could be taken back is a name a
+// script cannot rely on - so a second adapter for a returning plugin would
+// clash with the first forever. Instead the adapter outlives the process and
+// takes a new stream when one arrives.
 type _Remote struct {
-	name  string
-	names []string
+	name string
 
-	asking  sync.Mutex
+	guard   sync.Mutex
+	names   []string
 	asks    chan *pluginpb.Ask
-	waiting map[uint64]chan *pluginpb.Answer
-	ticket  atomic.Uint64
 	gone    chan struct{}
-	once    sync.Once
+	live    bool
+	waiting map[uint64]chan *pluginpb.Answer
+
+	ticket atomic.Uint64
+}
+
+// _Attach gives this plugin a new stream to answer on.
+//
+// Refuses a second stream while one is live, so two processes cannot both claim
+// one name and answer half its calls each. Refuses a returning plugin that
+// announces different names, because the names are already in environments that
+// were built from them.
+//
+// Returns the channels this stream is to use. They are handed back rather than
+// read from the struct, so a later attach cannot make an earlier stream's
+// goroutines write to the wrong place.
+//
+// Revisions:
+//   - 2026-09-26 01:48: initial creation
+func (r *_Remote) _Attach(names []string) (chan *pluginpb.Ask, chan struct{}, error) {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+
+	if r.live {
+		return nil, nil, fmt.Errorf("%s: %w", r.name, ErrAttached)
+	}
+
+	if r.names != nil && !_Same(r.names, names) {
+		return nil, nil, fmt.Errorf("%s: was %v, now %v: %w",
+			r.name, r.names, names, ErrRenamed)
+	}
+
+	r.names = names
+	r.asks = make(chan *pluginpb.Ask, _PENDING)
+	r.gone = make(chan struct{})
+	r.live = true
+
+	return r.asks, r.gone, nil
+}
+
+// _Stream is the channels a call should use, read together so they belong to
+// the same attach.
+//
+// Revisions:
+//   - 2026-09-26 01:48: initial creation
+func (r *_Remote) _Stream() (chan *pluginpb.Ask, chan struct{}) {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+
+	return r.asks, r.gone
+}
+
+// _Same reports whether two announcements name the same set.
+//
+// Order is not a difference: what a plugin supplies is a set, and a plugin that
+// listed its names differently on restart has not changed what it supplies.
+//
+// Revisions:
+//   - 2026-09-26 01:48: initial creation
+func _Same(held []string, given []string) bool {
+	if len(held) != len(given) {
+		return false
+	}
+
+	seen := map[string]int{}
+
+	for _, name := range held {
+		seen[name]++
+	}
+
+	for _, name := range given {
+		seen[name]--
+	}
+
+	for _, count := range seen {
+		if count != 0 {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Name is what a conflict report points at.
@@ -85,10 +179,14 @@ func (r *_Remote) Name() string {
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
 func (r *_Remote) Values() starlark.StringDict {
+	r.guard.Lock()
+	names := r.names
+	r.guard.Unlock()
+
 	held := starlark.StringDict{}
 	modules := map[string]starlark.StringDict{}
 
-	for _, named := range r.names {
+	for _, named := range names {
 		module, member, dotted := strings.Cut(named, SEPARATOR)
 
 		if !dotted {
@@ -204,21 +302,29 @@ func (r *_Remote) _Ask(
 	id := r.ticket.Add(1)
 	answers := make(chan *pluginpb.Answer, 1)
 
-	r.asking.Lock()
+	r.guard.Lock()
 	r.waiting[id] = answers
-	r.asking.Unlock()
+	r.guard.Unlock()
 
 	defer func() {
-		r.asking.Lock()
+		r.guard.Lock()
 		delete(r.waiting, id)
-		r.asking.Unlock()
+		r.guard.Unlock()
 	}()
 
 	ask := &pluginpb.Ask{Id: id, Name: named, Args: args}
 
+	// Read together, so both belong to the same attach: a plugin that restarts
+	// between these two lines would otherwise have this call writing to one
+	// stream and watching another.
+	asks, gone := r._Stream()
+	if asks == nil {
+		return nil, fmt.Errorf("%s: %w", who, ErrGone)
+	}
+
 	select {
-	case r.asks <- ask:
-	case <-r.gone:
+	case asks <- ask:
+	case <-gone:
 		return nil, fmt.Errorf("%s: %w", who, ErrGone)
 	case <-ctx.Done():
 		return nil, _Cancelled(who, ctx)
@@ -232,7 +338,7 @@ func (r *_Remote) _Ask(
 
 		return _Starlark(answer.GetResult())
 
-	case <-r.gone:
+	case <-gone:
 		return nil, fmt.Errorf("%s: %w", who, ErrGone)
 	case <-ctx.Done():
 		return nil, _Cancelled(who, ctx)
@@ -256,9 +362,9 @@ func _Cancelled(who string, ctx context.Context) error {
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
 func (r *_Remote) _Answered(answer *pluginpb.Answer) {
-	r.asking.Lock()
+	r.guard.Lock()
 	waiting, found := r.waiting[answer.GetId()]
-	r.asking.Unlock()
+	r.guard.Unlock()
 
 	if !found {
 		return
@@ -270,13 +376,53 @@ func (r *_Remote) _Answered(answer *pluginpb.Answer) {
 	}
 }
 
-// _Left marks this plugin as gone, once, so every waiting call fails rather
-// than blocking on a stream nobody is reading.
+// _Left marks the given stream as gone, so every call waiting on it fails
+// rather than blocking on something nobody is reading.
+//
+// Takes the stream it is ending rather than reading the current one. An old
+// connection tearing down after a new one has attached would otherwise close
+// the new one's channel and leave a live plugin unreachable. Idempotent for the
+// same reason: a stream can be reported gone by its reader and its writer both.
 //
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
-func (r *_Remote) _Left() {
-	r.once.Do(func() {
-		close(r.gone)
-	})
+//   - 2026-09-26 01:48: ends one stream rather than the plugin, so a restart is
+//     not undone by the connection it replaced
+func (r *_Remote) _Left(gone chan struct{}) {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+
+	if r.gone != gone {
+		return
+	}
+
+	if !r.live {
+		return
+	}
+
+	r.live = false
+
+	close(gone)
+}
+
+// _Named is this plugin's name and what it currently supplies.
+//
+// Revisions:
+//   - 2026-09-26 01:48: initial creation
+func (r *_Remote) _Named() (string, []string) {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+
+	return r.name, r.names
+}
+
+// _Live reports whether a process is answering for this plugin now.
+//
+// Revisions:
+//   - 2026-09-26 01:56: initial creation
+func (r *_Remote) _Live() bool {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+
+	return r.live
 }

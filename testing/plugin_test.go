@@ -97,19 +97,18 @@ func _Host(t *testing.T) (*remote.Listener, string) {
 	return listener, socket
 }
 
-// _Attached starts the plugin and waits for its names to arrive.
+// _Attached starts the plugin and waits for it to be answering.
 //
-// Waits for the count to grow rather than to be more than zero. A listener that
-// has already carried a plugin still reports its names after it died, so "more
-// than none" is true before the new one has said anything - which is how this
-// first read as the host having stopped serving when it had not.
+// Waits on Live rather than on Names, because a restart does not add a name:
+// the adapter outlives the process, so the names were already there and only
+// the connection is new. Counting names was how this first read as a
+// replacement never arriving when it had.
 //
 // Revisions:
 //   - 2026-09-25 07:02: initial creation
+//   - 2026-09-26 01:56: waits on Live, so a restart is seen
 func _Attached(t *testing.T, listener *remote.Listener, binary string, socket string) *exec.Cmd {
 	t.Helper()
-
-	before := len(listener.Names())
 
 	held := exec.Command(binary)
 	held.Stderr = os.Stderr
@@ -135,7 +134,7 @@ func _Attached(t *testing.T, listener *remote.Listener, binary string, socket st
 	deadline := time.Now().Add(_ATTACHED)
 
 	for time.Now().Before(deadline) {
-		if len(listener.Names()) > before {
+		if len(listener.Live()) > 0 {
 			return held
 		}
 
@@ -173,7 +172,7 @@ func TestPlugin_AnotherProcessSuppliesNames(t *testing.T) {
 }
 
 // TestPlugin_KillingItFailsItsNamesAndNotTheHost is what a client inside this
-// process cannot prove.
+// process cannot prove, and what happens after.
 //
 // The plugin is killed outright, so it says no goodbye and closes nothing. The
 // call has to fail rather than wait on a stream nobody is reading, and this
@@ -182,6 +181,8 @@ func TestPlugin_AnotherProcessSuppliesNames(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-25 07:02: initial creation
+//   - 2026-09-26 01:52: a replacement works, where it used to be refused as a
+//     conflict with the plugin that had died
 func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 	listener, socket := _Host(t)
 	held := _Attached(t, listener, _Clock(t), socket)
@@ -232,14 +233,24 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 		t.Fatal("the names went away with the process")
 	}
 
-	// And the host is still serving: another plugin can attach and work.
+	// And a replacement works. This is what the adapter outliving its
+	// connection is for: the registry has no removal, so a second adapter for
+	// the same name would have clashed with the dead one for as long as the
+	// host lived, and a plugin could be started exactly once.
 	_Attached(t, listener, _Clock(t), socket)
 
-	// The second plugin supplies the same names as the first, which the
-	// registry refuses - the conflict is the proof that it attached.
-	_, err = compiler.Compile("again.star", src)
-	if !errors.Is(err, plugin.ErrConflict) {
-		t.Fatalf("a second plugin after the kill: %v, want ErrConflict", err)
+	built, err = compiler.Compile("again.star", src)
+	if err != nil {
+		t.Fatalf("compiling after a restart: %v", err)
+	}
+
+	got, err = built.Run(t.Context())
+	if err != nil {
+		t.Fatalf("calling a restarted plugin: %v", err)
+	}
+
+	if got.String() != "2.0" {
+		t.Fatalf("after the restart, got %s", got)
 	}
 }
 
