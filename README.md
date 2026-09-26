@@ -896,10 +896,30 @@ A panicking builtin is recovered and becomes an error; a stack overflow is not
 recoverable in Go, so `WithRecover` cannot help.
 
 **The honest summary: run a script you do not trust in a process you can afford
-to lose**, under an operating-system limit rather than this one. A step limit, a
-deadline, and accounting for the interpreter's own allocations are all unchosen.
-`starlark-go` offers `SetMaxExecutionSteps`, which would bound the loop but not
-the stack and not the memory.
+to lose, under a cgroup.** Two limits that look like they would help do not, and
+both were measured on the script above:
+
+- **`GOMEMLIMIT` does nothing here.** It is a *soft* limit: it makes the
+  collector work harder and never fails an allocation, so live data still grows.
+  Set to 300MiB, the script still reached 926MB.
+- **`ulimit -v` breaks the program at startup**, whatever the script. Go reserves
+  a large virtual address space up front, so an address-space cap gives
+  `fatal error: failed to reserve page summary memory` before `main` runs. It
+  does this to a script that returns `1`.
+
+A container memory limit — cgroup `memory.max` — is the one that works, because
+exceeding it kills the process, which is a thing Go tolerates and this runtime
+cannot do for itself.
+
+**An allocator inside the runtime would not close this.** `starlark-go` exposes
+no allocation hook: `SetMaxExecutionSteps` and `SetLocal` are the only setters on
+a thread. So nothing this runtime owns is consulted when a script appends to a
+list, and centralising the charges it *can* see would improve their bookkeeping
+without widening what they cover. Closing it properly means accounting inside the
+interpreter.
+
+A step limit and a deadline are unchosen. `SetMaxExecutionSteps` would bound the
+loop, though neither the stack nor the memory.
 
 ## A bundle carries its own picture
 
