@@ -54,25 +54,18 @@ func Beside(thread *starlark.Thread, target starlark.Callable, opts ...Option) (
 		return nil, err
 	}
 
+	// A thread is the largest thing this library allocates for a script, and it
+	// went uncharged until 2026-09-27: 20,000 spawned threads took 287MB under
+	// a ceiling of one. Charged here, before anything is built, so nothing has
+	// to be unwound when a run cannot afford another - and credited when the
+	// thread ends, which is exactly as long as it costs anything.
+	err = parent.run.budget.Charge(THREAD_COST)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", target.Name(), err)
+	}
+
 	inner, stop := context.WithCancel(parent.ctx)
-
-	child := &_Locals{
-		run:      parent.run,
-		ctx:      inner,
-		attempt:  parent.attempt,
-		catching: parent.catching,
-		inside:   parent.inside,
-
-		// Never inherited. The lock belongs to the evaluation that took it,
-		// so a child carries the fact that one is held without being the one
-		// holding it - which is what lets the refusal say which of the two it
-		// is refusing.
-		holding: false,
-	}
-
-	for _, opt := range opts {
-		opt(parent, child)
-	}
+	child := _Inherited(parent, inner, opts)
 
 	owns := child.thread == ""
 	if owns {
@@ -98,6 +91,7 @@ func Beside(thread *starlark.Thread, target starlark.Callable, opts ...Option) (
 	parent.run.group.Add(1)
 
 	go func() {
+		defer parent.run.budget.Credit(THREAD_COST)
 		defer parent.run.group.Done()
 		defer close(handle.done)
 		defer stop()
@@ -110,6 +104,32 @@ func Beside(thread *starlark.Thread, target starlark.Callable, opts ...Option) (
 	}()
 
 	return handle, nil
+}
+
+// _Inherited is the locals a child evaluation starts with.
+//
+// Revisions:
+//   - 2026-09-27 01:34: initial creation, lifted out of Beside
+func _Inherited(parent *_Locals, ctx context.Context, opts []Option) *_Locals {
+	child := &_Locals{
+		run:      parent.run,
+		ctx:      ctx,
+		attempt:  parent.attempt,
+		catching: parent.catching,
+		inside:   parent.inside,
+
+		// Never inherited. The lock belongs to the evaluation that took it, so a
+		// child carries the fact that one is held without being the one holding
+		// it - which is what lets the refusal say which of the two it is
+		// refusing.
+		holding: false,
+	}
+
+	for _, opt := range opts {
+		opt(parent, child)
+	}
+
+	return child
 }
 
 // Attempt marks the evaluation as attempt n of a repeat or a retry, on the

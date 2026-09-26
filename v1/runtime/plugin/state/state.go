@@ -47,6 +47,12 @@ type _State struct{}
 type _Store struct {
 	guard  sync.RWMutex
 	values map[string]starlark.Value
+
+	// charged is what each name was charged against the run's budget, so
+	// replacing a value adjusts by the difference rather than walking the old
+	// one again. A store holding a large value would otherwise pay for
+	// measuring it on every set to that name.
+	charged map[string]int64
 }
 
 // Name is what this plugin is called when a conflict has to name it.
@@ -89,7 +95,8 @@ func (s *_State) Values() starlark.StringDict {
 func _Of(thread *starlark.Thread) (*_Store, error) {
 	return scheduler.Shared(thread, NAME, func() *_Store {
 		return &_Store{
-			values: map[string]starlark.Value{},
+			values:  map[string]starlark.Value{},
+			charged: map[string]int64{},
 		}
 	})
 }
@@ -164,10 +171,10 @@ func _Set(
 
 	value.Freeze()
 
-	store.guard.Lock()
-	defer store.guard.Unlock()
-
-	store.values[name] = value
+	err = store._Keep(thread, name, value)
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
+	}
 
 	return starlark.None, nil
 }
@@ -337,10 +344,52 @@ func (s *_Store) _Apply(
 
 	updated.Freeze()
 
+	err = s._Keep(thread, name, updated)
+	if err != nil {
+		return nil, err
+	}
+
+	return updated, nil
+}
+
+// _Keep puts value under name, charging the run for what holding it costs.
+//
+// A store is the one thing here that keeps what a script gave it for the life of
+// the run: there is no delete, so a name once set is held until the run ends.
+// That went uncharged until 2026-09-27, which meant a script could fill memory
+// through the one call whose whole purpose is to hold things.
+//
+// The difference rather than the value, because a name is usually replaced
+// rather than added: setting the same key a thousand times should cost what one
+// of them costs. What was charged is remembered per name, so the old value is
+// not walked again.
+//
+// Returns ErrMemory when the run cannot afford the increase, and stores nothing
+// in that case - the value a script has is unchanged, which is the only answer
+// that leaves the store consistent.
+//
+// Revisions:
+//   - 2026-09-27 01:26: initial creation
+func (s *_Store) _Keep(thread *starlark.Thread, name string, value starlark.Value) error {
+	budget := scheduler.Allowance(thread)
+	size := deep.Size(value)
+
 	s.guard.Lock()
 	defer s.guard.Unlock()
 
-	s.values[name] = updated
+	before := s.charged[name]
 
-	return updated, nil
+	if size > before {
+		err := budget.Charge(size - before)
+		if err != nil {
+			return err
+		}
+	} else {
+		budget.Credit(before - size)
+	}
+
+	s.values[name] = value
+	s.charged[name] = size
+
+	return nil
 }

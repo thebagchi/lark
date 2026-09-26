@@ -841,7 +841,16 @@ both live. `file.lines` charges a line at a time. What a value reserves is given
 back as it is handed over, so a loop reading a thousand files is bounded by the
 largest of them rather than their sum.
 
-**What the budget does not cover is a script's own memory**, and the gap is
+**What the budget charges** is what the library allocates whose size the script
+has not already paid for: a file read, a spawned thread, a value put in the
+store. A thread costs about 14KB - a goroutine, an interpreter thread, its locals
+and a handle - and twenty thousand of them took 287MB before that was charged.
+The store is charged because nothing deletes from it: a name once set is held
+until the run ends, so `state.set` is the one call whose purpose is to keep
+something. Each is credited when it goes: a thread when it ends, a stored value
+when it is replaced, a read value when it is handed over.
+
+**What it does not cover is a script's own memory**, and the gap is
 wide. This is a script that asks the library for nothing:
 
 ```python
@@ -859,12 +868,22 @@ budget is never consulted, because every byte was allocated by the interpreter
 rather than by this library. Raise the loop count and the process dies, whatever
 `-m` says.
 
-So `-m` is a guard on `file.read` and its neighbours, not a sandbox.
-`starlark-go` has no memory accounting of its own, so what the budget counts is
-what could be counted honestly, not what would be useful. It also bounds one
-allocation and every allocation in flight at once, rather than the total a script
-still holds: a value is credited back as it is handed over, after which Go's
-collector owns it.
+So `-m` is a guard on the calls that charge it, not a sandbox. `starlark-go` has
+no memory accounting of its own, so what the budget counts is what could be
+counted honestly.
+
+That is also why the encoders do not charge. `base64.encode` allocates a third
+again as much as it is given, but what it is given is a string the script built
+and nothing charged — so:
+
+```python
+held = "x" * 200000000        # 200MB, uncharged: the interpreter's
+base64.encode(held)          # 267MB more, and the process is at 926MB
+```
+
+runs to completion under `-m 1`. Charging the encode would refuse the third after
+the process already held the two hundred. Closing that means accounting inside
+the interpreter, which is not something this runtime can add from outside.
 
 **Compute is not bounded either.** No step limit, no deadline. A script can loop
 forever; measured, one ran until it was killed from outside, and nothing in the

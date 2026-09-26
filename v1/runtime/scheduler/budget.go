@@ -10,6 +10,20 @@ import (
 )
 
 const (
+	// THREAD_COST is what one spawned thread is charged: a goroutine with its
+	// stack, an interpreter thread, the locals it carries and a handle.
+	//
+	// Measured 2026-09-27 on a script spawning threads that sleep, as peak
+	// resident memory over a baseline of 11.9MB: 5,000 threads cost 11.9KB
+	// each, 20,000 cost 13.8KB, 40,000 cost 13.7KB. Rounded up to 14KB, so the
+	// charge is never under what a thread actually takes.
+	//
+	// A round number rather than a measurement of the real thing, because Go
+	// will not say what a goroutine costs and a stack grows on use. What this
+	// buys is that spawning without limit is refused; what it does not buy is
+	// an exact figure.
+	THREAD_COST = 14 << 10
+
 	// CEILING is how much memory one run may hold through this library at
 	// once, until a host chooses otherwise.
 	//

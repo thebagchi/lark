@@ -116,3 +116,127 @@ func TestCeiling_IsGivenBackBetweenReads(t *testing.T) {
 		t.Fatalf("read %s bytes in total, want %d", got, 100*_BLOB)
 	}
 }
+
+// TestCeiling_ASpawnedThreadIsCharged is the largest thing this library
+// allocates for a script, and it went uncharged until it was measured.
+//
+// A thread is a goroutine with its stack, an interpreter thread, its locals and
+// a handle. Measured 2026-09-27 at about 14KB each: twenty thousand of them took
+// 287MB under a ceiling of one megabyte, and succeeded.
+//
+// Revisions:
+//   - 2026-09-27 01:40: initial creation
+func TestCeiling_ASpawnedThreadIsCharged(t *testing.T) {
+	src := []byte(`
+def quiet():
+    sleep(5)
+
+    return 1
+
+def main():
+    held = []
+
+    for i in range(200):
+        held.append(spawn(quiet))
+
+    return len(held)
+`)
+
+	built, err := runtime.NewCompiler().Compile("threads.star", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Room for a handful of threads, nowhere near two hundred.
+	_, err = built.Run(scheduler.Allowing(t.Context(), 10*scheduler.THREAD_COST))
+	if !errors.Is(err, scheduler.ErrMemory) {
+		t.Fatalf("two hundred threads under ten threads' worth: %v, want ErrMemory", err)
+	}
+}
+
+// TestCeiling_AThreadIsCreditedWhenItEnds is what keeps the charge from being a
+// limit on how many threads a run may ever start.
+//
+// Two hundred threads one at a time hold one thread's worth at a time. If the
+// charge were never given back, the eleventh would fail under a ceiling the
+// first passed - and spawning in a loop is the ordinary shape of this library's
+// work.
+//
+// Revisions:
+//   - 2026-09-27 01:40: initial creation
+func TestCeiling_AThreadIsCreditedWhenItEnds(t *testing.T) {
+	src := []byte(`
+def quick():
+    return 1
+
+def main():
+    total = 0
+
+    for i in range(200):
+        total += join(spawn(quick))[0]
+
+    return total
+`)
+
+	built, err := runtime.NewCompiler().Compile("churn.star", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := built.Run(scheduler.Allowing(t.Context(), 10*scheduler.THREAD_COST))
+	if err != nil {
+		t.Fatalf("two hundred threads one at a time: %v", err)
+	}
+
+	if got.String() != "200" {
+		t.Fatalf("got %s, want 200", got)
+	}
+}
+
+// TestCeiling_TheStoreIsChargedForWhatItHolds covers the one call whose purpose
+// is to keep something for the life of the run.
+//
+// There is no delete, so a name once set is held until the run ends. A script
+// could fill memory through it and nothing said so until 2026-09-27.
+//
+// Revisions:
+//   - 2026-09-27 01:40: initial creation
+func TestCeiling_TheStoreIsChargedForWhatItHolds(t *testing.T) {
+	hoard := []byte(`
+def main():
+    for i in range(20000):
+        state.set("k%d" % i, "a value long enough to be worth counting, number %d" % i)
+
+    return "stored"
+`)
+
+	built, err := runtime.NewCompiler().Compile("hoard.star", hoard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
+	if !errors.Is(err, scheduler.ErrMemory) {
+		t.Fatalf("twenty thousand names under %d bytes: %v, want ErrMemory", _NARROW, err)
+	}
+
+	// One name replaced many times costs what one of them costs, because the
+	// store charges the difference and remembers what it charged.
+	reset := []byte(`
+def main():
+    for i in range(20000):
+        state.set("k", "a value long enough to be worth counting, number %d" % i)
+
+    return state.get("k")
+`)
+
+	built, err = runtime.NewCompiler().Compile("reset.star", reset)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
+	if err != nil {
+		t.Fatalf("one name set twenty thousand times: %v", err)
+	}
+}

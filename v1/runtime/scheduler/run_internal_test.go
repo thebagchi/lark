@@ -28,12 +28,14 @@ const (
 // Revisions:
 //   - 2026-09-19 21:57: initial creation
 //   - 2026-09-21 08:09: builds the maps a run now holds
+//   - 2026-09-27 01:10: carries a budget, which spawning now charges
 func _Started(ctx context.Context) *_Run {
 	inner, stop := context.WithCancel(ctx)
 
 	return &_Run{
 		ctx:     inner,
 		stop:    stop,
+		budget:  NewBudget(CEILING),
 		ordinal: make(map[string]int32),
 		shared:  make(map[string]any),
 		locks:   make(map[string]chan struct{}),
