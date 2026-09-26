@@ -18,6 +18,7 @@
 package remote
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,6 +31,7 @@ import (
 
 	pluginpb "github.com/thebagchi/lark/proto/gen/plugin"
 	"github.com/thebagchi/lark/runtime/plugin/deep"
+	"github.com/thebagchi/lark/runtime/scheduler"
 )
 
 const (
@@ -130,7 +132,7 @@ func (r *_Remote) _Builtin(named string, shown string) *starlark.Builtin {
 			return nil, err
 		}
 
-		return r._Ask(fn.Name(), named, sent)
+		return r._Ask(thread, fn.Name(), named, sent)
 	})
 }
 
@@ -172,13 +174,33 @@ func _Sendable(who string, args starlark.Tuple) ([]*structpb.Value, error) {
 // once: answers come back down one stream in whatever order the plugin
 // finishes them, so each is claimed by the caller that asked.
 //
+// Waits on the caller's context as well, which every blocking builtin owes -
+// the same debt scheduler.Wait names. Without it a timeout around a plugin call
+// waited the plugin out: measured with the process stopped mid-call, timeout(2)
+// had not returned after twenty-five seconds, and an interrupt could not reach
+// it either. A plugin that never answers would have held the run for as long as
+// it liked.
+//
+// Returns ErrCancelled wrapping the context's error when the caller is
+// cancelled first. The plugin is not told: the answer it eventually sends is
+// dropped by _Answered, because nobody is waiting for it any more.
+//
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
+//   - 2026-09-26 01:34: waits on the caller's context
 func (r *_Remote) _Ask(
+	thread *starlark.Thread,
 	who string,
 	named string,
 	args []*structpb.Value,
 ) (starlark.Value, error) {
+	// A thread with no run cannot be cancelled, so it waits on a context that
+	// never closes rather than being told about runs by a call to a plugin.
+	ctx, err := scheduler.Context(thread)
+	if err != nil {
+		ctx = context.Background()
+	}
+
 	id := r.ticket.Add(1)
 	answers := make(chan *pluginpb.Answer, 1)
 
@@ -198,6 +220,8 @@ func (r *_Remote) _Ask(
 	case r.asks <- ask:
 	case <-r.gone:
 		return nil, fmt.Errorf("%s: %w", who, ErrGone)
+	case <-ctx.Done():
+		return nil, _Cancelled(who, ctx)
 	}
 
 	select {
@@ -210,7 +234,17 @@ func (r *_Remote) _Ask(
 
 	case <-r.gone:
 		return nil, fmt.Errorf("%s: %w", who, ErrGone)
+	case <-ctx.Done():
+		return nil, _Cancelled(who, ctx)
 	}
+}
+
+// _Cancelled is what a call answers with when its caller was cancelled first.
+//
+// Revisions:
+//   - 2026-09-26 01:34: initial creation
+func _Cancelled(who string, ctx context.Context) error {
+	return fmt.Errorf("%s: %w: %w", who, scheduler.ErrCancelled, ctx.Err())
 }
 
 // _Answered hands an answer to whoever is waiting for it.

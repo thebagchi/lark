@@ -26,7 +26,7 @@ import (
 	"github.com/thebagchi/lark/runtime"
 	"github.com/thebagchi/lark/runtime/plugin"
 	_ "github.com/thebagchi/lark/runtime/plugin/core"
-	_ "github.com/thebagchi/lark/runtime/plugin/flow"
+	"github.com/thebagchi/lark/runtime/plugin/flow"
 	"github.com/thebagchi/lark/runtime/plugin/remote"
 )
 
@@ -49,6 +49,11 @@ const (
 	// that was refused to have failed. Enormous next to the milliseconds
 	// either takes.
 	_SETTLED = 10 * time.Second
+
+	// _STALLED is how long a one-second timeout is given to return before the
+	// call is taken not to be watching its caller at all. Generous, because
+	// what is being told apart is "a moment late" from "never".
+	_STALLED = 15 * time.Second
 )
 
 // _Listening is a listener with a registry of its own, holding everything the
@@ -467,5 +472,66 @@ def main():
 
 	if got != want.String() {
 		t.Fatalf("got %s, want %s", got, want)
+	}
+}
+
+// TestRemote_ATimeoutCutsAStalledCall is the debt every blocking builtin owes,
+// paid by a plugin call.
+//
+// The plugin takes the ask and never answers. Without waiting on the caller's
+// context the call waited the plugin out: measured with a real process stopped
+// mid-call, timeout(2) had not returned after twenty-five seconds, and an
+// interrupt could not reach it either.
+//
+// Deadlined, because a regression here does not fail - it hangs, and a suite
+// that has to be killed says nothing about which test was wrong.
+//
+// Revisions:
+//   - 2026-09-26 01:38: initial creation
+func TestRemote_ATimeoutCutsAStalledCall(t *testing.T) {
+	listener, socket := _Listening(t)
+
+	stuck := make(chan struct{})
+
+	t.Cleanup(func() {
+		close(stuck)
+	})
+
+	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, func(*pluginpb.Ask) *pluginpb.Answer {
+		// Takes the ask, answers nothing, until the test is over.
+		<-stuck
+
+		return nil
+	})
+	_Installed(t, listener, 1)
+
+	type outcome struct {
+		got string
+		err error
+	}
+
+	answered := make(chan outcome, 1)
+
+	go func() {
+		got, err := _Ran(t, listener, `
+def ask():
+    return clock.now()
+
+def main():
+    return timeout(1, ask)
+`)
+
+		answered <- outcome{got: got, err: err}
+	}()
+
+	select {
+	case held := <-answered:
+		if !errors.Is(held.err, flow.ErrTimeout) {
+			t.Fatalf("got %v, want ErrTimeout", held.err)
+		}
+
+	case <-time.After(_STALLED):
+		t.Fatalf("a timeout of one second did not return within %v: the call is "+
+			"not waiting on its caller", _STALLED)
 	}
 }
