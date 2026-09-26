@@ -2,8 +2,8 @@
 # here, so nothing has to be remembered from prose.
 
 # Generated files are dropped: a formatter complaint about a file the generator
-# owns is unactionable. .poc/go is a module of its own and is handled beside it.
-GO_FILES := $(shell find . -name '*.go' -not -path './proto/gen/*' -not -path './.poc/*' -print)
+# owns is unactionable.
+GO_FILES := $(shell find . -name '*.go' -not -path './proto/gen/*' -print)
 
 # Hand-written schemas. Generated output is Go under proto/gen/, so a find
 # for .proto is already the files a formatter may touch.
@@ -13,10 +13,13 @@ PROTO_FILES := $(shell find proto -name '*.proto' -print)
 # code because a formatter has nothing to say about a file it does not own - a
 # build does. Two questions, two lists; sharing one would mean a change to a
 # generated message never rebuilding the binary that carries it.
-GO_SOURCES := $(shell find . -name '*.go' -not -path './.poc/*' -print) go.mod go.sum
+GO_SOURCES := $(shell find . -name '*.go' -print) go.mod go.sum
 
 .PHONY: all bootstrap generate tidy check lint lint-go lint-proto fmt build binaries vet test poc clean
 
+# all no longer runs poc: there is no .poc module. The practice stays in
+# .guidelines/working.md - a new signature is still planned with one - and the
+# next POC creates its module in one command.
 all: generate build check test
 
 # Everything that reads the code without changing it. This is the gate
@@ -48,7 +51,6 @@ lint-proto:
 # tools/fmt_proto.py with no arguments prints usage and exits 1.
 fmt:
 	@if [ -n "$(GO_FILES)" ]; then gofmt -l -w $(GO_FILES); fi
-	cd .poc/go && gofmt -l -w .
 # tools/fmt_proto.py is the proto formatter, and buf format is not. The two
 # disagree: this one aligns the = of a field with its neighbours, buf format
 # takes that alignment out. Running buf format would rewrite every .proto here -
@@ -59,7 +61,6 @@ fmt:
 # Both modules: the planning POCs are a module of their own.
 tidy:
 	go mod tidy
-	cd .poc/go && go mod tidy
 
 build:
 	go build ./...
@@ -93,11 +94,6 @@ vet:
 
 test:
 	go test ./... -race
-
-# Planning POCs are a separate module and do not gate the suite, per
-# .guidelines/working.md. They are still run, just not by test.
-poc:
-	cd .poc/go && go test ./... -race
 
 clean:
 	rm -rf proto/gen bin
