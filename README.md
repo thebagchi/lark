@@ -499,8 +499,8 @@ worst kind to find.
 | Posted before the wait | The value, immediately |
 | Posted during the wait | The value, when it is posted |
 | Never posted | `(None, "timed out")` when the timeout runs out |
-| Posted twice | The whole run fails: `this event has already been posted` |
-| A cancelled run, or a `timeout()` around the wait | The wait is cut short and the run ends |
+| Posted twice | The posting thread fails: `this event has already been posted` |
+| A `timeout()` around the wait, or the run cancelled | The wait is cut short: `timeout()` fails as it would around anything, and a cancelled run ends |
 
 **A second post is refused.** A latch says a thing happened, and a thing happens
 once; posting twice is either two things sharing a name or the same thing
@@ -509,6 +509,11 @@ reported twice, and both are mistakes worth hearing about.
 **An event carries data, and only data** — the store's rule, for the store's
 reason: another thread reads it, and code means nothing to whoever did not write
 it. A function or a handle is refused with `not data an event can carry`.
+
+**Both refusals fail the thread that posted, not the run.** That is unlike the
+store, which stops the whole run for a value it cannot hold. A refused post in a
+thread nobody joins reaches the report and goes no further, and whoever waits
+for it sees a timeout.
 
 **A wait respects the caller.** `timeout(2, lambda: event.wait("never", 300))`
 returns after two seconds, not after three hundred, and cancelling the run ends
@@ -991,16 +996,19 @@ back as it is handed over, so a loop reading a thousand files is bounded by the
 largest of them rather than their sum.
 
 **What the budget charges** is what the library allocates whose size the script
-has not already paid for: a file read, a spawned thread, a value put in the
-store, an event posted. A thread costs about 14KB - a goroutine, an interpreter
-thread, its locals and a handle - and twenty thousand of them took 287MB before
-that was charged. The store is charged because nothing deletes from it: a name
-once set is held until the run ends, so `state.set` is the one call whose purpose
-is to keep something. An event is charged for the same reason and never credited,
-since it cannot be deleted or reposted; naming one costs 256 bytes and the name,
-which is what a waiter pays for an event nobody posts. The rest is credited when
-it goes: a thread when it ends, a stored value when it is replaced, a read value
-when it is handed over.
+has not already paid for: a file read, a spawned thread, a name and a value put
+in the store, an event named or posted. A thread costs about 14KB - a goroutine,
+an interpreter thread, its locals and a handle - and twenty thousand of them took
+287MB before that was charged. The store and events are charged because nothing
+deletes from either: a name once used is held until the run ends. So a name
+costs its length and a fixed amount the first time it is used, whatever is put
+in it: 320 bytes in the store, for its entry and the lock kept beside it, and
+256 for an event, which keeps one map where the store keeps two. Both figures
+are measured and rounded up. A value costs what it holds. A thousand names holding `None` are refused under 64KB for the names
+alone. Reading a name with `state.get` makes nothing and costs nothing. An
+event's value is never credited, since it cannot be reposted; the rest is
+credited when it goes: a thread when it ends, a stored value when it is
+replaced, a read value when it is handed over.
 
 **What it does not cover is a script's own memory**, and the gap is
 wide. This is a script that asks the library for nothing:

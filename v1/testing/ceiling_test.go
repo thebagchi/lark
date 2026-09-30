@@ -199,25 +199,47 @@ def main():
 // There is no delete, so a name once set is held until the run ends. A script
 // could fill memory through it and nothing said so until 2026-09-27.
 //
+// One name each time, under one ceiling, with only the value's size differing.
+// A name is charged as well, so a script storing many would be refused for the
+// names whether or not the values were charged.
+//
 // Revisions:
 //   - 2026-09-27 01:40: initial creation
+//   - 2026-09-30 21:19: one name rather than twenty thousand, so the value is
+//     what is refused
 func TestCeiling_TheStoreIsChargedForWhatItHolds(t *testing.T) {
-	hoard := []byte(`
+	small := []byte(`
 def main():
-    for i in range(20000):
-        state.set("k%d" % i, "a value long enough to be worth counting, number %d" % i)
+    state.set("small", "x" * 1024)
 
     return "stored"
 `)
 
-	built, err := runtime.NewCompiler().Compile("hoard.star", hoard)
+	built, err := runtime.NewCompiler().Compile("small.star", small)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
+	if err != nil {
+		t.Fatalf("one value of 1KB under %d bytes: %v", _NARROW, err)
+	}
+
+	large := []byte(`
+def main():
+    state.set("large", "x" * (128 * 1024))
+
+    return "stored"
+`)
+
+	built, err = runtime.NewCompiler().Compile("large.star", large)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
 	if !errors.Is(err, scheduler.ErrMemory) {
-		t.Fatalf("twenty thousand names under %d bytes: %v, want ErrMemory", _NARROW, err)
+		t.Fatalf("one value of 128KB under %d bytes: %v, want ErrMemory", _NARROW, err)
 	}
 
 	// One name replaced many times costs what one of them costs, because the
@@ -238,5 +260,53 @@ def main():
 	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
 	if err != nil {
 		t.Fatalf("one name set twenty thousand times: %v", err)
+	}
+}
+
+// TestCeiling_TheStoreIsChargedForEachName covers what a name costs apart from
+// its value, which an event is charged for too.
+//
+// A thousand names holding None: the values come to about 16KB and fit, and the
+// names come to about 320KB and do not. So this fails only if the names are
+// charged. Reading a thousand names nothing has written, under the same
+// ceiling, is the control - a read makes no entry, so it costs nothing.
+//
+// Revisions:
+//   - 2026-09-30 21:19: initial creation
+func TestCeiling_TheStoreIsChargedForEachName(t *testing.T) {
+	named := []byte(`
+def main():
+    for i in range(1000):
+        state.set("k%d" % i, None)
+
+    return "stored"
+`)
+
+	built, err := runtime.NewCompiler().Compile("named.star", named)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
+	if !errors.Is(err, scheduler.ErrMemory) {
+		t.Fatalf("a thousand names under %d bytes: %v, want ErrMemory", _NARROW, err)
+	}
+
+	read := []byte(`
+def main():
+    for i in range(1000):
+        state.get("k%d" % i)
+
+    return "read"
+`)
+
+	built, err = runtime.NewCompiler().Compile("read.star", read)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
+	if err != nil {
+		t.Fatalf("reading a thousand unwritten names under %d bytes: %v", _NARROW, err)
 	}
 }

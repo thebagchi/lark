@@ -620,6 +620,55 @@ def main():
 	}
 }
 
+// TestState_AGetWhileASetRunsIsGuarded covers the one read that takes no lock
+// on its name.
+//
+// A set and an update hold the name's lock, so they cannot overlap each other,
+// but a get takes none - a read should never wait on a writer. What keeps a get
+// from reading a value half replaced is the entry's own guard. Only the race
+// detector can see that guard missing, so this proves it under -race, which is
+// how the gate runs, and passes either way without it.
+//
+// Revisions:
+//   - 2026-09-30 21:19: initial creation
+func TestState_AGetWhileASetRunsIsGuarded(t *testing.T) {
+	const SCRIPT = `
+def writer():
+    for i in range(200):
+        state.set("k", [i, i + 1])
+
+def reader():
+    for i in range(200):
+        state.get("k")
+
+def main():
+    state.set("k", [0, 1])
+
+    first = spawn(writer)
+    second = spawn(reader)
+    third = spawn(writer)
+    fourth = spawn(reader)
+
+    join(first, second, third, fourth)
+
+    return "done"
+`
+
+	built, err := runtime.NewCompiler().Compile("guarded.star", []byte(SCRIPT))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	got, err := built.Run(t.Context())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if got.String() != `"done"` {
+		t.Fatalf("got %s", got.String())
+	}
+}
+
 // TestSet_StoringSomethingElseStopsTheWholeRun is why the refusal goes through
 // the same door a failed assertion does.
 //

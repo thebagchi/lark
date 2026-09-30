@@ -17,8 +17,9 @@ const (
 	EVENTS = "event.latches"
 
 	// LATCH is what one event is charged before anything it carries: a channel,
-	// a map entry and the struct holding them. An estimate, like every figure
-	// the budget uses, rounded up so the charge is never under.
+	// a map entry and the struct holding them. Measured at 210 to 233 bytes an
+	// event, varying with how full the map is, and rounded up so the charge is
+	// never under.
 	//
 	// Charged where the event is made rather than where it is posted, because
 	// either side makes one - a waiter naming an event nobody has posted is how
