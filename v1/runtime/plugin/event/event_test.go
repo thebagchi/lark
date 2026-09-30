@@ -264,6 +264,53 @@ def main():
 	}
 }
 
+// TestEvent_ARefusedPostStopsTheWholeRun is why a refused post goes through the
+// door a failed assertion does, as a refused store does.
+//
+// A thread nobody joins fails silently: its error reaches the report and never
+// becomes the run's result. So a spawned worker posting twice, or posting a
+// function, would say nothing about it, and the script would finish as though
+// it had worked. main here outlives the worker, and returns "run survived" only
+// if the run was left standing.
+//
+// Revisions:
+//   - 2026-09-30 21:55: initial creation
+func TestEvent_ARefusedPostStopsTheWholeRun(t *testing.T) {
+	got, err := _Ran(t, `
+def poster():
+    event.post("once", 1)
+    event.post("once", 2)
+
+def main():
+    unjoined = spawn(poster)
+
+    sleep(5)
+
+    return "run survived"
+`)
+	if !errors.Is(err, event.ErrPosted) {
+		t.Fatalf("a second post nobody joins: got %s, %v; want ErrPosted", got, err)
+	}
+
+	got, err = _Ran(t, `
+def helper():
+    return 1
+
+def poster():
+    event.post("code", helper)
+
+def main():
+    unjoined = spawn(poster)
+
+    sleep(5)
+
+    return "run survived"
+`)
+	if !errors.Is(err, event.ErrNotData) {
+		t.Fatalf("a function posted nobody joins: got %s, %v; want ErrNotData", got, err)
+	}
+}
+
 // TestEvent_WaitingIsCancelledWithTheRun keeps a forgotten wait from holding a
 // run open.
 //

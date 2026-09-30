@@ -103,8 +103,17 @@ func (e *_Event) Values() starlark.StringDict {
 // another thread could not read, and ErrMemory when the run cannot afford to
 // hold it. Answers with None, as state.set does. Never panics.
 //
+// The first two stop the whole run, the way a failed assertion does, rather
+// than only the thread that posted. A thread nobody joins fails silently - its
+// error reaches the report and never becomes the run's result - so a spawned
+// worker posting twice, or posting a function, would otherwise say nothing, and
+// whoever waited for it would see only a timeout. The mistake is in the script,
+// and a script author wants to hear about it.
+//
 // Revisions:
 //   - 2026-09-30 21:00: initial creation
+//   - 2026-09-30 21:55: a second post, or one that is not data, stops the whole
+//     run rather than the thread
 func _Post(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -123,7 +132,8 @@ func _Post(
 
 	bad, ok := deep.IsData(value)
 	if !ok {
-		return nil, fmt.Errorf("%s %q: %s: %w", fn.Name(), name, bad.Type(), ErrNotData)
+		return nil, scheduler.Fail(thread, fmt.Errorf(
+			"%s %q: %s: %w", fn.Name(), name, bad.Type(), ErrNotData))
 	}
 
 	events, err := _Of(thread)
@@ -134,6 +144,14 @@ func _Post(
 	value.Freeze()
 
 	err = events._Post(scheduler.Allowance(thread), name, value)
+
+	// A second post is a mistake in the script rather than a limit it reached,
+	// so it stops the run as a value that is not data does. The budget refusing
+	// fails only the thread, as it does for the store.
+	if errors.Is(err, ErrPosted) {
+		return nil, scheduler.Fail(thread, fmt.Errorf("%s %q: %w", fn.Name(), name, err))
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
 	}

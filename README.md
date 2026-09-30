@@ -499,7 +499,7 @@ worst kind to find.
 | Posted before the wait | The value, immediately |
 | Posted during the wait | The value, when it is posted |
 | Never posted | `(None, "timed out")` when the timeout runs out |
-| Posted twice | The posting thread fails: `this event has already been posted` |
+| Posted twice | The whole run stops: `this event has already been posted` |
 | A `timeout()` around the wait, or the run cancelled | The wait is cut short: `timeout()` fails as it would around anything, and a cancelled run ends |
 
 **A second post is refused.** A latch says a thing happened, and a thing happens
@@ -510,10 +510,11 @@ reported twice, and both are mistakes worth hearing about.
 reason: another thread reads it, and code means nothing to whoever did not write
 it. A function or a handle is refused with `not data an event can carry`.
 
-**Both refusals fail the thread that posted, not the run.** That is unlike the
-store, which stops the whole run for a value it cannot hold. A refused post in a
-thread nobody joins reaches the report and goes no further, and whoever waits
-for it sees a timeout.
+**Both refusals stop the whole run**, the way a failed assertion does and the
+way the store's refusal does, rather than only the thread that posted. A thread
+nobody joins fails silently: its error reaches the report and never becomes the
+run's result. So a spawned worker posting twice would otherwise say nothing,
+and whoever waited for it would see only a timeout.
 
 **A wait respects the caller.** `timeout(2, lambda: event.wait("never", 300))`
 returns after two seconds, not after three hundred, and cancelling the run ends
