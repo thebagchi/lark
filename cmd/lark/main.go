@@ -49,6 +49,7 @@ import (
 	_ "github.com/thebagchi/lark/v1/runtime/plugin/base32"
 	_ "github.com/thebagchi/lark/v1/runtime/plugin/base64"
 	_ "github.com/thebagchi/lark/v1/runtime/plugin/codec"
+	_ "github.com/thebagchi/lark/v1/runtime/plugin/event"
 	_ "github.com/thebagchi/lark/v1/runtime/plugin/file"
 	_ "github.com/thebagchi/lark/v1/runtime/plugin/flow"
 	_ "github.com/thebagchi/lark/v1/runtime/plugin/hash"

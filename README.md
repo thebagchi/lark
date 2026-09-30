@@ -136,7 +136,7 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/thebagchi/lark/runtime"
+	"github.com/thebagchi/lark/v1/runtime"
 )
 
 type Disk struct{ root string }
@@ -192,6 +192,7 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `load(path, name)` | Binds a name from another script. |
 | `json` | `json.encode`, `json.decode`, and the rest of the module go.starlark.net ships. |
 | `state` | `state.set`, `state.get`, `state.update` — see below. |
+| `event` | `event.post(name, value)` and `value, err = event.wait(name, seconds)` — one thread waits for another. See below. |
 | `time` | go.starlark.net's own module. |
 | `math` | The usual functions, plus `inf`, `nan`, `tau`, `trunc`, `isnan`, `isinf`, `log2`, `log10`, `gcd`. |
 | `regexp` | `search`, `match`, `findall`, `sub`, `split`, `quote`. RE2, so no backtracking. |
@@ -445,23 +446,102 @@ lock is spawned before the update, not inside it.
 Joining *after* the update has returned is fine. The refusal is about a name
 being held, not about the handle.
 
+### One thread waits for another
+
+A store lets a thread leave a value where another can find it, but not find out
+*when* it is there — a reader has to poll. An event is the other half: one
+thread says something happened, and any thread waiting for it wakes.
+
+```python
+def loader():
+    rows = fetch()
+    state.set("rows", rows)
+    event.post("loaded", len(rows))
+
+def main():
+    held = spawn(lambda: loader())
+
+    count, err = event.wait("loaded", 5)
+    if err:
+        fail("the loader never finished: %s" % err)
+
+    join(held)
+
+    return count
+```
+
+**`event.wait` answers with a pair, `(value, err)`.** `err` is `None` when the
+event was posted, and `"timed out"` when the wait ran out. A pair rather than a
+raise, because running out of time is an answer a script acts on rather than a
+fault — and rather than the value alone, because `event.post("k", None)` and a
+wait that expired would otherwise be the same answer.
+
+**An event is a latch: it is posted once and stays posted.** A waiter arriving
+afterwards does not wait at all, and every waiter sees it.
+
+```python
+def main():
+    event.post("ready", "done")
+
+    value, err = event.wait("ready", 10)     # returns immediately
+
+    return value
+```
+
+That is the whole reason it is a latch rather than a signal. A signal that woke
+only whoever happened to be waiting at the time would lose the post above, and
+the script would block forever on something that had already happened — a
+deadlock that depends on which thread the scheduler ran first, which is the
+worst kind to find.
+
+| What happens | What a script sees |
+| --- | --- |
+| Posted before the wait | The value, immediately |
+| Posted during the wait | The value, when it is posted |
+| Never posted | `(None, "timed out")` when the timeout runs out |
+| Posted twice | The whole run fails: `this event has already been posted` |
+| A cancelled run, or a `timeout()` around the wait | The wait is cut short and the run ends |
+
+**A second post is refused.** A latch says a thing happened, and a thing happens
+once; posting twice is either two things sharing a name or the same thing
+reported twice, and both are mistakes worth hearing about.
+
+**An event carries data, and only data** — the store's rule, for the store's
+reason: another thread reads it, and code means nothing to whoever did not write
+it. A function or a handle is refused with `not data an event can carry`.
+
+**A wait respects the caller.** `timeout(2, lambda: event.wait("never", 300))`
+returns after two seconds, not after three hundred, and cancelling the run ends
+every wait in it. Nothing else bounds how long a wait lasts: the timeout the
+script chose is the bound, and it is required.
+
+**Both sides are charged against `-m`.** Posting is charged for what the value
+holds, because nothing deletes an event and what it carries is held until the
+run ends. *Naming* one is charged too, at 256 bytes plus the name, because a
+waiter can name an event nobody ever posts — which is how a waiter arrives
+first, and also how a script could otherwise make a million channels for free.
+
+An event is not a queue. There is no delete, no second post, and no count of who
+is waiting; a script that needs those wants the store and a loop.
+
 Each of these is a plugin, and a host enables it by importing it:
 
 ```go
 import (
-    _ "github.com/thebagchi/lark/runtime/plugin/state"
-    _ "github.com/thebagchi/lark/runtime/plugin/jsonpath"
-    _ "github.com/thebagchi/lark/runtime/plugin/time"
-    _ "github.com/thebagchi/lark/runtime/plugin/math"
-    _ "github.com/thebagchi/lark/runtime/plugin/regexp"
-    _ "github.com/thebagchi/lark/runtime/plugin/random"
-    _ "github.com/thebagchi/lark/runtime/plugin/codec"
-    _ "github.com/thebagchi/lark/runtime/plugin/base64"
-    _ "github.com/thebagchi/lark/runtime/plugin/base32"
-    _ "github.com/thebagchi/lark/runtime/plugin/hash"
-    _ "github.com/thebagchi/lark/runtime/plugin/path"
-    _ "github.com/thebagchi/lark/runtime/plugin/file"   // reaches the disk
-    _ "github.com/thebagchi/lark/runtime/plugin/utils"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/state"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/event"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/jsonpath"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/time"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/math"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/regexp"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/random"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/codec"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/base64"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/base32"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/hash"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/path"
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/file"   // reaches the disk
+    _ "github.com/thebagchi/lark/v1/runtime/plugin/utils"
 )
 ```
 
@@ -912,12 +992,15 @@ largest of them rather than their sum.
 
 **What the budget charges** is what the library allocates whose size the script
 has not already paid for: a file read, a spawned thread, a value put in the
-store. A thread costs about 14KB - a goroutine, an interpreter thread, its locals
-and a handle - and twenty thousand of them took 287MB before that was charged.
-The store is charged because nothing deletes from it: a name once set is held
-until the run ends, so `state.set` is the one call whose purpose is to keep
-something. Each is credited when it goes: a thread when it ends, a stored value
-when it is replaced, a read value when it is handed over.
+store, an event posted. A thread costs about 14KB - a goroutine, an interpreter
+thread, its locals and a handle - and twenty thousand of them took 287MB before
+that was charged. The store is charged because nothing deletes from it: a name
+once set is held until the run ends, so `state.set` is the one call whose purpose
+is to keep something. An event is charged for the same reason and never credited,
+since it cannot be deleted or reposted; naming one costs 256 bytes and the name,
+which is what a waiter pays for an event nobody posts. The rest is credited when
+it goes: a thread when it ends, a stored value when it is replaced, a read value
+when it is handed over.
 
 **What it does not cover is a script's own memory**, and the gap is
 wide. This is a script that asks the library for nothing:
@@ -1206,7 +1289,7 @@ package clock
 import (
 	"go.starlark.net/starlark"
 
-	"github.com/thebagchi/lark/runtime"
+	"github.com/thebagchi/lark/v1/runtime"
 )
 
 func init() { runtime.Register(&plugin{}) }
