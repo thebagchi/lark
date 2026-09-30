@@ -247,20 +247,60 @@ def main():
 // TestEvent_WhatCannotCrossIsRefused is the rule the store already has, for the
 // same reason: another thread reads this.
 //
+// The function comes back from a call, so the source does not show it and this
+// is the refusal made when the post runs. One the source shows is refused
+// before the run, which is the next test.
+//
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
+//   - 2026-09-30 22:41: the function comes back from a call, so the run is what
+//     refuses it
 func TestEvent_WhatCannotCrossIsRefused(t *testing.T) {
 	_, err := _Ran(t, `
 def helper():
     return 1
 
+def pick():
+    return helper
+
 def main():
-    event.post("code", helper)
+    event.post("code", pick())
 
     return "reached"
 `)
 	if !errors.Is(err, event.ErrNotData) {
 		t.Fatalf("got %v, want ErrNotData", err)
+	}
+}
+
+// TestEvent_AVisibleFunctionIsRefusedBeforeItRuns is the half the source can
+// see, as it is for the store.
+//
+// A name this file declares, or a lambda written in place, is certain before
+// anything runs - and an author would rather hear it then than from a run that
+// stops. The compiler does not know what post means: it asks every plugin
+// whether the source is acceptable, and this one answers.
+//
+// Revisions:
+//   - 2026-09-30 22:41: initial creation
+func TestEvent_AVisibleFunctionIsRefusedBeforeItRuns(t *testing.T) {
+	cases := map[string]string{
+		"a declared function": "def helper():\n    return 1\n\ndef main():\n" +
+			"    event.post(\"k\", helper)\n",
+		"a lambda": "def main():\n    event.post(\"k\", lambda: 1)\n",
+		"in parentheses": "def helper():\n    return 1\n\ndef main():\n" +
+			"    event.post(\"k\", (helper))\n",
+		"and nested ones": "def helper():\n    return 1\n\ndef main():\n" +
+			"    event.post(\"k\", ((helper)))\n",
+	}
+
+	for name, script := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := runtime.NewCompiler().Compile(name+".star", []byte(script))
+			if !errors.Is(err, event.ErrNotData) {
+				t.Fatalf("compiling gave %v, want ErrNotData before it ran", err)
+			}
+		})
 	}
 }
 
@@ -271,10 +311,13 @@ def main():
 // becomes the run's result. So a spawned worker posting twice, or posting a
 // function, would say nothing about it, and the script would finish as though
 // it had worked. main here outlives the worker, and returns "run survived" only
-// if the run was left standing.
+// if the run was left standing. The function comes back from a call, so it is
+// the run that refuses it rather than the compile.
 //
 // Revisions:
 //   - 2026-09-30 21:55: initial creation
+//   - 2026-09-30 22:41: the function comes back from a call, so the refusal is
+//     the run's
 func TestEvent_ARefusedPostStopsTheWholeRun(t *testing.T) {
 	got, err := _Ran(t, `
 def poster():
@@ -296,8 +339,11 @@ def main():
 def helper():
     return 1
 
+def pick():
+    return helper
+
 def poster():
-    event.post("code", helper)
+    event.post("code", pick())
 
 def main():
     unjoined = spawn(poster)

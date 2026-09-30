@@ -25,6 +25,7 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+	"go.starlark.net/syntax"
 
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 	"github.com/thebagchi/lark/v1/runtime/plugin/deep"
@@ -92,6 +93,28 @@ func (e *_Event) Values() starlark.StringDict {
 			},
 		},
 	}
+}
+
+// Check refuses a post of something the source already shows is not data.
+//
+// Only what is visible, as the store's check is: event.post("k", helper) names
+// a function this file declares, and a lambda is one written in place - both
+// certain before anything runs, and a script author would rather hear it then
+// than from a run that stops. Everything else is refused when it runs, by the
+// same rule.
+//
+// This is a Checking, which the compiler asks every plugin for; it does not
+// ask about a file that has taken the name event for itself.
+//
+// Revisions:
+//   - 2026-09-30 22:41: initial creation
+func (e *_Event) Check(tree *syntax.File) error {
+	call, named := deep.ShowsCode(tree, NAME, POST)
+	if call == nil {
+		return nil
+	}
+
+	return fmt.Errorf("%s.%s at %s posts %s: %w", NAME, POST, call.Lparen, named, ErrNotData)
 }
 
 // _Post says the event named has happened, and hands every waiter the value.

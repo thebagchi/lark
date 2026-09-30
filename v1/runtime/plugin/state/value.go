@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"go.starlark.net/syntax"
+
+	"github.com/thebagchi/lark/v1/runtime/plugin/deep"
 )
 
 // ErrNotData is returned for something a store cannot usefully hold.
@@ -31,91 +33,13 @@ var ErrNotData = errors.New("not data a store can hold")
 //
 // Revisions:
 //   - 2026-09-24 20:10: initial creation
+//   - 2026-09-30 22:41: reads the source through deep.ShowsCode, which event
+//     asks the same question of
 func (s *_State) Check(tree *syntax.File) error {
-	declared := map[string]bool{}
-
-	for _, stmt := range tree.Stmts {
-		def, ok := stmt.(*syntax.DefStmt)
-		if ok {
-			declared[def.Name.Name] = true
-		}
+	call, named := deep.ShowsCode(tree, NAME, SET)
+	if call == nil {
+		return nil
 	}
 
-	var failure error
-
-	syntax.Walk(tree, func(node syntax.Node) bool {
-		if failure != nil {
-			return false
-		}
-
-		call, ok := node.(*syntax.CallExpr)
-		if !ok || len(call.Args) != 2 || !_Stores(call) {
-			return true
-		}
-
-		named := _Names(call.Args[1], declared)
-		if named == "" {
-			return true
-		}
-
-		failure = fmt.Errorf("%s.%s at %s stores %s: %w",
-			NAME, SET, call.Lparen, named, ErrNotData)
-
-		return false
-	})
-
-	return failure
-}
-
-// _Stores reports whether a call is state.set.
-//
-// Revisions:
-//   - 2026-09-24 20:10: initial creation
-func _Stores(call *syntax.CallExpr) bool {
-	member, ok := call.Fn.(*syntax.DotExpr)
-	if !ok || member.Name.Name != SET {
-		return false
-	}
-
-	module, ok := member.X.(*syntax.Ident)
-
-	return ok && module.Name == NAME
-}
-
-// _Names is what the second argument plainly is, when that is a function, and
-// empty when the source does not say.
-//
-// Revisions:
-//   - 2026-09-24 20:10: initial creation
-func _Names(arg syntax.Expr, declared map[string]bool) string {
-	switch held := _Bare(arg).(type) {
-	case *syntax.LambdaExpr:
-		return "a lambda"
-
-	case *syntax.Ident:
-		if declared[held.Name] {
-			return "the function " + held.Name
-		}
-	}
-
-	return ""
-}
-
-// _Bare is an expression with its parentheses taken off.
-//
-// Extra parentheses do not change what was written, so (helper) shows a
-// function as plainly as helper does. Without this the two spellings were
-// answered differently: one refused where it was written, the other carried
-// to the run and refused there - for the same mistake, with the same fix, at
-// two different moments.
-//
-// Revisions:
-//   - 2026-09-24 21:10: initial creation
-func _Bare(expr syntax.Expr) syntax.Expr {
-	held, ok := expr.(*syntax.ParenExpr)
-	if !ok {
-		return expr
-	}
-
-	return _Bare(held.X)
+	return fmt.Errorf("%s.%s at %s stores %s: %w", NAME, SET, call.Lparen, named, ErrNotData)
 }

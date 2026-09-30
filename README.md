@@ -510,6 +510,17 @@ reported twice, and both are mistakes worth hearing about.
 reason: another thread reads it, and code means nothing to whoever did not write
 it. A function or a handle is refused with `not data an event can carry`.
 
+**Where the source shows it, that happens before the script runs**, with the
+position, as it does for the store:
+
+```
+event.post at build.star:5:15 posts the function helper: not data an event can carry
+```
+
+A function the file declares, or a lambda written in place, is certain before
+anything runs. Anything else - a call's result, a value read from somewhere - is
+refused when the post runs.
+
 **Both refusals stop the whole run**, the way a failed assertion does and the
 way the store's refusal does, rather than only the thread that posted. A thread
 nobody joins fails silently: its error reaches the report and never becomes the

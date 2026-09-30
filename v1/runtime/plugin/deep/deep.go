@@ -1,5 +1,6 @@
 // Package deep reads a Starlark value and everything under it: copying one,
-// and saying whether one is data.
+// and saying whether one is data - from the value when it runs, or from the
+// source before it does, where the source shows a function.
 //
 // It supplies no names to a script and is not a plugin. It is here rather than
 // inside state because two plugins need the same copy for the same reason:
