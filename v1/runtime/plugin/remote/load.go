@@ -131,15 +131,24 @@ func (l *Listener) Load(dir string, glob string) (*Loading, error) {
 	return loading, nil
 }
 
-// _Start runs one plugin and waits for its names to arrive.
+// _Start runs one plugin and waits for it to be answering.
 //
-// Waits for the count to grow rather than to be more than zero, because this
-// listener may already be carrying others.
+// Waits on Live rather than on Names, and the difference only shows when a
+// plugin comes back. A restart adds no name: the adapter outlives the process,
+// so its names were already there and only the connection is new. Watching the
+// name count meant a second Load sat out the whole of ANNOUNCED and then
+// reported a plugin that was already answering as one that never announced
+// itself.
+//
+// Live grows either way. A plugin that died is not live, so its replacement
+// takes the count from n to n+1 exactly as a plugin nobody had seen before does.
 //
 // Revisions:
 //   - 2026-09-25 23:55: initial creation
+//   - 2026-09-30 06:47: waits on Live, so a restarted plugin is seen rather than
+//     timed out
 func (l *Listener) _Start(named string) error {
-	before := len(l.Names())
+	before := len(l.Live())
 
 	held := exec.Command(named)
 	held.Stderr = os.Stderr
@@ -160,7 +169,7 @@ func (l *Listener) _Start(named string) error {
 	deadline := time.Now().Add(ANNOUNCED)
 
 	for time.Now().Before(deadline) {
-		if len(l.Names()) > before {
+		if len(l.Live()) > before {
 			return nil
 		}
 

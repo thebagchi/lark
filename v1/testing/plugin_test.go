@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -604,6 +605,126 @@ func TestPlugin_AnExecutableThatIsNotAProgramIsSkipped(t *testing.T) {
 	}
 
 	t.Logf("skipped: %v", loading.Skipped[0])
+}
+
+// TestPlugin_LoadSeesAPluginThatComesBack is a plugin started the way a host
+// starts one, killed, and started again the same way.
+//
+// The adapter outlives the process, so the second start adds no name. Load
+// has to notice the new stream. Counting names was how a restart first read
+// as a plugin that never announced itself, which is why a direct start waits
+// on Live.
+//
+// Revisions:
+//   - 2026-09-30 06:39: initial creation
+func TestPlugin_LoadSeesAPluginThatComesBack(t *testing.T) {
+	listener, _ := _Host(t)
+
+	dir := t.TempDir()
+	named := filepath.Join(dir, "lark-clock.bin")
+
+	build := exec.Command("go", "build", "-o", named, "./cmd/clock")
+	build.Dir = _ModuleRoot(t)
+
+	out, err := build.CombinedOutput()
+	if err != nil {
+		t.Fatalf("building the plugin: %v\n%s", err, out)
+	}
+
+	loading, err := listener.Load(dir, remote.GLOB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loading.Loaded) != 1 {
+		t.Fatalf("first load loaded %v skipped %v", loading.Loaded, loading.Skipped)
+	}
+
+	pid := _Pid(t, named)
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = proc.Kill()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(_NOTICED)
+
+	for time.Now().Before(deadline) && len(listener.Live()) > 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if len(listener.Live()) != 0 {
+		t.Fatalf("after the kill, still live: %v", listener.Live())
+	}
+
+	loading, err = listener.Load(dir, remote.GLOB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loading.Loaded) != 1 || len(listener.Live()) != 1 {
+		t.Fatalf("second load loaded %v skipped %v, live %v",
+			loading.Loaded, loading.Skipped, listener.Live())
+	}
+
+	built, err := runtime.NewCompiler(runtime.WithPlugins(listener.Registry())).
+		Compile("again.star", []byte("def main():\n    return clock.add(2, 3)\n"))
+	if err != nil {
+		t.Fatalf("compiling after the second load: %v", err)
+	}
+
+	got, err := built.Run(t.Context())
+	if err != nil {
+		t.Fatalf("calling the plugin Load brought back: %v", err)
+	}
+
+	if got.String() != "5.0" {
+		t.Fatalf("got %s, want 5.0", got)
+	}
+}
+
+// _Pid is the process whose arguments contain needle.
+//
+// Revisions:
+//   - 2026-09-30 06:39: initial creation
+func _Pid(t *testing.T, needle string) int {
+	t.Helper()
+
+	held, err := os.ReadDir(PROC)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, entry := range held {
+		if !entry.IsDir() {
+			continue
+		}
+
+		raw, err := os.ReadFile(filepath.Join(PROC, entry.Name(), CMDLINE))
+		if err != nil {
+			continue
+		}
+
+		if !strings.Contains(string(raw), needle) {
+			continue
+		}
+
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+
+		return pid
+	}
+
+	t.Fatalf("no process has %s in its arguments", needle)
+
+	return 0
 }
 
 // _ArgsContain reports whether any process on this machine has needle in its
