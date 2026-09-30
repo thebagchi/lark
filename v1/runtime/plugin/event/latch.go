@@ -138,7 +138,7 @@ func (l *_Latch) _Post(budget *scheduler.Budget, value starlark.Value) error {
 }
 
 // _Await waits for this latch, for the time given, or for the caller to be
-// cancelled - whichever comes first.
+// cancelled - whichever comes first. A latch already posted is not waited for.
 //
 // Answers with the value and whether the wait ran out. Returns ErrCancelled
 // wrapping the context's error when the caller went first, because then there is
@@ -146,16 +146,26 @@ func (l *_Latch) _Post(budget *scheduler.Budget, value starlark.Value) error {
 //
 // Revisions:
 //   - 2026-09-30 21:01: initial creation
+//   - 2026-09-30 21:50: looks at the latch before arming the timer, so a wait
+//     shorter than getting here cannot miss a post that came first
 func (l *_Latch) _Await(ctx context.Context, bound time.Duration) (starlark.Value, bool, error) {
+	// Before the timer, because a select choosing between cases that are both
+	// ready picks one at random. A bound already run out - zero, or anything
+	// shorter than reaching the select - answered that the wait expired about
+	// half the time, for an event posted before the wait began.
+	select {
+	case <-l.done:
+		return l._Value(), false, nil
+
+	default:
+	}
+
 	waited := time.NewTimer(bound)
 	defer waited.Stop()
 
 	select {
 	case <-l.done:
-		l.guard.Lock()
-		defer l.guard.Unlock()
-
-		return l.value, false, nil
+		return l._Value(), false, nil
 
 	case <-waited.C:
 		return starlark.None, true, nil
@@ -163,4 +173,15 @@ func (l *_Latch) _Await(ctx context.Context, bound time.Duration) (starlark.Valu
 	case <-ctx.Done():
 		return nil, false, fmt.Errorf("%w: %w", scheduler.ErrCancelled, ctx.Err())
 	}
+}
+
+// _Value is what this latch was posted with, read once done is closed.
+//
+// Revisions:
+//   - 2026-09-30 21:50: initial creation
+func (l *_Latch) _Value() starlark.Value {
+	l.guard.Lock()
+	defer l.guard.Unlock()
+
+	return l.value
 }
