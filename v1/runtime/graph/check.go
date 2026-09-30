@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
+
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 )
 
@@ -36,6 +38,27 @@ var (
 	// rather than reaching Starlark as an error against a line in generated
 	// source, which names nothing a reader can act on.
 	ErrArity = errors.New("a call passes more arguments than the function takes")
+
+	// ErrNotForked is returned for a join or a cancel naming a thread that the
+	// thread holding it did not fork before it.
+	//
+	// A generated script names a thread by the handle its fork bound, in the
+	// function that forked it, so a join anywhere else - or before the fork -
+	// names a variable that does not exist. Caught here rather than as an
+	// undefined name in generated source, which points at nothing a reader
+	// wrote.
+	ErrNotForked = errors.New("a thread is joined or cancelled where it was not forked")
+
+	// ErrForkCall is returned for a fork whose func is not the call its thread
+	// runs. The call is said twice so each side reads alone, and two copies are
+	// worth having only while they agree.
+	ErrForkCall = errors.New("a fork's call is not what its thread runs")
+
+	// ErrUnresolved is returned for a parameter a call cannot see: not a param
+	// of the function making the call, and not a function, constant or argument
+	// the graph declares. A constant passes values only, since it is computed
+	// before anything a parameter could name is bound.
+	ErrUnresolved = errors.New("a parameter names nothing the call can see")
 )
 
 // Check is what a graph must satisfy before anything generates from it.
@@ -55,6 +78,9 @@ var (
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-09-21 16:25: includes Distinct, which its own first line had always
 //     claimed
+//   - 2026-09-30 00:44: refuses a join or a cancel of a thread not forked
+//     there, a fork whose call is not its thread's, and a parameter its call
+//     cannot see
 func Check(graph *workflowpb.Graph) error {
 	err := Distinct(graph)
 	if err != nil {
@@ -71,7 +97,108 @@ func Check(graph *workflowpb.Graph) error {
 		return err
 	}
 
-	return _Arity(graph)
+	err = _Arity(graph)
+	if err != nil {
+		return err
+	}
+
+	err = _Waits(graph)
+	if err != nil {
+		return err
+	}
+
+	err = _Forks(graph)
+	if err != nil {
+		return err
+	}
+
+	return _ScopeOf(graph)._Resolved(graph)
+}
+
+// _Waits checks that every join and cancel names threads forked earlier on the
+// thread holding it.
+//
+// Revisions:
+//   - 2026-09-30 00:44: initial creation
+func _Waits(graph *workflowpb.Graph) error {
+	for _, thread := range graph.GetThreads() {
+		err := _Forked(thread)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// _Forked checks one thread's joins and cancels against the forks before them.
+//
+// Revisions:
+//   - 2026-09-30 00:44: initial creation
+func _Forked(thread *workflowpb.Thread) error {
+	forked := make(map[string]bool)
+
+	for _, step := range thread.GetStatic().GetSteps() {
+		if step.GetFork() != nil {
+			forked[step.GetFork().GetThread()] = true
+
+			continue
+		}
+
+		for _, id := range _Awaited(step) {
+			if !forked[id] {
+				return fmt.Errorf("%s on %s: %w", id, thread.GetId(), ErrNotForked)
+			}
+		}
+	}
+
+	return nil
+}
+
+// _Awaited is the threads a join or a cancel names, or none for any other step.
+//
+// Revisions:
+//   - 2026-09-30 00:44: initial creation
+func _Awaited(step *workflowpb.Step) []string {
+	switch {
+	case step.GetJoin() != nil:
+		return step.GetJoin().GetThreads()
+
+	case step.GetCancel() != nil:
+		return step.GetCancel().GetThreads()
+	}
+
+	return nil
+}
+
+// _Forks checks that a fork carrying its call carries the call its thread runs.
+//
+// A fork with no call is not refused: a graph written before forks carried one
+// is still a graph, and its thread's first step says what runs.
+//
+// Revisions:
+//   - 2026-09-30 00:44: initial creation
+func _Forks(graph *workflowpb.Graph) error {
+	runs := make(map[string]*workflowpb.Call)
+
+	for _, thread := range graph.GetThreads() {
+		runs[thread.GetId()] = _First(thread)
+	}
+
+	for _, thread := range graph.GetThreads() {
+		for _, step := range thread.GetStatic().GetSteps() {
+			fork := step.GetFork()
+			if fork.GetFunc() == nil {
+				continue
+			}
+
+			if !proto.Equal(fork.GetFunc(), runs[fork.GetThread()]) {
+				return fmt.Errorf("%s: %w", fork.GetThread(), ErrForkCall)
+			}
+		}
+	}
+
+	return nil
 }
 
 // _Spines checks that a graph carries authored threads, that each says what it

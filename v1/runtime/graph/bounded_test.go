@@ -205,11 +205,12 @@ func TestBounded_TheScriptRuns(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-20 21:13: initial creation
+//   - 2026-09-30 00:44: an argument is a value or a parameter
 func TestBounded_AWrappedSiteTakesArguments(t *testing.T) {
 	got := _Body(t, &workflowpb.Step{Action: &workflowpb.Step_Repeat{
 		Repeat: &workflowpb.Repeat{
-			Call: &workflowpb.Call{Function: "greet", Args: []*structpb.Value{
-				structpb.NewStringValue("alice"),
+			Call: &workflowpb.Call{Function: "greet", Args: []*workflowpb.Parameters{
+				_Valued(structpb.NewStringValue("alice")),
 			}},
 			Count: 3,
 		},

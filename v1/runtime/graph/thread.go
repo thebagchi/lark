@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"go.starlark.net/syntax"
+	"google.golang.org/protobuf/proto"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/v1/runtime/spelling"
@@ -21,10 +22,16 @@ import (
 // which is what makes an id a fact about structure: one counter shared by the
 // derivation would number in the order spawns are met, and a sibling met after
 // a nephew would take the higher number.
+//
+// names is every name a call on this lane may pass as a parameter: the
+// function's own params, and the functions, constants and arguments the file
+// declares. A handle is bound, never a parameter - the one thing a script does
+// with a thread is join it.
 type _Lane struct {
 	id      string
 	ordinal int
 	bound   map[string]string
+	names   map[string]bool
 }
 
 // _Thread reads one function as a thread of its own, and every function it
@@ -37,6 +44,7 @@ type _Lane struct {
 //   - 2026-09-21 01:17: initial creation
 //   - 2026-09-21 23:53: what the thread runs is its first step, not a field of
 //     its own
+//   - 2026-09-30 00:41: gives the lane the names its calls may pass
 func (r *_Reading) _Thread(id string, entry *workflowpb.Call, def *syntax.DefStmt) {
 	if r._Reading(def.Name.Name) {
 		r._Gave(def.Name.Name, "calls itself through a spawn")
@@ -52,7 +60,7 @@ func (r *_Reading) _Thread(id string, entry *workflowpb.Call, def *syntax.DefStm
 
 	r.threads = append(r.threads, thread)
 
-	lane := &_Lane{id: id, bound: make(map[string]string)}
+	lane := &_Lane{id: id, bound: make(map[string]string), names: r._Names(def)}
 
 	// The first step is what this thread runs. Everything read below is that
 	// function's own body, and follows it.
@@ -64,7 +72,7 @@ func (r *_Reading) _Thread(id string, entry *workflowpb.Call, def *syntax.DefStm
 		// A match is two statements and is read as one step. Reading them apart
 		// would be two steps for one decision, and would re-emit as a program
 		// that calls its expression once per case.
-		step := r._Matched(def.Body, idx)
+		step := r._Matched(lane, def.Body, idx)
 		if step != nil {
 			steps = append(steps, step)
 			idx++
@@ -111,8 +119,16 @@ func (r *_Reading) _Reading(name string) bool {
 
 // _Spawn is the step a spawn is, having read what it starts as a thread.
 //
+// The fork carries the call as well as the thread, so the forking thread reads
+// without walking to each thread it starts. A call whose arguments cannot all
+// be carried still starts its thread - the thread exists - but says so, and
+// the function holding it keeps its text: generating the spawn from what was
+// carried would drop an argument the script passed.
+//
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
+//   - 2026-09-30 00:41: the fork carries its call, and an argument that cannot
+//     be carried is reported rather than dropped
 func (r *_Reading) _Spawn(lane *_Lane, call *syntax.CallExpr) ([]*workflowpb.Step, bool) {
 	if len(call.Args) != 1 {
 		r._Gave(SPAWN, "takes one function")
@@ -120,7 +136,7 @@ func (r *_Reading) _Spawn(lane *_Lane, call *syntax.CallExpr) ([]*workflowpb.Ste
 		return nil, false
 	}
 
-	entry, def := r._Target(call.Args[0])
+	entry, def, carried := r._Target(lane, call.Args[0])
 	if def == nil {
 		r._Gave(SPAWN, "names nothing this file defines")
 
@@ -133,9 +149,13 @@ func (r *_Reading) _Spawn(lane *_Lane, call *syntax.CallExpr) ([]*workflowpb.Ste
 
 	r._Thread(id, entry, def)
 
-	return []*workflowpb.Step{{
-		Action: &workflowpb.Step_Fork{Fork: &workflowpb.Fork{Thread: id}},
-	}}, true
+	if !carried {
+		r._Gave(entry.GetFunction(), UNCARRIED)
+	}
+
+	fork := &workflowpb.Fork{Thread: id, Func: proto.CloneOf(entry)}
+
+	return []*workflowpb.Step{{Action: &workflowpb.Step_Fork{Fork: fork}}}, carried
 }
 
 // _Target is the call a spawned site makes, and the function it runs.
@@ -146,38 +166,89 @@ func (r *_Reading) _Spawn(lane *_Lane, call *syntax.CallExpr) ([]*workflowpb.Ste
 // spawn(lambda: greet("alice")). Refusing that would make the round trip
 // impossible on a script this project generates itself.
 //
+// The third result says whether every argument the lambda passes was carried.
+// When one was not, the call carries none, and the caller decides what that
+// costs.
+//
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
-func (r *_Reading) _Target(expr syntax.Expr) (*workflowpb.Call, *syntax.DefStmt) {
+//   - 2026-09-30 00:41: carries a parameter as well as a value, and says when
+//     it could not carry an argument rather than dropping it
+func (r *_Reading) _Target(
+	lane *_Lane,
+	expr syntax.Expr,
+) (*workflowpb.Call, *syntax.DefStmt, bool) {
 	switch actual := expr.(type) {
 	case *syntax.Ident:
 		def := r.defs[actual.Name]
 		if def == nil {
-			return nil, nil
+			return nil, nil, false
 		}
 
-		return &workflowpb.Call{Function: actual.Name}, def
+		return &workflowpb.Call{Function: actual.Name}, def, true
 
 	case *syntax.LambdaExpr:
 		inner, ok := actual.Body.(*syntax.CallExpr)
 		if !ok {
-			return nil, nil
+			return nil, nil, false
 		}
 
 		name, ok := inner.Fn.(*syntax.Ident)
 		if !ok {
-			return nil, nil
+			return nil, nil, false
 		}
 
 		def := r.defs[name.Name]
 		if def == nil {
-			return nil, nil
+			return nil, nil, false
 		}
 
-		return &workflowpb.Call{Function: name.Name, Args: _Values(inner)}, def
+		args, carried := _Passes(lane._Carries, inner)
+
+		return &workflowpb.Call{Function: name.Name, Args: args}, def, carried
 	}
 
-	return nil, nil
+	return nil, nil, false
+}
+
+// _Names is every name a call inside def may pass as a parameter: def's own
+// params, then what the file declares at its top level.
+//
+// Revisions:
+//   - 2026-09-30 00:41: initial creation
+func (r *_Reading) _Names(def *syntax.DefStmt) map[string]bool {
+	names := make(map[string]bool)
+
+	params, _ := _Params(def)
+
+	for _, name := range params {
+		names[name] = true
+	}
+
+	for name := range r.defs {
+		names[name] = true
+	}
+
+	for name := range r.constants {
+		names[name] = true
+	}
+
+	for name := range r.args {
+		names[name] = true
+	}
+
+	return names
+}
+
+// _Carries reports whether a call on this lane may pass name as a parameter.
+//
+// A name this lane bound to a handle is out, whatever else it shadows: a
+// thread is joined, never passed.
+//
+// Revisions:
+//   - 2026-09-30 00:41: initial creation
+func (l *_Lane) _Carries(name string) bool {
+	return l.names[name] && l.bound[name] == ""
 }
 
 // _Waits is the step a join or a cancel is, and the spawns its arguments made.
@@ -308,7 +379,9 @@ func _Started(steps []*workflowpb.Step) (string, bool) {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
-func (r *_Reading) _Matched(body []syntax.Stmt, idx int) *workflowpb.Step {
+//   - 2026-09-30 00:41: reads on a lane, so a matched call may pass a
+//     parameter
+func (r *_Reading) _Matched(lane *_Lane, body []syntax.Stmt, idx int) *workflowpb.Step {
 	if idx+1 >= len(body) {
 		return nil
 	}
@@ -323,24 +396,31 @@ func (r *_Reading) _Matched(body []syntax.Stmt, idx int) *workflowpb.Step {
 		return nil
 	}
 
-	return r._Match(assign, chain)
+	return r._Match(lane, assign, chain)
 }
 
 // _Fork is a spawn, bound to the handle its thread's id names.
 //
-// A fork names a thread, not a function. What runs there is that thread's own
-// first step, which is also where a site's arguments live - so rendering one is
-// two lookups and the second is the one that matters.
+// What runs there is the fork's own call when it carries one, and its thread's
+// first step when it does not - a graph written before a fork carried its call
+// is still one this generates. Check has already refused a graph where the two
+// disagree, so either is the call.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-30 00:41: generates from the fork's own call when it has one
 func (g *_Gen) _Fork(fork *workflowpb.Fork) (string, error) {
 	thread, err := g._Named(fork.GetThread())
 	if err != nil {
 		return "", err
 	}
 
-	site, err := g._Site(_First(thread))
+	call := fork.GetFunc()
+	if call == nil {
+		call = _First(thread)
+	}
+
+	site, err := g._Site(call)
 	if err != nil {
 		return "", err
 	}

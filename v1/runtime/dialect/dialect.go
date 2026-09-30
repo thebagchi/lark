@@ -18,10 +18,10 @@ import "go.starlark.net/syntax"
 //
 // Lambda is absent from this list because the library has no option for it -
 // FileOptions covers these five fields and nothing else, and the resolver
-// accepts a lambda under all of them. Refusing one everywhere would mean
-// walking every parsed tree, which was considered on 2026-09-19 21:17 and not
-// taken. A lambda is legal; spawn refuses one, so a spawned thread always has a
-// name to report, and that is where the refusal earns its place.
+// accepts a lambda under all of them. A lambda is legal everywhere. Written as
+// spawn's argument it compiles differently, taking the variables it reads at
+// the spawn, and Compile says how: that is the one rule of this dialect that
+// is not an option here.
 var OPTIONS = &syntax.FileOptions{
 	Set:             true,
 	While:           true,

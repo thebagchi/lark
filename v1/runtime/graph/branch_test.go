@@ -15,7 +15,8 @@ import (
 //
 // Revisions:
 //   - 2026-09-20 21:07: initial creation
-func _Ask(name string, args ...*structpb.Value) *workflowpb.Condition {
+//   - 2026-09-30 00:44: an argument is a value or a parameter
+func _Ask(name string, args ...*workflowpb.Parameters) *workflowpb.Condition {
 	return &workflowpb.Condition{
 		Kind: &workflowpb.Condition_Call{
 			Call: &workflowpb.Call{Function: name, Args: args},
@@ -27,7 +28,8 @@ func _Ask(name string, args ...*structpb.Value) *workflowpb.Condition {
 //
 // Revisions:
 //   - 2026-09-20 21:12: initial creation
-func _To(name string, args ...*structpb.Value) *workflowpb.Call {
+//   - 2026-09-30 00:44: an argument is a value or a parameter
+func _To(name string, args ...*workflowpb.Parameters) *workflowpb.Call {
 	return &workflowpb.Call{Function: name, Args: args}
 }
 
@@ -170,8 +172,8 @@ func TestBranch_TheScriptRuns(t *testing.T) {
 func TestBranch_ABranchTakesArgumentsDirectly(t *testing.T) {
 	got := _Body(t, &workflowpb.Step{Action: &workflowpb.Step_If{
 		If: &workflowpb.If{
-			Condition: _Ask("ready", structpb.NewStringValue("now")),
-			Then:      _To("greet", structpb.NewStringValue("alice")),
+			Condition: _Ask("ready", _Valued(structpb.NewStringValue("now"))),
+			Then:      _To("greet", _Valued(structpb.NewStringValue("alice"))),
 		},
 	}})
 

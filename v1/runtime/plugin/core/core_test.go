@@ -27,6 +27,12 @@ const (
 	NOT_A_FUNC    = "NUMBER"
 	ANON_FUNC     = "ANON"
 	ISOLATED      = "isolated"
+	DEFAULTED     = "defaulted"
+	CAPTURES      = "captures"
+	THROUGH       = "through"
+	HANDING       = "handing"
+	FROZEN        = "frozen"
+	PAIR          = 2
 	FAILURE_TEXT  = "a spawned failure"
 	WHY           = "two and two"
 	EXPECTED_NAME = "core"
@@ -68,6 +74,33 @@ def waits():
 def isolated():
     assert(False, "two and two")
     return 1
+
+def defaulted(x = 5):
+    return x * 2
+
+def captures():
+    x = 1
+
+    def reads():
+        return x
+
+    return reads
+
+def through():
+    x = 1
+
+    def reads():
+        return x
+
+    def outer(fn = reads):
+        return fn()
+
+    return outer
+
+def handing():
+    items = []
+
+    return (items, lambda items = items: len(items))
 `
 
 // _Globals compiles SOURCE against the plugin's names and freezes what it
@@ -243,6 +276,96 @@ func TestSpawn_TakesALambda(t *testing.T) {
 	if got := _Spawned(t, thread, ANON_FUNC).Name(); got != scheduler.LAMBDA {
 		t.Fatalf("want the interpreter's own word for it, got %q", got)
 	}
+}
+
+// TestSpawn_TakesAFunctionWhoseParametersAllHaveDefaults proves a function
+// spawn need supply nothing to is accepted, which is what a lambda written
+// inside spawn is once the dialect has compiled it.
+//
+// Revisions:
+//   - 2026-09-29 23:33: initial creation
+func TestSpawn_TakesAFunctionWhoseParametersAllHaveDefaults(t *testing.T) {
+	thread, finish := _Begun(t, t.Context())
+	defer finish()
+
+	handle := _Spawned(t, thread, DEFAULTED)
+
+	value, err := _Call(t, thread, core.JOIN, handle)
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	if value.String() != "[10]" {
+		t.Fatalf("join returned %s, want [10]", value)
+	}
+}
+
+// TestSpawn_RefusesWhatCaptures proves a function reaching the new thread that
+// captures a local variable is refused, whether it is the one spawned or one
+// that function's default holds.
+//
+// Revisions:
+//   - 2026-09-29 23:33: initial creation
+func TestSpawn_RefusesWhatCaptures(t *testing.T) {
+	thread, finish := _Begun(t, t.Context())
+	defer finish()
+
+	for _, name := range []string{CAPTURES, THROUGH} {
+		t.Run(name, func(t *testing.T) {
+			_, err := _Call(t, thread, core.SPAWN, _Made(t, thread, name))
+			if !errors.Is(err, core.ErrCaptures) {
+				t.Fatalf("got %v, want ErrCaptures", err)
+			}
+		})
+	}
+}
+
+// TestSpawn_FreezesWhatTheThreadIsHanded proves a value a spawned function
+// holds is frozen, so the thread that handed it over cannot change it under
+// the thread it went to.
+//
+// Revisions:
+//   - 2026-09-29 23:33: initial creation
+func TestSpawn_FreezesWhatTheThreadIsHanded(t *testing.T) {
+	thread, finish := _Begun(t, t.Context())
+	defer finish()
+
+	made := _Made(t, thread, HANDING)
+
+	pair, ok := made.(starlark.Tuple)
+	if !ok || len(pair) != PAIR {
+		t.Fatalf("%s made %s, want a list and a lambda", HANDING, made)
+	}
+
+	items, ok := pair[0].(*starlark.List)
+	if !ok {
+		t.Fatalf("%s made %s first, want a list", HANDING, pair[0].Type())
+	}
+
+	_, err := _Call(t, thread, core.SPAWN, pair[1])
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	err = items.Append(starlark.MakeInt(1))
+	if err == nil || !strings.Contains(err.Error(), FROZEN) {
+		t.Fatalf("appending to what a thread was handed: %v, want it %s", err, FROZEN)
+	}
+}
+
+// _Made calls the global function name on thread and returns what it made.
+//
+// Revisions:
+//   - 2026-09-29 23:33: initial creation
+func _Made(t *testing.T, thread *starlark.Thread, name string) starlark.Value {
+	t.Helper()
+
+	value, err := starlark.Call(thread, _Globals(t)[name], nil, nil)
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+
+	return value
 }
 
 // TestSpawn_RefusesAThreadWithNoRun proves spawn called outside a run is told

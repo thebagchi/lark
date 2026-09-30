@@ -63,6 +63,28 @@ from it, and a graph that will not run is refused with the reason.
 "HELLO WORLD"
 ```
 
+A call in a graph passes each argument as a value or a parameter:
+
+```json
+{"fork": {"thread": "thread_1",
+          "func": {"function": "connect", "args": [{"parameter": "host"}]}}}
+```
+
+`{"value": "db"}` is written into the script as it stands. `{"parameter":
+"host"}` passes whatever `host` holds where the call is made: a parameter of the
+calling function, or a function, constant or argument the graph declares. The
+check refuses a name the call cannot see. The fork above generates
+`h1 = spawn(lambda: connect(host))` - the lambda is implied by the arguments.
+
+A fork carries the call its thread runs as well as the thread, so the spine's
+steps read without walking to each thread; the two must agree, or the graph is
+refused. **A thread is never an argument.** The one thing a script does with a
+thread is join it, and a join may only name threads forked earlier on the same
+thread. A script that passes a thread anything else - a handle, a local, an
+expression - keeps that function as its text when a graph is derived from it,
+and `-t` says which call it could not carry, rather than drawing it without
+the argument.
+
 `samples/` has one script per idea, each with a comment saying what it is for:
 
 | Script | Shows |
@@ -157,7 +179,7 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 
 | Name | What it does |
 | --- | --- |
-| `spawn(fn)` | Runs `fn` on a goroutine and an interpreter thread of its own. Returns a handle. |
+| `spawn(fn)` | Runs `fn` on a goroutine and an interpreter thread of its own. Returns a handle. `spawn(lambda: f(x))` passes `x`, taken when `spawn` is called. |
 | `join(h, …)` | Waits for each handle and returns what each produced, in the order given. |
 | `cancel(h, …)` | Stops each handle. Does not wait. |
 | `assert(cond, msg)` | Stops the **whole run** when `cond` is false. `assert(msg = "...")` always stops it. |
@@ -184,9 +206,55 @@ Without `WithLoader`, a module is a file beside the one that loaded it:
 | `utils` | `utils.datetime()`, the local time to the microsecond, as a string. |
 | `arg(name, default)` | Declares an argument this run supplies. Module level only. |
 
-`spawn` takes a **named function that takes no arguments** — not a lambda, not a
-call. A closure over what it needs is how a script passes data in. The rule
-exists so every thread has a name to report.
+### Handing a thread what it needs
+
+`spawn` calls what it is given with no arguments. A lambda written inside the
+call is how a thread is handed some, and **it takes them when `spawn` is
+called**, not when the thread gets round to running:
+
+```python
+handles = []
+
+for word in ["hello", "world"]:
+    handles.append(spawn(lambda: shout(word)))    # each thread gets its own word
+
+parts = join(*handles)                            # ["HELLO", "WORLD"]
+```
+
+The compiler turns each variable such a lambda reads into a parameter
+defaulting to it, so the loop above runs `spawn(lambda word=word:
+shout(word))`, and a default is evaluated where the lambda is written. Without
+that, every thread read the one `word` the loop goes on writing. Before
+2026-09-29 this printed `WORLD WORLD` in 20 of 20 runs, and the race detector
+reported two goroutines racing on the variable.
+
+**What a thread is handed is frozen**, in the thread and in the function that
+handed it over, and it stays frozen after `join`. A write from either side
+fails loudly instead of racing:
+
+```python
+items = []
+spawn(lambda: count(items))
+items.append(1)            # cannot append to frozen list
+```
+
+Binding a name to a new value is fine; changing the one handed over is not. A
+thread gives results back by returning them, and `state` is for anything else
+threads share.
+
+**Anything else that would carry a local variable into a thread is refused at
+the spawn**, with `ErrCaptures` naming the variable:
+
+| Refused | Why | Write instead |
+| --- | --- | --- |
+| `spawn(worker)`, where `worker` is a nested function reading a local | spawned by name, it reads the variable when it runs | a top-level function, through a lambda: `spawn(lambda: worker(x))` |
+| `job = lambda: f(x)` then `spawn(job)` | only a lambda written inside the call takes its variables | `spawn(lambda: f(x))` |
+| `spawn(lambda: call(read_y))`, where `read_y` reads `y` | the closure is handed over, and still reads `y` from its maker | hand over `y` itself |
+
+A top-level function needs none of this: all it can capture is what its file
+loaded, which is bound once and frozen, so `spawn(worker)` is as it always was.
+A lambda anywhere but inside `spawn(...)` — `retry(3, lambda: fetch(url))`
+included, since a wrapper waits for its call — means what a lambda always means.
 
 ### Arguments a run supplies
 
@@ -775,7 +843,8 @@ Each is reachable with `errors.Is`, through whatever wrapping carried it.
 | `runtime.ErrAssert` | A script asserted false |
 | `runtime.ErrNotACondition` | `assert` was given only a message |
 | `runtime.ErrCancelled` | A joined handle was cancelled |
-| `runtime.ErrNotAName` | `spawn` got something other than a zero-argument function |
+| `runtime.ErrNotAName` | `spawn` got something it cannot call with no arguments |
+| `runtime.ErrCaptures` | Something reaching a new thread captures a local variable |
 | `runtime.ErrNotAHandle` | `join` or `cancel` got something other than a handle |
 | `runtime.ErrInterrupted` | A `sleep` was cut short by the run ending |
 | `runtime.ErrDuration` | `sleep` or `timeout` got something no timer can hold |
@@ -1260,6 +1329,12 @@ refusing it at compile time reports the same mistake with a position in it.
 Module scope is frozen after it initialises, which is what makes it safe to
 share across threads. A script that mutates a global from inside a function
 fails loudly rather than corrupting memory.
+
+One rule is not an option of the interpreter's. A lambda written inside
+`spawn(...)` is compiled with a parameter for each variable it reads,
+defaulting to that variable, so it takes them at the spawn — see *Handing a
+thread what it needs*. A local variable is not frozen the way module scope is,
+and a closure used to hand one to another goroutine.
 
 ## Threads
 

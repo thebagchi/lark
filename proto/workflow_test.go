@@ -61,11 +61,14 @@ func TestFunction_CarriesBodyAndParams(t *testing.T) {
 	}
 }
 
-// TestCall_ArgsKeepJsonKinds is option C: a string, a number and an
-// object round-trip as JSON, not as three strings.
+// TestCall_ArgsKeepJsonKinds is option C: a string, a number and an object
+// round-trip as JSON under value, not as three strings, and a parameter is the
+// name it holds under parameter.
 //
 // Revisions:
 //   - 2026-09-20 18:40: initial creation
+//   - 2026-09-30 00:44: an argument is a value or a parameter, each under a key
+//     of its own
 func TestCall_ArgsKeepJsonKinds(t *testing.T) {
 	list, err := structpb.NewList([]any{
 		"alice",
@@ -76,10 +79,19 @@ func TestCall_ArgsKeepJsonKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := protojson.Marshal(&workflowpb.Call{
-		Function: "greet",
-		Args:     list.GetValues(),
+	var passed []*workflowpb.Parameters
+
+	for _, value := range list.GetValues() {
+		passed = append(passed, &workflowpb.Parameters{
+			Param: &workflowpb.Parameters_Value{Value: value},
+		})
+	}
+
+	passed = append(passed, &workflowpb.Parameters{
+		Param: &workflowpb.Parameters_Parameter{Parameter: "word"},
 	})
+
+	raw, err := protojson.Marshal(&workflowpb.Call{Function: "greet", Args: passed})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,23 +105,48 @@ func TestCall_ArgsKeepJsonKinds(t *testing.T) {
 	}
 
 	args, ok := site["args"].([]any)
-	if !ok || len(args) != 3 {
-		t.Fatalf("want three args, got %s", raw)
+	if !ok || len(args) != len(passed) {
+		t.Fatalf("want %d args, got %s", len(passed), raw)
 	}
 
-	if args[0] != "alice" {
+	if _Under(t, args[0], "value") != "alice" {
 		t.Fatalf("want a string, got %#v", args[0])
 	}
 
-	n, ok := args[1].(float64)
+	n, ok := _Under(t, args[1], "value").(float64)
 	if !ok || n != 3 {
 		t.Fatalf("want the number 3, got %#v", args[1])
 	}
 
-	obj, ok := args[2].(map[string]any)
+	obj, ok := _Under(t, args[2], "value").(map[string]any)
 	if !ok || obj["k"] != float64(1) {
 		t.Fatalf("want an object, got %#v", args[2])
 	}
+
+	if _Under(t, args[3], "parameter") != "word" {
+		t.Fatalf("want the name word, got %#v", args[3])
+	}
+}
+
+// _Under is what one JSON argument holds under key, failing when the argument
+// is not an object holding one.
+//
+// Revisions:
+//   - 2026-09-30 00:44: initial creation
+func _Under(t *testing.T, arg any, key string) any {
+	t.Helper()
+
+	held, ok := arg.(map[string]any)
+	if !ok {
+		t.Fatalf("want an object, got %#v", arg)
+	}
+
+	value, ok := held[key]
+	if !ok {
+		t.Fatalf("want %q in %#v", key, held)
+	}
+
+	return value
 }
 
 // TestGraph_NameOnlyStillDecodes is today's JSON after the new fields:

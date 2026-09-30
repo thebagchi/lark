@@ -113,6 +113,8 @@ def main():
 //
 // Revisions:
 //   - 2026-09-24 23:50: initial creation
+//   - 2026-09-29 23:30: hands both threads the lines value through a lambda
+//     written inside spawn, since a nested walk capturing it is now refused
 func TestLines_OneWalkerWins(t *testing.T) {
 	dir := t.TempDir()
 	named := filepath.Join(dir, "log.txt")
@@ -121,14 +123,17 @@ func TestLines_OneWalkerWins(t *testing.T) {
 	}
 
 	_, err := _Run(t, `
+def walk(lines):
+    n = 0
+    for line in lines:
+        n = n + 1
+    return n
+
 def main():
-    box = [file.lines("`+named+`")]
-    def walk():
-        n = 0
-        for line in box[0]:
-            n = n + 1
-        return n
-    return join(spawn(walk), spawn(walk))
+    lines = file.lines("`+named+`")
+    first = spawn(lambda: walk(lines))
+    second = spawn(lambda: walk(lines))
+    return join(first, second)
 `)
 	if !errors.Is(err, file.ErrWalked) {
 		t.Fatalf("two walks: %v", err)

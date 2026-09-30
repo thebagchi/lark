@@ -438,6 +438,9 @@ func TestRemote_WhatThePluginRefusedReachesTheScript(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-25 06:40: initial creation
+//   - 2026-09-29 23:30: hands each thread its pair through a lambda written
+//     inside spawn, since a factory's closure captures a local variable and
+//     spawn now refuses one
 func TestRemote_ThreadsShareOnePlugin(t *testing.T) {
 	listener, socket := _Listening(t)
 
@@ -448,14 +451,11 @@ func TestRemote_ThreadsShareOnePlugin(t *testing.T) {
 	// caller shows up as a wrong number. Twenty threads all adding the same
 	// thing would pass however badly the ids were paired.
 	got, err := _Ran(t, listener, `
-def adder(n):
-    def go():
-        return clock.add(n, n)
-
-    return go
-
 def main():
-    held = [spawn(adder(i)) for i in range(20)]
+    held = []
+
+    for i in range(20):
+        held.append(spawn(lambda: clock.add(i, i)))
 
     return [join(h)[0] for h in held]
 `)

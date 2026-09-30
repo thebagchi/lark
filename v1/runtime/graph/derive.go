@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"go.starlark.net/syntax"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/v1/runtime/dialect"
@@ -185,13 +184,18 @@ func (r *_Reading) _Held(expr syntax.Expr) (*workflowpb.Constant, error) {
 	}
 
 	call, ok := expr.(*syntax.CallExpr)
-	if !ok || r.defs[_Bare(call)] == nil || !_Stated(call) {
+	if !ok || r.defs[_Bare(call)] == nil {
+		return nil, ErrConstant
+	}
+
+	args, stated := _Passes(_Nothing, call)
+	if !stated {
 		return nil, ErrConstant
 	}
 
 	return &workflowpb.Constant{
 		Kind: &workflowpb.Constant_Call{
-			Call: &workflowpb.Call{Function: _Bare(call), Args: _Values(call)},
+			Call: &workflowpb.Call{Function: _Bare(call), Args: args},
 		},
 	}, nil
 }
@@ -235,6 +239,8 @@ func (r *_Reading) _Report() *Report {
 //   - 2026-09-21 01:17: initial creation
 //   - 2026-09-21 01:32: says whether the statement became steps whole, which is
 //     what decides between a generated body and an authored one
+//   - 2026-09-30 00:50: an assignment is whole only when what it assigns was,
+//     so a spawn whose arguments could not be carried keeps its function's text
 func (r *_Reading) _Statement(lane *_Lane, stmt syntax.Stmt) ([]*workflowpb.Step, bool) {
 	switch actual := stmt.(type) {
 	case *syntax.ExprStmt:
@@ -253,12 +259,12 @@ func (r *_Reading) _Statement(lane *_Lane, stmt syntax.Stmt) ([]*workflowpb.Step
 		return steps, false
 
 	case *syntax.AssignStmt:
-		steps, _ := r._Expression(lane, actual.RHS)
+		steps, whole := r._Expression(lane, actual.RHS)
 
-		return steps, r._Bind(lane, actual, steps)
+		return steps, r._Bind(lane, actual, steps) && whole
 
 	case *syntax.IfStmt:
-		step := r._Branch(actual)
+		step := r._Branch(lane, actual)
 		if step == nil {
 			return nil, false
 		}
@@ -311,25 +317,12 @@ func (r *_Reading) _Expression(lane *_Lane, expr syntax.Expr) ([]*workflowpb.Ste
 		steps = append(steps, made...)
 	}
 
-	step, whole := r._Call(call)
+	step, whole := r._Call(lane, call)
 	if step == nil {
 		return steps, false
 	}
 
 	return append(steps, step), whole
-}
-
-// _Stated reports whether every argument of a call states a value.
-//
-// A call whose arguments do not is still a step - the ordering of what it
-// calls is worth having - but it is not a faithful one: record(compute())
-// renders as record() and loses what it was passed. So the function holding it
-// keeps its body, and this is what says so.
-//
-// Revisions:
-//   - 2026-09-21 01:32: initial creation
-func _Stated(call *syntax.CallExpr) bool {
-	return len(_Values(call)) == len(call.Args)
 }
 
 // _Within is the steps the parts of a composite expression take, left to
@@ -359,9 +352,15 @@ func (r *_Reading) _Within(lane *_Lane, expr syntax.Expr) ([]*workflowpb.Step, b
 // calls a graph carries in a body rather than as steps, and refusing them
 // would refuse every script.
 //
+// A call whose arguments cannot all be carried is still a step - the ordering
+// of what it calls is worth having - but not a faithful one: record(compute())
+// would render as record() and lose what it was passed. So the function
+// holding it keeps its body, and the second result is what says so.
+//
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
-func (r *_Reading) _Call(call *syntax.CallExpr) (*workflowpb.Step, bool) {
+//   - 2026-09-30 00:41: reads on a lane, so a call may pass a parameter
+func (r *_Reading) _Call(lane *_Lane, call *syntax.CallExpr) (*workflowpb.Step, bool) {
 	name := _Bare(call)
 
 	if name == SLEEP {
@@ -374,7 +373,7 @@ func (r *_Reading) _Call(call *syntax.CallExpr) (*workflowpb.Step, bool) {
 	// makes it whole is that the wrapper read it - not that every argument
 	// states a value, which is the test a plain call answers.
 	if name == REPEAT || name == RETRY || name == TIMEOUT {
-		step := r._Wrapper(name, call)
+		step := r._Wrapper(lane, name, call)
 
 		return step, step != nil
 	}
@@ -383,11 +382,13 @@ func (r *_Reading) _Call(call *syntax.CallExpr) (*workflowpb.Step, bool) {
 		return nil, false
 	}
 
+	args, carried := _Passes(lane._Carries, call)
+
 	step := &workflowpb.Step{Action: &workflowpb.Step_Call{
-		Call: &workflowpb.Call{Function: name, Args: _Values(call)},
+		Call: &workflowpb.Call{Function: name, Args: args},
 	}}
 
-	return step, _Stated(call)
+	return step, carried
 }
 
 // _Bare is the plain name a call calls, or empty.
@@ -408,27 +409,69 @@ func _Bare(call *syntax.CallExpr) string {
 	return name.Name
 }
 
-// _Values is a call's arguments as the values they state, or none at all.
+// _Passes is a call's arguments as a graph carries them, and whether it could
+// carry every one.
 //
-// All or nothing: an argument that states no value - an expression, a name -
-// means the call cannot be carried faithfully, and carrying the rest would
+// A literal is a value. A bare name carries says the call may pass is a
+// parameter, written back as that name. Anything else - a handle, a local, an
+// expression - cannot be carried, and then nothing is: carrying the rest would
 // invent a call the script never made.
 //
 // Revisions:
-//   - 2026-09-21 01:17: initial creation
-func _Values(call *syntax.CallExpr) []*structpb.Value {
-	var args []*structpb.Value
+//   - 2026-09-21 01:17: initial creation, as _Values
+//   - 2026-09-30 00:41: carries a parameter as well as a value
+func _Passes(
+	carries func(string) bool,
+	call *syntax.CallExpr,
+) ([]*workflowpb.Parameters, bool) {
+	var args []*workflowpb.Parameters
 
 	for _, arg := range call.Args {
-		value, ok := _Arg(arg)
+		passed, ok := _Carried(carries, arg)
 		if !ok {
-			return nil
+			return nil, false
 		}
 
-		args = append(args, value)
+		args = append(args, passed)
 	}
 
-	return args
+	return args, true
+}
+
+// _Carried is one argument as a graph carries it, or false when it cannot be.
+//
+// A value is tried first: True, False and None are names, and they are values
+// rather than parameters.
+//
+// Revisions:
+//   - 2026-09-30 00:41: initial creation
+func _Carried(carries func(string) bool, arg syntax.Expr) (*workflowpb.Parameters, bool) {
+	value, ok := _Arg(arg)
+	if ok {
+		return &workflowpb.Parameters{
+			Param: &workflowpb.Parameters_Value{Value: value},
+		}, true
+	}
+
+	name, ok := arg.(*syntax.Ident)
+	if !ok || !carries(name.Name) {
+		return nil, false
+	}
+
+	return &workflowpb.Parameters{
+		Param: &workflowpb.Parameters_Parameter{Parameter: name.Name},
+	}, true
+}
+
+// _Nothing carries no name, which is what a constant is computed from.
+//
+// A constant is a call made at the top of a generated file, where nothing a
+// parameter could name is bound yet, so it states values or nothing.
+//
+// Revisions:
+//   - 2026-09-30 00:41: initial creation
+func _Nothing(name string) bool {
+	return false
 }
 
 // _Defs is every top-level function a file defines, in the order it defines

@@ -177,8 +177,11 @@ func TestCheck_AcceptsTheSpineContributingNoPrefix(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-30 00:44: an argument is a value or a parameter
 func TestCheck_RefusesACallThatCannotFit(t *testing.T) {
-	built := _Authored([]*workflowpb.Step{_CallOf("greet", _Text("a"), _Text("b"))})
+	built := _Authored([]*workflowpb.Step{
+		_CallOf("greet", _Valued(_Text("a")), _Valued(_Text("b"))),
+	})
 	built.Functions = []*workflowpb.Function{{Name: "greet", Params: []string{"who"}}}
 
 	err := graph.Check(built)

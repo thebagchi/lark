@@ -130,10 +130,17 @@ func _Pause(sleep *workflowpb.Sleep) string {
 // delay_ms is never set. No builtin can spell a delay, and the emitter already
 // refuses a graph that asks for one, so this is the symmetric half.
 //
+// A lambda passing something the graph cannot carry states no step, so the
+// function holding it keeps its text. It used to state one with the argument
+// gone: retry(3, lambda: fetch(url)) derived as retry(3, fetch), which a graph
+// then generated and could not run.
+//
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-09-21 08:09: a number only; repeat(True, f) used to derive as 0
-func (r *_Reading) _Wrapper(name string, call *syntax.CallExpr) *workflowpb.Step {
+//   - 2026-09-30 00:41: reads on a lane, and states no step for a lambda
+//     whose arguments it could not carry
+func (r *_Reading) _Wrapper(lane *_Lane, name string, call *syntax.CallExpr) *workflowpb.Step {
 	if len(call.Args) != WRAPPED {
 		return nil
 	}
@@ -143,8 +150,8 @@ func (r *_Reading) _Wrapper(name string, call *syntax.CallExpr) *workflowpb.Step
 		return nil
 	}
 
-	site, def := r._Target(call.Args[1])
-	if def == nil {
+	site, def, carried := r._Target(lane, call.Args[1])
+	if def == nil || !carried {
 		return nil
 	}
 

@@ -6,7 +6,8 @@
 # Every thread says what it runs in its first step, the spine included: its
 # first step calls main, and the steps after it are main's own body. A thread
 # with only that one step is a fork pointing at a leaf, and the leaf keeps its
-# text.
+# text. A fork says it too, in func, so the spine's own steps read without
+# walking to each thread it starts.
 #
 # Read the JSON as two halves. functions is the code: a name, its parameters,
 # and a body of statements. threads is the workflow: what runs, on which
@@ -17,6 +18,7 @@
 # Every step kind, in the order the spine performs them:
 #
 #   Fork      h1 = spawn(lambda: greet("alice"))
+#             h2 = spawn(lambda: greet(GREETING))
 #   Join      join(h1, h2)
 #   Call      record("ada", 36, True, ["x", 1.5], {"k": 1}, None)
 #   Repeat    repeat(3, tick)
@@ -31,9 +33,14 @@
 # that names a thread carries a list of thread ids rather than values something
 # has to read back as strings.
 #
-# All six argument kinds are in that one Call, and they keep their JSON kinds:
-# a string, a number, a bool, a list, an object and null become "ada", 36,
-# True, ["x", 1.5], {"k": 1} and None.
+# An argument is a value or a parameter. All six kinds of value are in that one
+# Call, each under "value", and they keep their JSON kinds: a string, a number,
+# a bool, a list, an object and null become "ada", 36, True, ["x", 1.5],
+# {"k": 1} and None. A parameter is a name the call can see, under
+# "parameter": thread_2 greets GREETING, a constant the graph declares, and
+# the spawn passes the name rather than a value - greet(GREETING). A
+# function's own params are names its calls can pass the same way. A thread is
+# never one: the one thing a script does with a thread is join it.
 #
 # Six things worth matching back to the JSON:
 #
@@ -43,7 +50,9 @@
 #
 #   h1, h2               a spawn names a thread by id, and the handle is that
 #                        id with its prefix swapped - thread_1 is h1. What runs
-#                        there is that thread's own first step.
+#                        there is the fork's func, which is also that thread's
+#                        own first step; a graph where the two differ is
+#                        refused.
 #
 #   repeat(3, tick)      the count comes first and the callable last. It calls
 #                        straight away: the wrappers are not factories.
@@ -67,6 +76,11 @@
 #
 # graph:
 #   {
+#     "constants": {
+#       "GREETING": {
+#         "value": "bob"
+#       }
+#     },
 #     "functions": [
 #       {
 #         "body": "state.update(\"greeted\", lambda s: 1 if s == None else s + 1)\n\nreturn \"hello \" + who",
@@ -147,11 +161,27 @@
 #             },
 #             {
 #               "fork": {
+#                 "func": {
+#                   "args": [
+#                     {
+#                       "value": "alice"
+#                     }
+#                   ],
+#                   "function": "greet"
+#                 },
 #                 "thread": "thread_1"
 #               }
 #             },
 #             {
 #               "fork": {
+#                 "func": {
+#                   "args": [
+#                     {
+#                       "parameter": "GREETING"
+#                     }
+#                   ],
+#                   "function": "greet"
+#                 },
 #                 "thread": "thread_2"
 #               }
 #             },
@@ -166,17 +196,29 @@
 #             {
 #               "call": {
 #                 "args": [
-#                   "ada",
-#                   36,
-#                   true,
-#                   [
-#                     "x",
-#                     1.5
-#                   ],
 #                   {
-#                     "k": 1
+#                     "value": "ada"
 #                   },
-#                   null
+#                   {
+#                     "value": 36
+#                   },
+#                   {
+#                     "value": true
+#                   },
+#                   {
+#                     "value": [
+#                       "x",
+#                       1.5
+#                     ]
+#                   },
+#                   {
+#                     "value": {
+#                       "k": 1
+#                     }
+#                   },
+#                   {
+#                     "value": null
+#                   }
 #                 ],
 #                 "function": "record"
 #               }
@@ -266,7 +308,9 @@
 #             {
 #               "call": {
 #                 "args": [
-#                   "alice"
+#                   {
+#                     "value": "alice"
+#                   }
 #                 ],
 #                 "function": "greet"
 #               }
@@ -281,7 +325,9 @@
 #             {
 #               "call": {
 #                 "args": [
-#                   "bob"
+#                   {
+#                     "parameter": "GREETING"
+#                   }
 #                 ],
 #                 "function": "greet"
 #               }
@@ -358,7 +404,7 @@ def report():
 
 def main():
     h1 = spawn(lambda: greet("alice"))
-    h2 = spawn(lambda: greet("bob"))
+    h2 = spawn(lambda: greet(GREETING))
     join(h1, h2)
     record("ada", 36, True, ["x", 1.5], {"k": 1}, None)
     repeat(3, tick)
@@ -378,3 +424,6 @@ def main():
         on_other()
     report()
     pass
+
+GREETING = "bob"
+

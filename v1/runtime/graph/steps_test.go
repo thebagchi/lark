@@ -60,7 +60,8 @@ func _Spine(steps ...*workflowpb.Step) *workflowpb.Thread {
 //   - 2026-09-20 21:04: initial creation
 //   - 2026-09-21 00:59: names its function through its entry, under its own id
 //   - 2026-09-21 23:53: names it in its first step
-func _Lane(id string, name string, args ...*structpb.Value) *workflowpb.Thread {
+//   - 2026-09-30 00:44: an argument is a value or a parameter
+func _Lane(id string, name string, args ...*workflowpb.Parameters) *workflowpb.Thread {
 	return &workflowpb.Thread{
 		Id: id,
 		State: &workflowpb.Thread_Static{Static: &workflowpb.Static{
@@ -73,7 +74,8 @@ func _Lane(id string, name string, args ...*structpb.Value) *workflowpb.Thread {
 //
 // Revisions:
 //   - 2026-09-20 21:04: initial creation
-func _CallOf(name string, args ...*structpb.Value) *workflowpb.Step {
+//   - 2026-09-30 00:44: an argument is a value or a parameter
+func _CallOf(name string, args ...*workflowpb.Parameters) *workflowpb.Step {
 	return &workflowpb.Step{
 		Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: name, Args: args}},
 	}
@@ -167,7 +169,7 @@ func TestSteps_AForkRendersTheSlotsFunction(t *testing.T) {
 func TestSteps_ASiteWithArgumentsIsALambda(t *testing.T) {
 	built := CONCURRENT()
 	built.Functions[0] = _Fn("first", "return who", "who")
-	built.Threads[1] = _Lane("thread_1", "first", structpb.NewStringValue("alice"))
+	built.Threads[1] = _Lane("thread_1", "first", _Valued(structpb.NewStringValue("alice")))
 
 	out, err := graph.Emit(built)
 	if err != nil {

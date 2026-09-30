@@ -136,13 +136,10 @@ func (d *_Dir) Load(name string) ([]byte, error) {
 //   - 2026-09-19 18:30: initial creation
 //   - 2026-09-21 17:19: keeps what it compiled, so describing reads nothing
 //     twice
+//   - 2026-09-29 23:30: compiles through the dialect, so a lambda written as
+//     spawn's argument takes the variables it reads at the spawn
 func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
-	tree, code, err := starlark.SourceProgramOptions(
-		dialect.OPTIONS,
-		path,
-		src,
-		g.env.Has,
-	)
+	tree, code, err := dialect.Compile(path, src, g.env.Has)
 	if err != nil {
 		// Not wrapped with the path: a parse or resolve error from the
 		// interpreter already opens with file:line:column, and repeating the

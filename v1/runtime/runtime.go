@@ -65,6 +65,7 @@ var (
 	ErrNotACondition = core.ErrNotACondition
 	ErrNotAHandle    = core.ErrNotAHandle
 	ErrNotAName      = core.ErrNotAName
+	ErrCaptures      = core.ErrCaptures
 	ErrInterrupted   = core.ErrInterrupted
 	ErrCancelled     = scheduler.ErrCancelled
 	ErrNoRun         = scheduler.ErrNoRun

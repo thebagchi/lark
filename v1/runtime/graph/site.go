@@ -51,11 +51,12 @@ func (g *_Gen) _Site(call *workflowpb.Call) (string, error) {
 //
 // Revisions:
 //   - 2026-09-20 21:02: initial creation
+//   - 2026-09-30 00:41: an argument is a value or a parameter
 func (g *_Gen) _Args(call *workflowpb.Call) (string, error) {
 	var written []string
 
 	for _, arg := range call.GetArgs() {
-		value, err := _Value(arg)
+		value, err := _Written(arg)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", call.GetFunction(), err)
 		}
@@ -64,6 +65,26 @@ func (g *_Gen) _Args(call *workflowpb.Call) (string, error) {
 	}
 
 	return strings.Join(written, SEPARATOR), nil
+}
+
+// _Written is one argument as a script writes it: a parameter as its name, a
+// value as a literal.
+//
+// A name is written as it stands. Check is what makes sure the call can see
+// it, before anything is generated.
+//
+// Revisions:
+//   - 2026-09-30 00:41: initial creation
+func _Written(arg *workflowpb.Parameters) (string, error) {
+	switch kind := arg.GetParam().(type) {
+	case *workflowpb.Parameters_Parameter:
+		return kind.Parameter, nil
+
+	case *workflowpb.Parameters_Value:
+		return _Value(kind.Value)
+	}
+
+	return "", fmt.Errorf("%T: %w", arg.GetParam(), ErrNoValue)
 }
 
 // _Value is one JSON argument as a Starlark literal.

@@ -158,18 +158,20 @@ func (g *_Gen) _Taken(call *workflowpb.Call) (string, error) {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
-func (r *_Reading) _Branch(stmt *syntax.IfStmt) *workflowpb.Step {
-	asked := r._Condition(stmt.Cond)
+//   - 2026-09-30 00:41: reads on a lane, so a branch's calls may pass a
+//     parameter
+func (r *_Reading) _Branch(lane *_Lane, stmt *syntax.IfStmt) *workflowpb.Step {
+	asked := r._Condition(lane, stmt.Cond)
 	if asked == nil {
 		return nil
 	}
 
-	taken, ok := r._Only(stmt.True)
+	taken, ok := r._Only(lane, stmt.True)
 	if !ok {
 		return nil
 	}
 
-	other, ok := r._Only(stmt.False)
+	other, ok := r._Only(lane, stmt.False)
 	if !ok {
 		return nil
 	}
@@ -187,7 +189,8 @@ func (r *_Reading) _Branch(stmt *syntax.IfStmt) *workflowpb.Step {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
-func (r *_Reading) _Condition(expr syntax.Expr) *workflowpb.Condition {
+//   - 2026-09-30 00:41: reads on a lane, so a condition may pass a parameter
+func (r *_Reading) _Condition(lane *_Lane, expr syntax.Expr) *workflowpb.Condition {
 	name, ok := expr.(*syntax.Ident)
 	if ok {
 		value, ok := _Word(name.Name)
@@ -201,13 +204,18 @@ func (r *_Reading) _Condition(expr syntax.Expr) *workflowpb.Condition {
 	}
 
 	call, ok := expr.(*syntax.CallExpr)
-	if !ok || r.defs[_Bare(call)] == nil || !_Stated(call) {
+	if !ok || r.defs[_Bare(call)] == nil {
+		return nil
+	}
+
+	args, carried := _Passes(lane._Carries, call)
+	if !carried {
 		return nil
 	}
 
 	return &workflowpb.Condition{
 		Kind: &workflowpb.Condition_Call{
-			Call: &workflowpb.Call{Function: _Bare(call), Args: _Values(call)},
+			Call: &workflowpb.Call{Function: _Bare(call), Args: args},
 		},
 	}
 }
@@ -219,7 +227,8 @@ func (r *_Reading) _Condition(expr syntax.Expr) *workflowpb.Condition {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
-func (r *_Reading) _Only(stmts []syntax.Stmt) (*workflowpb.Call, bool) {
+//   - 2026-09-30 00:41: reads on a lane, so the call may pass a parameter
+func (r *_Reading) _Only(lane *_Lane, stmts []syntax.Stmt) (*workflowpb.Call, bool) {
 	if len(stmts) == 0 {
 		return nil, true
 	}
@@ -234,11 +243,16 @@ func (r *_Reading) _Only(stmts []syntax.Stmt) (*workflowpb.Call, bool) {
 	}
 
 	call, ok := held.X.(*syntax.CallExpr)
-	if !ok || r.defs[_Bare(call)] == nil || !_Stated(call) {
+	if !ok || r.defs[_Bare(call)] == nil {
 		return nil, false
 	}
 
-	return &workflowpb.Call{Function: _Bare(call), Args: _Values(call)}, true
+	args, carried := _Passes(lane._Carries, call)
+	if !carried {
+		return nil, false
+	}
+
+	return &workflowpb.Call{Function: _Bare(call), Args: args}, true
 }
 
 // _Match is the Match an assignment and the chain testing it state together,
@@ -257,26 +271,37 @@ func (r *_Reading) _Only(stmts []syntax.Stmt) (*workflowpb.Call, bool) {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
-func (r *_Reading) _Match(assign *syntax.AssignStmt, chain *syntax.IfStmt) *workflowpb.Step {
+//   - 2026-09-30 00:41: reads on a lane, so the match's calls may pass a
+//     parameter
+func (r *_Reading) _Match(
+	lane *_Lane,
+	assign *syntax.AssignStmt,
+	chain *syntax.IfStmt,
+) *workflowpb.Step {
 	held, ok := assign.LHS.(*syntax.Ident)
 	if !ok || held.Name != MATCH || assign.Op != syntax.EQ {
 		return nil
 	}
 
 	call, ok := assign.RHS.(*syntax.CallExpr)
-	if !ok || r.defs[_Bare(call)] == nil || !_Stated(call) {
+	if !ok || r.defs[_Bare(call)] == nil {
+		return nil
+	}
+
+	args, carried := _Passes(lane._Carries, call)
+	if !carried {
 		return nil
 	}
 
 	match := &workflowpb.Match{
 		Expression: &workflowpb.Expression{
 			Kind: &workflowpb.Expression_Call{
-				Call: &workflowpb.Call{Function: _Bare(call), Args: _Values(call)},
+				Call: &workflowpb.Call{Function: _Bare(call), Args: args},
 			},
 		},
 	}
 
-	if !r._Cases(match, chain) {
+	if !r._Cases(lane, match, chain) {
 		return nil
 	}
 
@@ -288,13 +313,14 @@ func (r *_Reading) _Match(assign *syntax.AssignStmt, chain *syntax.IfStmt) *work
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
-func (r *_Reading) _Cases(match *workflowpb.Match, chain *syntax.IfStmt) bool {
+//   - 2026-09-30 00:41: reads on a lane, so a case's call may pass a parameter
+func (r *_Reading) _Cases(lane *_Lane, match *workflowpb.Match, chain *syntax.IfStmt) bool {
 	value, ok := _Tested(chain.Cond)
 	if !ok {
 		return false
 	}
 
-	taken, ok := r._Only(chain.True)
+	taken, ok := r._Only(lane, chain.True)
 	if !ok || taken == nil {
 		return false
 	}
@@ -304,11 +330,11 @@ func (r *_Reading) _Cases(match *workflowpb.Match, chain *syntax.IfStmt) bool {
 	if len(chain.False) == 1 {
 		deeper, ok := chain.False[0].(*syntax.IfStmt)
 		if ok {
-			return r._Cases(match, deeper)
+			return r._Cases(lane, match, deeper)
 		}
 	}
 
-	other, ok := r._Only(chain.False)
+	other, ok := r._Only(lane, chain.False)
 	if !ok {
 		return false
 	}

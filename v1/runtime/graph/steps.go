@@ -47,6 +47,10 @@ const (
 	// script says this, so it is not shared.
 	LAMBDA = "lambda: "
 
+	// UNCARRIED is what derivation reports of a spawned call passing an
+	// argument a graph cannot carry: a handle, a local, an expression.
+	UNCARRIED = "spawned with an argument that is neither a value nor a parameter"
+
 	// FIRST_STEP is where a thread says what it runs, and BODY_FROM where the
 	// steps of that function begin.
 	FIRST_STEP = 1

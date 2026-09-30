@@ -500,6 +500,7 @@ func TestOf_AStringJoinIsNotThisJoin(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
+//   - 2026-09-30 00:44: an argument is a value or a parameter
 func TestOf_ASpawnedLambdaIsItsCallWithArguments(t *testing.T) {
 	report := _Sample(t, "graph.star")
 
@@ -508,7 +509,7 @@ func TestOf_ASpawnedLambdaIsItsCallWithArguments(t *testing.T) {
 		t.Fatalf("want thread_1 to run greet, got %v", entry)
 	}
 
-	if len(entry.GetArgs()) != 1 || entry.GetArgs()[0].GetStringValue() != "alice" {
+	if len(entry.GetArgs()) != 1 || entry.GetArgs()[0].GetValue().GetStringValue() != "alice" {
 		t.Fatalf("want the lambda's argument carried, got %v", entry.GetArgs())
 	}
 }
@@ -793,6 +794,7 @@ func TestOf_RefusesAConstantDictItCannotOrder(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-09-30 00:44: an argument is a value or a parameter
 func TestOf_CarriesAComputedConstant(t *testing.T) {
 	report := _Derived(t, strings.Join([]string{
 		"def build(kind):",
@@ -809,7 +811,7 @@ func TestOf_CarriesAComputedConstant(t *testing.T) {
 		t.Fatalf("want a call carried, got %v", held)
 	}
 
-	if held.GetCall().GetArgs()[0].GetStringValue() != "fast" {
+	if held.GetCall().GetArgs()[0].GetValue().GetStringValue() != "fast" {
 		t.Fatalf("want its argument carried, got %v", held.GetCall().GetArgs())
 	}
 }
