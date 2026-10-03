@@ -1,7 +1,6 @@
 package artifact
 
 import (
-	"errors"
 	"fmt"
 
 	"go.starlark.net/syntax"
@@ -9,9 +8,10 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
-// ErrNoMain is returned for a script with no entry point, or one a run cannot
-// call with no arguments.
-var ErrNoMain = errors.New("no entry point")
+// ERR_NO_MAIN is returned for a script with no entry point, or one a run cannot
+// call with no arguments. spelling's, so it is the value reading a script into
+// a flow refuses one with.
+var ERR_NO_MAIN = spelling.ERR_NO_MAIN
 
 // ENTRY is the one top-level function a final compilation unit must define.
 const ENTRY = spelling.ENTRY
@@ -42,14 +42,14 @@ func _RequireEntry(tree *syntax.File) error {
 				"%s at %s must take no required parameters: %w",
 				ENTRY,
 				def.Name.NamePos,
-				ErrNoMain,
+				ERR_NO_MAIN,
 			)
 		}
 
 		return nil
 	}
 
-	return ErrNoMain
+	return ERR_NO_MAIN
 }
 
 // _RequiredParams counts the parameters of def that a caller has to supply.

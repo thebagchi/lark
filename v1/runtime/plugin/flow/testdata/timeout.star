@@ -1,6 +1,6 @@
 def slow():
-    sleep(30)
+    sleep(30000)
     return "never"
 
 def main():
-    return timeout(0.05, slow)
+    return timeout(50, slow)

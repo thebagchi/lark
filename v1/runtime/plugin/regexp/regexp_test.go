@@ -21,7 +21,7 @@ const SCRIPT = "regexp_test.star"
 func _Eval(t *testing.T, expression string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -200,8 +200,8 @@ func TestRegexp_RefusesWhatRE2CannotRead(t *testing.T) {
 	for _, item := range cases {
 		t.Run(item.name, func(t *testing.T) {
 			_, err := _Eval(t, item.expression)
-			if !errors.Is(err, larkregexp.ErrPattern) {
-				t.Fatalf("%s gave %v, want ErrPattern", item.expression, err)
+			if !errors.Is(err, larkregexp.ERR_PATTERN) {
+				t.Fatalf("%s gave %v, want ERR_PATTERN", item.expression, err)
 			}
 		})
 	}

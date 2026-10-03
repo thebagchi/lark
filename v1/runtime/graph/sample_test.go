@@ -14,28 +14,29 @@ import (
 )
 
 const (
-	// SAMPLE carries a graph as a comment and the Starlark generated from it.
+	// SAMPLE carries a flow as a comment and the Starlark generated from it.
 	SAMPLE = "../../../samples/graph.star"
 
-	// MARK opens the commented graph, and GENERATED the code below it.
-	MARK      = "# graph:"
-	GENERATED = "# Generated from the graph above:"
+	// MARK opens the commented flow, and GENERATED the code below it.
+	MARK      = "# flow:"
+	GENERATED = "# Generated from the flow above:"
 
-	// COMMENT is what every commented line of the graph begins with.
-	COMMENT = "#   "
+	// PREFIX is what every commented line of the flow begins with.
+	PREFIX = "#   "
 )
 
 // TestSample_SaysWhatItGenerates keeps a sample honest.
 //
-// samples/graph.star shows a graph and the code generated from it, and claims
+// samples/graph.star shows a flow and the code generated from it, and claims
 // the code is that generator's output pasted unedited. Nothing but this checks
 // that: the two would drift the first time the generator changed, and a sample
 // that lies about its own output is worse than no sample.
 //
-// It reads the graph back out of the comment, generates from it, and compares.
+// It reads the flow back out of the comment, generates from it, and compares.
 //
 // Revisions:
 //   - 2026-09-20 21:27: initial creation
+//   - 2026-10-02 01:50: reads a flow
 func TestSample_SaysWhatItGenerates(t *testing.T) {
 	text, err := os.ReadFile(SAMPLE)
 	if err != nil {
@@ -55,8 +56,8 @@ func TestSample_SaysWhatItGenerates(t *testing.T) {
 	var lines []string
 
 	for _, line := range strings.Split(graphed, "\n") {
-		if strings.HasPrefix(line, COMMENT) || line == "#" {
-			lines = append(lines, strings.TrimPrefix(line, COMMENT))
+		if strings.HasPrefix(line, PREFIX) || line == "#" {
+			lines = append(lines, strings.TrimPrefix(line, PREFIX))
 		}
 	}
 
@@ -66,10 +67,10 @@ func TestSample_SaysWhatItGenerates(t *testing.T) {
 
 	err = json.Compact(&tidy, []byte(strings.Join(lines, "\n")))
 	if err != nil {
-		t.Fatalf("the commented graph is not json: %v", err)
+		t.Fatalf("the commented flow is not json: %v", err)
 	}
 
-	var declared workflowpb.Graph
+	var declared workflowpb.Flow
 
 	err = protojson.Unmarshal(tidy.Bytes(), &declared)
 	if err != nil {
@@ -82,7 +83,7 @@ func TestSample_SaysWhatItGenerates(t *testing.T) {
 	}
 
 	if strings.TrimSpace(string(out)) != strings.TrimSpace(code) {
-		t.Fatalf("the sample's code is not what its graph generates\nwant\n%s\ngot\n%s",
+		t.Fatalf("the sample's code is not what its flow generates\nwant\n%s\ngot\n%s",
 			out, code)
 	}
 }

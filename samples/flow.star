@@ -19,7 +19,7 @@ def settles_on_the_third_try():
     return "ready on attempt " + str(n())
 
 def pauses_briefly():
-    sleep(0.01)
+    sleep(10)
 
     return "finished inside its budget"
 
@@ -33,4 +33,4 @@ def main():
     print("repeat ran", state.get("calls"))
     print("last attempt", last)
     print("retry", retry(5, settles_on_the_third_try))
-    print("timeout", timeout(5, pauses_briefly))
+    print("timeout", timeout(5000, pauses_briefly))

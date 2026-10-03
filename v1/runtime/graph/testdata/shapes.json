@@ -1,0 +1,50 @@
+{
+  "functions": [
+    {"name": "work", "body": "pass"},
+    {"name": "ready", "body": "return True"},
+    {"name": "classify", "body": "return \"alpha\""},
+    {"name": "slow", "body": "pass"},
+    {"name": "inline", "body": "join(spawn(work), spawn(work))"},
+    {"name": "bound", "body": "for _ in range(3):\n    h = spawn(work)\njoin(h)"},
+    {"name": "over_list", "body": "for item in tags:\n    work()"},
+    {"name": "escaped", "body": "if ready():\n    h = spawn(work)\njoin(h)"},
+    {"name": "compared", "body": "if region == \"west\":\n    work()"},
+    {"name": "watch", "params": ["h"], "body": "join(h)"},
+    {
+      "name": "passed",
+      "statements": {
+        "statement": [
+          {"spawn": {"binding": "h", "call": {"function": "work"}}},
+          {"spawn": {"binding": "w", "call": {"function": "watch", "operands": [{"name": "h"}]}}},
+          {"join": {"bindings": ["w"]}}
+        ]
+      }
+    },
+    {"name": "other", "body": "kind = classify()\nif kind == \"alpha\":\n    work()\nelif kind == \"beta\":\n    slow()"},
+    {
+      "name": "opened",
+      "statements": {
+        "statement": [
+          {"loop": {"times": {"name": "limit"}, "body": {"spawn": {"call": {"function": "work"}}}}}
+        ]
+      }
+    }
+  ],
+  "constants": {
+    "limit": {"value": 3},
+    "region": {"value": "west"},
+    "tags": {"value": ["a", "b"]}
+  },
+  "main": {
+    "statement": [
+      {"call": {"function": "inline"}},
+      {"call": {"function": "bound"}},
+      {"call": {"function": "over_list"}},
+      {"call": {"function": "escaped"}},
+      {"call": {"function": "compared"}},
+      {"call": {"function": "passed"}},
+      {"call": {"function": "other"}},
+      {"call": {"function": "opened"}}
+    ]
+  }
+}

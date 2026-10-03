@@ -11,7 +11,6 @@ thirdparty/
 # The working record: how this was planned, proved, reviewed and logged, and
 # the conventions it was written to. Kept on disk, out of the repository.
 .claude/
-.doc/
 .guidelines/
 .poc/
 CLAUDE.md

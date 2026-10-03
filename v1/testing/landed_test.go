@@ -11,7 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thebagchi/lark/v1/runtime/plugin/file"
+	"github.com/thebagchi/lark/v1/plugin/file"
+	"github.com/thebagchi/lark/v1/runtime"
 	_ "github.com/thebagchi/lark/v1/runtime/plugin/flow"
 	_ "github.com/thebagchi/lark/v1/runtime/plugin/state"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
@@ -40,8 +41,8 @@ def main():
     return file.read("` + named + `")
 `
 
-	_, err := _RunCtx(t, scheduler.Allowing(t.Context(), int64(len(body)*2-1)), src)
-	if !errors.Is(err, scheduler.ErrMemory) {
+	_, err := _RunCtx(t, t.Context(), src, runtime.WithMemory(int64(len(body)*2-1)))
+	if !errors.Is(err, scheduler.ERR_MEMORY) {
 		t.Fatalf(
 			"a file of %d bytes under a ceiling of %d: %v",
 			len(body),
@@ -50,7 +51,7 @@ def main():
 		)
 	}
 
-	value, err := _RunCtx(t, scheduler.Allowing(t.Context(), int64(len(body)*2)), src)
+	value, err := _RunCtx(t, t.Context(), src, runtime.WithMemory(int64(len(body)*2)))
 	if err != nil {
 		t.Fatalf("two reads at twice the file, after a credit: %v", err)
 	}
@@ -64,7 +65,7 @@ def main():
 // writelines puts no newline after the last line, so appendlines has to put
 // the separator back or the first added line runs onto the end of the old one.
 // The second walk is refused rather than quietly starting again, and the
-// refusal answers ErrFile without saying the filesystem refused anything.
+// refusal answers ERR_FILE without saying the filesystem refused anything.
 //
 // Revisions:
 //   - 2026-09-24 23:50: initial creation
@@ -96,10 +97,10 @@ def main():
     second = [line for line in held]
     return first
 `)
-	if !errors.Is(err, file.ErrWalked) || !errors.Is(err, file.ErrFile) {
+	if !errors.Is(err, file.ERR_WALKED) || !errors.Is(err, file.ERR_FILE) {
 		t.Fatalf("second walk: %v", err)
 	}
-	if strings.Contains(err.Error(), file.ErrFile.Error()) {
+	if strings.Contains(err.Error(), file.ERR_FILE.Error()) {
 		t.Fatalf("the sentinel is in the message: %v", err)
 	}
 }
@@ -135,7 +136,7 @@ def main():
     second = spawn(lambda: walk(lines))
     return join(first, second)
 `)
-	if !errors.Is(err, file.ErrWalked) {
+	if !errors.Is(err, file.ERR_WALKED) {
 		t.Fatalf("two walks: %v", err)
 	}
 }
@@ -162,21 +163,21 @@ func TestLines_AShortLineFitsWhenTheFileDoesNot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := _RunCtx(t, scheduler.Allowing(t.Context(), 1000), `
+	_, err := _RunCtx(t, t.Context(), `
 def main():
     return file.read("`+named+`")
-`)
-	if !errors.Is(err, scheduler.ErrMemory) {
+`, runtime.WithMemory(1000))
+	if !errors.Is(err, scheduler.ERR_MEMORY) {
 		t.Fatalf("read of a file past the ceiling: %v", err)
 	}
 
-	value, err := _RunCtx(t, scheduler.Allowing(t.Context(), 1000), `
+	value, err := _RunCtx(t, t.Context(), `
 def main():
     n = 0
     for line in file.lines("`+named+`"):
         n = n + 1
     return n
-`)
+`, runtime.WithMemory(1000))
 	if err != nil {
 		t.Fatalf("lines under the same ceiling: %v", err)
 	}
@@ -218,7 +219,7 @@ def main():
 // TestErrFile_DoesNotSayTheFilesystemRefused checks the sentinel answers
 // without speaking.
 //
-// ErrFile is carried through Unwrap rather than wrapped, so errors.Is still
+// ERR_FILE is carried through Unwrap rather than wrapped, so errors.Is still
 // finds it while its words stay out of the message. The cause underneath has
 // to survive that: a missing file is still os.ErrNotExist, and a directory
 // nobody may search is still os.ErrPermission.
@@ -231,10 +232,10 @@ func TestErrFile_DoesNotSayTheFilesystemRefused(t *testing.T) {
 def main():
     return file.read("`+filepath.Join(dir, "missing.txt")+`")
 `)
-	if !errors.Is(err, file.ErrFile) || !errors.Is(err, os.ErrNotExist) {
+	if !errors.Is(err, file.ERR_FILE) || !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing: %v", err)
 	}
-	if strings.Contains(err.Error(), file.ErrFile.Error()) {
+	if strings.Contains(err.Error(), file.ERR_FILE.Error()) {
 		t.Fatalf("sentinel text: %v", err)
 	}
 
@@ -242,7 +243,7 @@ def main():
 def main():
     return file.read("`+dir+`")
 `)
-	if !errors.Is(err, file.ErrFile) || !errors.Is(err, file.ErrNotAFile) {
+	if !errors.Is(err, file.ERR_FILE) || !errors.Is(err, file.ERR_NOT_A_FILE) {
 		t.Fatalf("directory: %v", err)
 	}
 
@@ -266,7 +267,7 @@ def main():
 def main():
     return file.exists("`+note+`")
 `)
-	if !errors.Is(err, os.ErrPermission) || !errors.Is(err, file.ErrFile) {
+	if !errors.Is(err, os.ErrPermission) || !errors.Is(err, file.ERR_FILE) {
 		t.Fatalf("permission: %v", err)
 	}
 }
@@ -309,6 +310,31 @@ func TestLark_MemoryFlag(t *testing.T) {
 	}
 	if code, _ := _LarkCode(t, bin, "-s", script, "-m", "nope"); code != 2 {
 		t.Fatalf("-m nope: exit %d, want 2", code)
+	}
+}
+
+// TestLark_RunsABundleItWrote is -b and -r as a pair: a script compiled into a
+// bundle by one command runs from that bundle alone in another.
+//
+// Revisions:
+//   - 2026-10-03 00:28: initial creation
+func TestLark_RunsABundleItWrote(t *testing.T) {
+	root := _ModuleRoot(t)
+	dir := t.TempDir()
+
+	script := filepath.Join(dir, "said.star")
+	bundle := filepath.Join(dir, "said.bundle")
+
+	err := os.WriteFile(script, []byte("def main():\n    print(\"from the bundle\")\n"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_Lark(t, root, "-s", script, "-b", bundle)
+
+	out := _Lark(t, root, "-r", bundle)
+	if !strings.Contains(string(out), "from the bundle") {
+		t.Fatalf("running the bundle printed\n%s", out)
 	}
 }
 

@@ -1,207 +1,195 @@
 package observe
 
 import (
-	"fmt"
-	"os"
-	"sort"
+	"cmp"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 
+	patchpb "github.com/thebagchi/lark/proto/gen/patch"
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// _Recorder is what every function in one run is doing.
+const (
+	// NONE is the position of no call, among the calls a thread is in.
+	NONE = -1
+
+	// ONCE is a first attempt: a later one advances the call already running
+	// rather than making another.
+	ONCE = 1
+
+	// FUNCTIONS, CALLS, STATUS, CAUSE and THREADS are the members of a graph's
+	// JSON that a change's paths name, as protojson writes them. A test holds
+	// them to the schema, so a renamed field cannot leave them behind.
+	FUNCTIONS = "functions"
+	CALLS     = "calls"
+	STATUS    = "status"
+	CAUSE     = "cause"
+	THREADS   = "threads"
+
+	// ADD and REMOVE are the operations a change is made of, as RFC 6902
+	// spells them, and APPEND the index RFC 6901 gives the end of an array.
+	ADD    = "add"
+	REMOVE = "remove"
+	APPEND = "-"
+
+	// SLASH separates the parts of a JSON Pointer.
+	SLASH = "/"
+)
+
+// _Recorder is the graph of one run, folded from what the run reports, and
+// the changes each step makes to it.
 //
-// One per run, created by Start and held on the entry. It implements the
-// scheduler's Reporter, which is how a run tells it anything: the store cannot
-// ask, because it holds no run.
+// One per run, made by Start. It implements the scheduler's Reporter, which is
+// how a run tells it anything: nothing here can ask, because nothing here holds
+// a run.
 //
-// A function is keyed by name and thread together. The same function spawned on
-// two threads is two nodes, because a report of one lane saying "worker
-// succeeded" while the other is still going would be a report of neither.
+// nodes holds each function the run called, by name, and names those names
+// sorted, which is each node's place in the graph; edges holds the calls,
+// sorted by caller and then callee. running is what each thread is in the
+// middle of: the calls it has started and not ended, newest last, so the newest
+// is the caller of whatever starts next, the function the thread is executing,
+// and the first an end can close. newest is, for each function, the call its
+// node shows, and made counts the calls started, which is what numbers them.
+// cause is the first failure, the one that ended the run. status and ending are
+// the run's own, as its graph reports them: running, with no cause, until it
+// ends; then how it ended and, when it failed, why.
+//
+// arrival counts the times a thread arrived at a node, and arrived is each
+// thread's number at the node it is executing. A node lists its threads in the
+// order they arrived, so their numbers are sorted, and a thread that leaves is
+// found by a binary search rather than by reading the names one by one, which
+// cost the square of the threads in one function.
+//
+// watch is told each step's change, and ops collects it while the step is
+// folded; nil when nothing watches, so a run nobody watches builds none. emit
+// is held across a step's fold and its telling, so changes arrive in the order
+// they were made, and the graph a watcher asks for matches the change it is
+// told. watch is set before the run starts and never changes.
 type _Recorder struct {
-	guard sync.Mutex
-	nodes map[_Where]*workflowpb.Node
-	order []_Where
-	lanes map[string]bool
-	cause *workflowpb.Cause
+	guard   sync.Mutex
+	nodes   map[string]*workflowpb.Node
+	names   []string
+	edges   []*workflowpb.Edge
+	running map[string][]*_Call
+	newest  map[string]int
+	made    int
+	cause   *workflowpb.Cause
+	status  workflowpb.Status
+	ending  *workflowpb.Cause
 
-	print func(string)
-	file  string
-	logs  *Log
-	watch Watcher
+	arrival int
+	arrived map[string]int
+
+	watch func(change *workflowpb.Change)
+	ops   []*patchpb.Operation
+	emit  sync.Mutex
 }
 
-// _Where is a node's identity: which function, on which thread.
-//
-// This is why a node needs no shape of its own. A generated Node carries no
-// thread - which thread it belongs to is which list it ends up in - and that
-// was the whole reason for a second struct. The key already holds it, so the
-// message itself is what the recorder keeps.
-type _Where struct {
-	thread string
-	name   string
+// _Call is one call a thread has started and not ended: the function, and
+// which call of the run it is.
+type _Call struct {
+	name    string
+	ordinal int
 }
 
-// _NewRecorder returns a recorder that has been told nothing, and that hands
-// what a script prints to standard error until a host says otherwise.
-//
-// Standard error because that is where the interpreter's own default writes,
-// so a host that says nothing sees what it always saw.
+// _NewRecorder returns a recorder that has been told nothing.
 //
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
 //   - 2026-09-21 09:46: prints to standard error by default
+//   - 2026-10-02 01:31: holds threads by id rather than nodes by function
+//   - 2026-10-02 13:12: prints nothing, a run's printing being its transcript's
+//   - 2026-10-02 15:34: holds a node per function and the calls between them
+//   - 2026-10-02 16:33: holds the names in order, for the changes it makes
+//   - 2026-10-03 21:02: numbers each thread's arrival at a node, so it is found there
+//     by a binary search
 func _NewRecorder() *_Recorder {
 	return &_Recorder{
-		nodes: make(map[_Where]*workflowpb.Node),
-		lanes: make(map[string]bool),
-		print: _Stderr,
+		nodes:   make(map[string]*workflowpb.Node),
+		running: make(map[string][]*_Call),
+		newest:  make(map[string]int),
+		arrived: make(map[string]int),
 	}
 }
 
-// _Stderr writes one printed line where the interpreter's default would.
-//
-// Revisions:
-//   - 2026-09-21 09:46: initial creation
-func _Stderr(msg string) {
-	_, err := fmt.Fprintln(os.Stderr, msg)
-	if err != nil {
-		// Nothing further to tell: the channel that failed is the one a
-		// failure would be told on.
-		return
-	}
-}
-
-// Printed hands a script's line to whatever the host asked for, and to the
-// run's own file when it has one.
-//
-// Not recorded in the snapshot. A Workflow carries statuses, and a host that
-// asked for logs knows where they are: WithLogs says which directory, and a
-// run's file is its id with .log on the end. That rule is the whole of what a
-// poller needs, which is why the message gained no field.
-//
-// The printer is handed the line as the script wrote it and the file gets the
-// lane in front, because a printer is a host's own stream and a file is a
-// transcript of a concurrent run.
-//
-// logs is written before the evaluation starts and read only by threads that
-// evaluation creates, so no lock covers it.
-//
-// Revisions:
-//   - 2026-09-21 09:46: initial creation
-//   - 2026-09-21 16:42: writes the run's own file too
-func (r *_Recorder) Printed(thread string, msg string) {
-	r.print(msg)
-
-	if r.logs != nil {
-		r.logs.Printed(thread, msg)
-	}
-}
-
-// _Open gives this run its own file, if a host asked for one.
-//
-// Named for the run rather than the script, because two runs of one artifact
-// are two transcripts and an id is what tells them apart.
-//
-// Revisions:
-//   - 2026-09-21 16:42: initial creation
-//   - 2026-09-23 23:20: opens the file the caller named, there being no
-//     identifier left to name one after
-func (r *_Recorder) _Open() error {
-	if r.file == "" {
-		return nil
-	}
-
-	made, err := NewLog(r.file)
-	if err != nil {
-		return err
-	}
-
-	r.logs = made
-
-	return nil
-}
-
-// _Close finishes the run's file, and says so if it could not.
-//
-// A run whose transcript could not be finished is a run a caller should hear
-// about, so this is reported rather than dropped - unlike a failure to write
-// one line, which has nowhere to go.
-//
-// Revisions:
-//   - 2026-09-21 16:42: initial creation
-func (r *_Recorder) _Close() error {
-	if r.logs == nil {
-		return nil
-	}
-
-	return r.logs.Close()
-}
-
-// _Resolve is the name to report for a function on a thread.
-//
-// An anonymous function has none of its own, and this is where the graph
-// supplies one - but only where the graph can. A fork names a lane and that
-// lane declares what runs there, so a spawned lambda has exactly one candidate.
-// A wrapped one runs on the lane that called it, and a lane may hold several
-// functions, so there is nothing to choose between them and nothing is chosen.
-//
-// Empty rather than "lambda", which reads like a function of that name. A
-// reader sees a status with no name, which is what is true.
-//
-// Callers hold the lock.
-//
-// Revisions:
-//   - 2026-09-20 20:53: initial creation
-func (r *_Recorder) _Resolve(thread string, name string) string {
-	if name != scheduler.LAMBDA {
-		return name
-	}
-
-	var found string
-
-	for where := range r.nodes {
-		if where.thread != thread || where.name == "" {
-			continue
-		}
-
-		if found != "" {
-			return ""
-		}
-
-		found = where.name
-	}
-
-	return found
-}
-
-// Started records that a function has begun on a thread, on the attempt given.
-//
-// A function reported again is the same node on a later attempt, not a second
-// node. That is what makes repeat(step, 3) one entry advancing 1, 2, 3.
+// Started records a call a thread began, and tells the watcher what it
+// changed.
 //
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
 //   - 2026-09-20 20:53: resolves an anonymous function against the graph
-func (r *_Recorder) Started(thread string, name string, attempt int32) {
-	r.guard.Lock()
-
-	node := r._At(thread, r._Resolve(thread, name))
-
-	node.Status = workflowpb.Status_STATUS_RUNNING
-	node.Attempt = attempt
-
-	change := _Changed(thread, node)
-
-	r.guard.Unlock()
-
-	r._Notify(change)
+//   - 2026-10-02 01:31: takes a Line, which is a statement of its own rather
+//     than the function's one node
+//   - 2026-10-02 13:12: tells no watcher, there being none
+//   - 2026-10-02 15:34: a call of a function's node, with an edge from its
+//     caller, rather than a line of a thread
+//   - 2026-10-02 16:33: tells the watcher the change it made
+func (r *_Recorder) Started(thread string, line *scheduler.Line) {
+	r._Step(func() {
+		r._Start(thread, line)
+	})
 }
 
-// Ended records how a function finished.
+// _Start folds a call a thread began into the graph.
+//
+// A line that calls nothing - a join, a sleep, a cancel - is no call. A later
+// attempt of a repeat or a retry is the call already running, not another, so
+// repeat(3, step) is one call. Anything else is a new call: its function's
+// node runs, shows this call from now on, and gains an edge from the call the
+// thread is in the middle of, when it is in one; and the thread moves to the
+// node it is now executing.
+//
+// A spawn's call runs on the thread it started and ends there, so it is that
+// thread's first call - and its caller is whatever the spawning thread is in
+// the middle of.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 01:31: initial creation
+//   - 2026-10-02 13:12: returns no change, nothing being told one
+//   - 2026-10-02 15:34: a call of a function's node, with an edge from the
+//     thread's innermost call
+//   - 2026-10-02 16:33: moves the thread to the node it now executes
+func (r *_Recorder) _Start(thread string, line *scheduler.Line) {
+	if line.Name == "" {
+		return
+	}
+
+	advancing := line.Attempt > ONCE && r._Newest(thread, line.Name) != NONE
+	if advancing {
+		return
+	}
+
+	caller := r._Innermost(thread)
+
+	lane := thread
+	if line.Child != "" {
+		lane = line.Child
+	}
+
+	executing := r._Innermost(lane)
+
+	r.made++
+	r.running[lane] = append(r.running[lane], &_Call{name: line.Name, ordinal: r.made})
+	r.newest[line.Name] = r.made
+
+	r._Running(line.Name)
+	r._Moved(lane, executing, line.Name)
+
+	if caller != "" {
+		r._Edge(caller, line.Name)
+	}
+}
+
+// Ended records how a call finished, and tells the watcher what it changed.
 //
 // The error becomes a status here and nowhere else, which is why the scheduler
 // hands one over rather than deciding.
@@ -217,37 +205,421 @@ func (r *_Recorder) Started(thread string, name string, attempt int32) {
 //   - 2026-09-20 11:36: carries the failure's text, for a reader that needs
 //     more than a colour
 //   - 2026-09-23 22:48: tells the watcher, outside the lock
+//   - 2026-10-02 01:31: closes the line that called name rather than the
+//     function's one node
+//   - 2026-10-02 13:12: tells no watcher, there being none
+//   - 2026-10-02 15:34: closes a call, whose function's node shows it only
+//     while it is that function's newest
+//   - 2026-10-02 16:33: tells the watcher the change it made
 func (r *_Recorder) Ended(thread string, name string, err error) {
-	r.guard.Lock()
-
-	where := _Where{thread: thread, name: r._Resolve(thread, name)}
-
-	node := r._At(where.thread, where.name)
-
-	node.Status = _Became(err)
-	node.Failure = _Why(err)
-
-	r._Blame(&where, node)
-
-	change := _Changed(thread, node)
-
-	// Released rather than deferred, because notifying must happen outside
-	// it: a watcher may ask for the whole run, and assembling that takes this
-	// same lock.
-	r.guard.Unlock()
-
-	r._Notify(change)
+	r._Step(func() {
+		r._End(thread, name, err)
+	})
 }
 
-// _Blame remembers the first function to fail, which is the one that ended the
-// run.
+// _End folds a call's end into the graph.
+//
+// It closes the newest call to name's function on that thread: calls on one
+// thread start and end in order, so the newest is the one that ended. The
+// thread moves back to whatever it is executing now, and the function's node
+// takes the status only while this is its newest call, since a node shows its
+// newest call. An empty name is a join, a sleep or a cancel, which call
+// nothing, and an end that matches no call is one this recorder was never told
+// began; neither changes anything.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 01:31: initial creation
+//   - 2026-10-02 13:12: returns no change, nothing being told one
+//   - 2026-10-02 15:34: closes the thread's newest call to the function, and
+//     sets its node only while it is the function's newest
+//   - 2026-10-02 16:33: moves the thread back to what it executes now
+func (r *_Recorder) _End(thread string, name string, err error) {
+	if name == "" {
+		return
+	}
+
+	executing := r._Innermost(thread)
+
+	ended := r._Close(thread, name)
+	if ended == nil {
+		return
+	}
+
+	r._Moved(thread, executing, r._Innermost(thread))
+
+	status := _Became(err)
+
+	if r.newest[name] == ended.ordinal {
+		r._Status(name, status)
+	}
+
+	r._Blame(name, status, err)
+}
+
+// _Began records that the run is going, which is the first change a watcher
+// is told: the empty graph a host starts from becomes a running one.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+//   - 2026-10-02 16:45: keeps the status for the graph, watched or not
+func (r *_Recorder) _Began() {
+	r._Step(func() {
+		r.status = workflowpb.Status_STATUS_RUNNING
+
+		if r.watch == nil {
+			return
+		}
+
+		r._Op(ADD, _Pointer(STATUS), _Status(r.status))
+	})
+}
+
+// _Finished records how the run ended, and the cause when it failed, which is
+// the last change a watcher is told.
+//
+// Kept here rather than read from the run, so the graph turns finished in the
+// same step as the change saying so: a watcher asking from inside that change
+// is told the run ended, though the run has yet to close Done.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+//   - 2026-10-02 16:45: keeps the status and the cause for the graph, watched
+//     or not
+func (r *_Recorder) _Finished(status workflowpb.Status, cause *workflowpb.Cause) {
+	r._Step(func() {
+		r.status = status
+		r.ending = cause
+
+		if r.watch == nil {
+			return
+		}
+
+		r._Op(ADD, _Pointer(STATUS), _Status(status))
+
+		if cause != nil {
+			r._Op(ADD, _Pointer(CAUSE), _Valued(cause))
+		}
+	})
+}
+
+// _Step folds one step of the run under the lock, then tells the watcher the
+// change it made.
+//
+// With a watcher, the telling lock is held across the fold and the telling, so
+// no other step folds while a change is told: changes reach the watcher in the
+// order they were made, and a watcher asking for the whole graph from inside
+// gets exactly the graph after the change it is being told. The watcher runs
+// without the fold's lock, which asking takes. Without one, a step is the fold
+// alone.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+func (r *_Recorder) _Step(fold func()) {
+	if r.watch == nil {
+		r.guard.Lock()
+		defer r.guard.Unlock()
+
+		fold()
+
+		return
+	}
+
+	r.emit.Lock()
+	defer r.emit.Unlock()
+
+	r.guard.Lock()
+
+	fold()
+
+	ops := r.ops
+	r.ops = nil
+
+	r.guard.Unlock()
+
+	if len(ops) > 0 {
+		r.watch(&workflowpb.Change{Operations: ops})
+	}
+}
+
+// _Op adds one operation to the change this step is making.
+//
+// Every caller asks whether anything watches before it builds a path or a
+// value, so a run nobody watches builds neither: it pays for its graph and
+// nothing more.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+func (r *_Recorder) _Op(op string, path string, value *structpb.Value) {
+	r.ops = append(r.ops, &patchpb.Operation{Op: op, Path: path, Value: value})
+}
+
+// _Running makes the node of the function name running, adding it in its
+// place when the run first calls it.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation, from _Node
+func (r *_Recorder) _Running(name string) {
+	_, known := r.nodes[name]
+	if known {
+		r._Status(name, workflowpb.Status_STATUS_RUNNING)
+
+		return
+	}
+
+	node := &workflowpb.Node{Name: name, Status: workflowpb.Status_STATUS_RUNNING}
+	r.nodes[name] = node
+
+	idx, _ := slices.BinarySearch(r.names, name)
+	r.names = slices.Insert(r.names, idx, name)
+
+	if r.watch == nil {
+		return
+	}
+
+	if len(r.names) == 1 {
+		r._Op(ADD, _Pointer(FUNCTIONS), _Listed(_Valued(node)))
+
+		return
+	}
+
+	r._Op(ADD, _Pointer(FUNCTIONS, idx), _Valued(node))
+}
+
+// _Status sets the status of the function name's node.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+func (r *_Recorder) _Status(name string, status workflowpb.Status) {
+	r.nodes[name].Status = status
+
+	if r.watch == nil {
+		return
+	}
+
+	r._Op(ADD, _Pointer(FUNCTIONS, r._Place(name), STATUS), _Status(status))
+}
+
+// _Moved moves thread from the node of the function it was executing to the
+// node of the one it executes now. Either may be empty: a thread starting
+// executes nothing before, and one whose last call ended nothing after.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+func (r *_Recorder) _Moved(thread string, from string, to string) {
+	if from == to {
+		return
+	}
+
+	if from != "" {
+		r._Left(thread, from)
+	}
+
+	if to != "" {
+		r._Joined(thread, to)
+	}
+}
+
+// _Left takes thread off the threads executing the function name.
+//
+// A node left with none loses the member, as protojson writes an empty list:
+// not at all.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+//   - 2026-10-03 21:02: finds the thread by its arrival number, in a binary search,
+//     rather than by reading every name the node lists
+func (r *_Recorder) _Left(thread string, name string) {
+	node := r.nodes[name]
+
+	idx, found := slices.BinarySearchFunc(
+		node.Threads,
+		r.arrived[thread],
+		func(lane string, ticket int) int {
+			return cmp.Compare(r.arrived[lane], ticket)
+		},
+	)
+	if !found {
+		return
+	}
+
+	node.Threads = slices.Delete(node.Threads, idx, idx+1)
+	delete(r.arrived, thread)
+
+	if r.watch == nil {
+		return
+	}
+
+	place := r._Place(name)
+
+	if len(node.Threads) == 0 {
+		r._Op(REMOVE, _Pointer(FUNCTIONS, place, THREADS), nil)
+
+		return
+	}
+
+	r._Op(REMOVE, _Pointer(FUNCTIONS, place, THREADS, idx), nil)
+}
+
+// _Joined adds thread to the threads executing the function name.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+//   - 2026-10-03 21:02: numbers the arrival, so the thread is found again by it
+func (r *_Recorder) _Joined(thread string, name string) {
+	node := r.nodes[name]
+	node.Threads = append(node.Threads, thread)
+
+	r.arrival++
+	r.arrived[thread] = r.arrival
+
+	if r.watch == nil {
+		return
+	}
+
+	place := r._Place(name)
+	lane := structpb.NewStringValue(thread)
+
+	if len(node.Threads) == 1 {
+		r._Op(ADD, _Pointer(FUNCTIONS, place, THREADS), _Listed(lane))
+
+		return
+	}
+
+	r._Op(ADD, _Pointer(FUNCTIONS, place, THREADS, APPEND), lane)
+}
+
+// _Edge records that caller called callee, once however often it does.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 15:34: initial creation
+//   - 2026-10-02 16:33: keeps the edges in order, adding each in its place
+func (r *_Recorder) _Edge(caller string, callee string) {
+	edge := &workflowpb.Edge{Caller: caller, Callee: callee}
+
+	idx, found := slices.BinarySearchFunc(r.edges, edge, _Order)
+	if found {
+		return
+	}
+
+	r.edges = slices.Insert(r.edges, idx, edge)
+
+	if r.watch == nil {
+		return
+	}
+
+	if len(r.edges) == 1 {
+		r._Op(ADD, _Pointer(CALLS), _Listed(_Valued(edge)))
+
+		return
+	}
+
+	r._Op(ADD, _Pointer(CALLS, idx), _Valued(edge))
+}
+
+// _Place is the position of the function name's node in the graph.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+func (r *_Recorder) _Place(name string) int {
+	idx, _ := slices.BinarySearch(r.names, name)
+
+	return idx
+}
+
+// _Newest is the position of the newest call to name that thread is in, or
+// NONE.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 15:34: initial creation
+func (r *_Recorder) _Newest(thread string, name string) int {
+	calls := r.running[thread]
+
+	for idx := len(calls) - 1; idx >= 0; idx-- {
+		if calls[idx].name == name {
+			return idx
+		}
+	}
+
+	return NONE
+}
+
+// _Innermost is the function of the newest call thread is in, or empty when it
+// is in none.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 15:34: initial creation
+func (r *_Recorder) _Innermost(thread string) string {
+	calls := r.running[thread]
+	if len(calls) == 0 {
+		return ""
+	}
+
+	return calls[len(calls)-1].name
+}
+
+// _Close takes the newest call to name off thread's calls, and returns it, or
+// nil when thread is in none.
+//
+// A thread left in no call is forgotten, so a long run holds only the threads
+// still going.
+//
+// Callers hold the lock.
+//
+// Revisions:
+//   - 2026-10-02 15:34: initial creation
+func (r *_Recorder) _Close(thread string, name string) *_Call {
+	idx := r._Newest(thread, name)
+	if idx == NONE {
+		return nil
+	}
+
+	calls := r.running[thread]
+	ended := calls[idx]
+
+	left := slices.Delete(calls, idx, idx+1)
+	if len(left) == 0 {
+		delete(r.running, thread)
+
+		return ended
+	}
+
+	r.running[thread] = left
+
+	return ended
+}
+
+// _Blame remembers the first call to fail, which is the one that ended the
+// run: the function it called, and what it said.
 //
 // By construction rather than by luck: a thread stopped because something else
-// failed reports a cancellation, not a failure, so normally exactly one node is
-// ever FAILED. Two can be, when both failed before either cancellation landed -
-// and then this names the first the recorder heard of, which the scheduler may
-// not agree was the outcome. Both are real failures and both are reported; what
-// can differ is which is called the one that ended things.
+// failed reports a cancellation, not a failure, so the first failure is the
+// innermost call of the thread that failed. Two threads can fail before
+// either cancellation lands - and then this names the first the recorder
+// heard of, which the scheduler may not agree was the outcome. Both are real
+// failures and both are reported; what can differ is which is called the one
+// that ended things.
 //
 // Callers hold the lock.
 //
@@ -256,15 +628,18 @@ func (r *_Recorder) Ended(thread string, name string, err error) {
 //   - 2026-09-21 01:21: takes the node's identity, which the key holds, so the
 //     message needs no thread of its own
 //   - 2026-09-21 08:09: reached through a pointer, as every struct here is
-func (r *_Recorder) _Blame(where *_Where, node *workflowpb.Node) {
-	if r.cause != nil || node.GetStatus() != workflowpb.Status_STATUS_FAILED {
+//   - 2026-10-02 01:31: takes the thread and the line's position, which the
+//     cause carries as its index
+//   - 2026-10-02 15:34: takes the function, its status and its error, a cause
+//     naming the function alone
+func (r *_Recorder) _Blame(name string, status workflowpb.Status, err error) {
+	if r.cause != nil || status != workflowpb.Status_STATUS_FAILED {
 		return
 	}
 
 	r.cause = &workflowpb.Cause{
-		Thread:   where.thread,
-		Function: where.name,
-		Failure:  node.GetFailure(),
+		Function: name,
+		Failure:  _Why(err),
 	}
 }
 
@@ -272,9 +647,8 @@ func (r *_Recorder) _Blame(where *_Where, node *workflowpb.Node) {
 //
 // Nil unless the run failed, so a host tests the pointer rather than the enum.
 //
-// A run can fail with no node blamed - the entry point itself raising before
-// any function was reported, or a failure the scheduler saw and no thread did.
-// Then the run's own text stands in, on the spine, with no function named:
+// A run can fail with no call blamed - a failure the scheduler saw and no
+// thread did. Then the run's own text stands in, with no function named:
 // something went wrong and this is all that is known, which is more use than a
 // nil a host reads as "nothing failed".
 //
@@ -293,7 +667,7 @@ func (r *_Recorder) _Because(status workflowpb.Status, failure string) *workflow
 	return &workflowpb.Cause{Failure: failure}
 }
 
-// _Cause is the node whose failure ended the run, or nil.
+// _Cause is the call whose failure ended the run, or nil.
 //
 // Revisions:
 //   - 2026-09-20 11:39: initial creation
@@ -304,236 +678,113 @@ func (r *_Recorder) _Cause() *workflowpb.Cause {
 	return r.cause
 }
 
-// _Seed enters every function a graph declares as pending.
+// _Drawn is the run's graph as it stands: the run's status, every function's
+// node, sorted by name, every call, sorted by caller and then callee, and what
+// ended the run when it failed.
 //
-// A graph is a floor, not a ceiling: it may add functions that have not
-// happened, and it may never remove or rename one that did. So this only ever
-// enters what is missing, and a later report about the same function overwrites
-// the pending entry rather than being refused.
+// Cloned, not aliased. The recorder keeps writing to its nodes after a graph is
+// handed out, so sharing one would let a finished report change under whoever
+// is reading it. A clone rather than a copy of the fields, because a field
+// added to Node later would be dropped by a copy and nothing would say so.
 //
 // Revisions:
-//   - 2026-09-20 01:39: initial creation
-//   - 2026-09-20 18:40: numbers Graph lanes by list slot; GraphThread has
-//     no index
-//   - 2026-09-21 00:59: takes each thread's own id, which the thread now
-//     carries, instead of numbering lanes by list slot
-//   - 2026-09-21 23:53: a thread's own function is its first step, so placing
-//     the steps is the whole of it
-func (r *_Recorder) _Seed(graph *workflowpb.Graph) {
+//   - 2026-10-02 15:34: initial creation, replacing _Threads
+//   - 2026-10-02 16:33: reads the names and the edges in the order they are
+//     kept
+//   - 2026-10-02 16:45: carries the run's status and cause, which the run now
+//     records here
+func (r *_Recorder) _Drawn() *workflowpb.Graph {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	for _, thread := range graph.GetThreads() {
-		lane := thread.GetId()
+	graph := &workflowpb.Graph{Status: r.status}
 
-		r._Lane(lane)
+	if r.ending != nil {
+		graph.Cause = proto.CloneOf(r.ending)
+	}
 
-		// Every step, the first included: what a thread runs is its first step,
-		// so placing the steps places it without a case of its own.
-		for _, step := range thread.GetStatic().GetSteps() {
-			r._Place(lane, step)
+	for _, name := range r.names {
+		graph.Functions = append(graph.Functions, proto.CloneOf(r.nodes[name]))
+	}
+
+	for _, edge := range r.edges {
+		graph.Calls = append(graph.Calls, proto.CloneOf(edge))
+	}
+
+	return graph
+}
+
+// _Order orders two edges as a graph lists them: by caller, then callee.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+func _Order(first *workflowpb.Edge, second *workflowpb.Edge) int {
+	return cmp.Or(
+		strings.Compare(first.GetCaller(), second.GetCaller()),
+		strings.Compare(first.GetCallee(), second.GetCallee()),
+	)
+}
+
+// _Pointer is the JSON Pointer that parts name, each a member or an index.
+//
+// Revisions:
+//   - 2026-10-02 16:33: initial creation
+func _Pointer(parts ...any) string {
+	var held strings.Builder
+
+	for _, part := range parts {
+		held.WriteString(SLASH)
+
+		switch named := part.(type) {
+		case int:
+			held.WriteString(strconv.Itoa(named))
+		case string:
+			held.WriteString(named)
 		}
 	}
 
-	// Declaration after placement, and only for what placement missed. A
-	// function the graph both declares and runs somewhere would otherwise be
-	// entered twice - once on its own lane and once on the spine - and the
-	// spine copy would stay pending for ever, because nothing runs there.
-	for _, fn := range graph.GetFunctions() {
-		if r._Placed(fn.GetName()) {
-			continue
-		}
-
-		r._At(scheduler.SPINE, fn.GetName())
-	}
+	return held.String()
 }
 
-// _Place enters whatever function a step names, on the thread the graph runs it
-// on.
-//
-// A spawn names no function - it says a thread exists, and whatever runs there
-// is that thread's own entry to declare. Recording the lane is still worth
-// doing: a graph may spawn a thread it never describes, and an empty lane is
-// what phase 7 means by one a run never fills.
-//
-// Callers hold the lock.
+// _Status is status as JSON writes it: by the enum's name.
 //
 // Revisions:
-//   - 2026-09-20 11:55: initial creation
-//   - 2026-09-21 01:32: a Fork names the thread it starts
-func (r *_Recorder) _Place(thread string, step *workflowpb.Step) {
-	if spawned := _Spawned(step); spawned != "" {
-		r._Lane(spawned)
-
-		return
-	}
-
-	named := _Names(step)
-	if named == "" {
-		return
-	}
-
-	r._At(thread, named)
+//   - 2026-10-02 16:33: initial creation
+func _Status(status workflowpb.Status) *structpb.Value {
+	return structpb.NewStringValue(status.String())
 }
 
-// _Lane records that a thread exists, whether or not anything is known to run
-// on it.
-//
-// Lanes are kept apart from nodes because a lane with no nodes cannot be
-// inferred from its nodes.
-//
-// Callers hold the lock.
+// _Listed is value as the one element of a list.
 //
 // Revisions:
-//   - 2026-09-20 11:55: initial creation
-func (r *_Recorder) _Lane(index string) {
-	r.lanes[index] = true
+//   - 2026-10-02 16:33: initial creation
+func _Listed(value *structpb.Value) *structpb.Value {
+	return structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{value}})
 }
 
-// _Placed reports whether any thread already runs this function.
+// _Valued is message as JSON writes it, so a change carries exactly what the
+// graph's own JSON holds.
 //
-// Callers hold the lock.
-//
-// Revisions:
-//   - 2026-09-20 11:55: initial creation
-func (r *_Recorder) _Placed(name string) bool {
-	for where := range r.nodes {
-		if where.name == name {
-			return true
-		}
-	}
-
-	return false
-}
-
-// _Spawned is the thread a fork step starts, or empty for any other step.
+// Through protojson rather than a field-by-field copy, which would be a second
+// declaration of the schema's shape. protojson refuses only text that is not
+// valid UTF-8, and a name, a thread id and a failure here come from Starlark
+// strings and Go errors; should one ever not be, a null stands in, so the
+// broken invariant shows in a host's copy rather than taking the run down.
 //
 // Revisions:
-//   - 2026-09-21 00:59: initial creation
-func _Spawned(step *workflowpb.Step) string {
-	return step.GetFork().GetThread()
-}
-
-// _Live is an empty running thread under this id.
-//
-// A snapshot always reports the live half, even for a thread nothing has run
-// on yet, so a host reads one arm rather than testing which it was given.
-//
-// Revisions:
-//   - 2026-09-21 00:59: initial creation
-func _Live(id string) *workflowpb.Thread {
-	return &workflowpb.Thread{
-		Id:    id,
-		State: &workflowpb.Thread_Live{Live: &workflowpb.Live{}},
-	}
-}
-
-// _Names is the function a step runs, or empty for a step that runs none.
-//
-// A wrapper names its function as surely as a call does: a Repeat of fetch runs
-// fetch, and a graph that placed the call but not the repeat would put the same
-// function in two places depending on how it was written.
-//
-// Every one of them carries a Call, so this reads one field through a different
-// wrapper rather than four fields that spell the same thing four ways.
-//
-// Revisions:
-//   - 2026-09-20 11:55: initial creation
-func _Names(step *workflowpb.Step) string {
-	switch {
-	case step.GetCall() != nil:
-		return step.GetCall().GetFunction()
-	case step.GetRepeat() != nil:
-		return step.GetRepeat().GetCall().GetFunction()
-	case step.GetRetry() != nil:
-		return step.GetRetry().GetCall().GetFunction()
-	case step.GetTimeout() != nil:
-		return step.GetTimeout().GetCall().GetFunction()
+//   - 2026-10-02 16:33: initial creation
+func _Valued(message proto.Message) *structpb.Value {
+	raw, err := protojson.Marshal(message)
+	if err != nil {
+		return structpb.NewNullValue()
 	}
 
-	return ""
-}
+	value := new(structpb.Value)
 
-// _Threads is every thread's nodes, in the order each was first heard of.
-//
-// Revisions:
-//   - 2026-09-20 01:39: initial creation
-//   - 2026-09-21 08:09: clones through the typed clone, so nothing is
-//     silently dropped on a failed assertion that cannot fail
-func (r *_Recorder) _Threads() []*workflowpb.Thread {
-	r.guard.Lock()
-	defer r.guard.Unlock()
-
-	lanes := make(map[string]*workflowpb.Thread)
-
-	var numbers []string
-
-	for index := range r.lanes {
-		lanes[index] = _Live(index)
-		numbers = append(numbers, index)
+	err = value.UnmarshalJSON(raw)
+	if err != nil {
+		return structpb.NewNullValue()
 	}
 
-	for _, where := range r.order {
-		node := r.nodes[where]
-
-		lane, known := lanes[where.thread]
-		if !known {
-			lane = _Live(where.thread)
-			lanes[where.thread] = lane
-			numbers = append(numbers, where.thread)
-		}
-
-		live := lane.GetLive()
-
-		// Cloned, not aliased. The recorder keeps writing to its nodes after a
-		// snapshot is handed out, so sharing one would let a finished report
-		// change under whoever is reading it. A clone rather than a copy of
-		// the fields, because a field added to Node later would be dropped by
-		// a copy and nothing would say so.
-		live.Nodes = append(live.Nodes, proto.CloneOf(node))
-	}
-
-	sort.Slice(numbers, func(i, j int) bool {
-		return numbers[i] < numbers[j]
-	})
-
-	threads := make([]*workflowpb.Thread, 0, len(numbers))
-
-	for _, number := range numbers {
-		threads = append(threads, lanes[number])
-	}
-
-	return threads
-}
-
-// _At returns the node for a function on a thread, entering it as pending if
-// nothing has been said about it yet.
-//
-// Pending is the right entry state for a node nobody has reported: without a
-// graph nothing reaches here until a function starts, and with one every seeded
-// function is genuinely pending until it does.
-//
-// Callers hold the lock.
-//
-// Revisions:
-//   - 2026-09-20 01:39: initial creation
-//   - 2026-09-21 01:21: keeps the generated Node rather than a shape of its own
-func (r *_Recorder) _At(thread string, name string) *workflowpb.Node {
-	where := _Where{thread: thread, name: name}
-
-	node, known := r.nodes[where]
-	if known {
-		return node
-	}
-
-	node = &workflowpb.Node{
-		Function: name,
-		Status:   workflowpb.Status_STATUS_PENDING,
-	}
-
-	r.nodes[where] = node
-	r.order = append(r.order, where)
-	r.lanes[thread] = true
-
-	return node
+	return value
 }

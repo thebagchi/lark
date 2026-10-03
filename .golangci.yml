@@ -31,9 +31,14 @@ linters:
       # it forced on it reports every CAPITAL_SNAKE constant this project has,
       # and says nothing at all about the leading underscore it was suspected of
       # objecting to.
+      #
+      # ST1012 must stay off too. It asks for an error variable named ErrFoo,
+      # and a sentinel here is CAPITAL_SNAKE like every package-level variable,
+      # ERR_FOO, as go.md records.
       checks:
         - all
         - -ST1003
+        - -ST1012
 
     mnd:
       # UnpackPositionalArgs takes the number of positional arguments it is

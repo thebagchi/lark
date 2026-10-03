@@ -30,7 +30,7 @@ var STAMP = regexp.MustCompile(`^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{6}$`)
 func _Eval(t *testing.T, expression string) (starlark.Value, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}

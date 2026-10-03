@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/thebagchi/lark/v1/runtime/artifact"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
@@ -44,15 +45,16 @@ func _NewCounter() *_Counter {
 	}
 }
 
-// Started counts a function beginning.
+// Started counts a line beginning, by the function it called.
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
-func (c *_Counter) Started(thread string, name string, attempt int32) {
+//   - 2026-10-02 01:35: takes a Line
+func (c *_Counter) Started(thread string, line *scheduler.Line) {
 	c.guard.Lock()
 	defer c.guard.Unlock()
 
-	c.began[name]++
+	c.began[line.Name]++
 }
 
 // Ended counts a function finishing.
@@ -64,14 +66,6 @@ func (c *_Counter) Ended(thread string, name string, err error) {
 	defer c.guard.Unlock()
 
 	c.ended[name]++
-}
-
-// Printed is empty: a counter counts starts and ends.
-//
-// Revisions:
-//   - 2026-09-21 09:46: initial creation
-func (c *_Counter) Printed(thread string, msg string) {
-	// Empty
 }
 
 // _Tally is how many times a function began and ended.
@@ -99,7 +93,7 @@ func TestReport_EndsAWrapperOnceHoweverManyAttempts(t *testing.T) {
 
 	built := _Compile(t, RETRYING)
 
-	_, err := built.Run(scheduler.WithReporter(t.Context(), counter))
+	_, err := artifact.Run(t.Context(), built, artifact.Reporting(counter))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +117,7 @@ func TestReport_EndsAWrapperOnceHoweverManyAttempts(t *testing.T) {
 func TestReport_EndsARepeatOnce(t *testing.T) {
 	counter := _NewCounter()
 
-	_, err := _Compile(t, REPEATING).Run(scheduler.WithReporter(t.Context(), counter))
+	_, err := artifact.Run(t.Context(), _Compile(t, REPEATING), artifact.Reporting(counter))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +141,8 @@ type _Exploding struct {
 //
 // Revisions:
 //   - 2026-09-20 12:01: initial creation
-func (e *_Exploding) Started(thread string, name string, attempt int32) {
+//   - 2026-10-02 01:35: takes a Line
+func (e *_Exploding) Started(thread string, line *scheduler.Line) {
 	e._Maybe(STARTED)
 }
 
@@ -157,14 +152,6 @@ func (e *_Exploding) Started(thread string, name string, attempt int32) {
 //   - 2026-09-20 12:01: initial creation
 func (e *_Exploding) Ended(thread string, name string, err error) {
 	e._Maybe(ENDED)
-}
-
-// Printed is empty: no test here prints.
-//
-// Revisions:
-//   - 2026-09-21 09:46: initial creation
-func (e *_Exploding) Printed(thread string, msg string) {
-	// Empty
 }
 
 // _Maybe raises when the moment is this one.
@@ -198,7 +185,11 @@ func TestReport_APanickingReporterEndsTheRun(t *testing.T) {
 	for _, moment := range []string{STARTED, ENDED} {
 		blows := &_Exploding{on: moment}
 
-		_, err := _Compile(t, BRANCHING).Run(scheduler.WithReporter(t.Context(), blows))
+		_, err := artifact.Run(
+			t.Context(),
+			_Compile(t, BRANCHING),
+			artifact.Reporting(blows),
+		)
 		if err == nil {
 			t.Fatalf("%s: want a run whose reporter raised to fail", moment)
 		}
@@ -217,7 +208,7 @@ func TestReport_APanickingReporterEndsTheRun(t *testing.T) {
 func TestReport_AWorkingReporterDoesNotEndTheRun(t *testing.T) {
 	quiet := &_Exploding{on: NEVER}
 
-	_, err := _Compile(t, BRANCHING).Run(scheduler.WithReporter(t.Context(), quiet))
+	_, err := artifact.Run(t.Context(), _Compile(t, BRANCHING), artifact.Reporting(quiet))
 	if err != nil {
 		t.Fatalf("want a run with a working reporter to succeed, got %v", err)
 	}

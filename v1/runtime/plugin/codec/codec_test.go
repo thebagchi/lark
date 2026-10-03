@@ -5,6 +5,8 @@ package codec_test
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"go.starlark.net/starlark"
@@ -25,7 +27,7 @@ const SCRIPT = "codec_test.star"
 func _Eval(t *testing.T, expression string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -91,6 +93,7 @@ func _Refuse(t *testing.T, cases []struct {
 //
 // Revisions:
 //   - 2026-09-21 10:35: initial creation
+//   - 2026-10-03 16:59: bytes2bits of nothing
 func TestBytes_ConvertToAndFromHexAndBits(t *testing.T) {
 	_Check(t, []struct{ name, expression, want string }{
 		{"bytes2hex of bytes", `bytes2hex(b"\x00\xffAB")`, `"00ff4142"`},
@@ -100,6 +103,7 @@ func TestBytes_ConvertToAndFromHexAndBits(t *testing.T) {
 		{"hex2bytes upper case", `hex2bytes("4A")`, `b"J"`},
 		{"bytes2bits", `bytes2bits(b"\x01\x80")`, `"0000000110000000"`},
 		{"bytes2bits of str", `bytes2bits("A")`, `"01000001"`},
+		{"bytes2bits of nothing", `bytes2bits(b"")`, `""`},
 		{"bits2bytes", `bits2bytes("0000000110000000")`, `b"\x01\x80"`},
 		{"bits2bytes of nothing", `bits2bytes("")`, `b""`},
 	})
@@ -109,11 +113,11 @@ func TestBytes_ConvertToAndFromHexAndBits(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"hex2bytes odd length", `hex2bytes("abc")`, codec.ErrHex},
-		{"hex2bytes not hex", `hex2bytes("zz")`, codec.ErrHex},
-		{"bits2bytes not a multiple of 8", `bits2bytes("0000000")`, codec.ErrBits},
-		{"bits2bytes not bits", `bits2bytes("00000002")`, codec.ErrBits},
-		{"bytes2hex of a number", `bytes2hex(1)`, unpack.ErrData},
+		{"hex2bytes odd length", `hex2bytes("abc")`, codec.ERR_HEX},
+		{"hex2bytes not hex", `hex2bytes("zz")`, codec.ERR_HEX},
+		{"bits2bytes not a multiple of 8", `bits2bytes("0000000")`, codec.ERR_BITS},
+		{"bits2bytes not bits", `bits2bytes("00000002")`, codec.ERR_BITS},
+		{"bytes2hex of a number", `bytes2hex(1)`, unpack.ERR_DATA},
 	})
 }
 
@@ -146,9 +150,9 @@ func TestInts_ConvertToAndFromBytes(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"int2bytes negative", `int2bytes(-1, 2)`, codec.ErrRange},
-		{"int2bytes does not fit", `int2bytes(256, 1)`, codec.ErrRange},
-		{"int2bytes zero width", `int2bytes(1, 0)`, codec.ErrRange},
+		{"int2bytes negative", `int2bytes(-1, 2)`, codec.ERR_RANGE},
+		{"int2bytes does not fit", `int2bytes(256, 1)`, codec.ERR_RANGE},
+		{"int2bytes zero width", `int2bytes(1, 0)`, codec.ERR_RANGE},
 	})
 }
 
@@ -157,15 +161,24 @@ func TestInts_ConvertToAndFromBytes(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-21 10:35: initial creation
+//   - 2026-10-03 16:59: an empty, an odd-length, an upper-case-prefixed and a signed
+//     hex string, and a leading zero digit kept
+//   - 2026-10-03 19:01: bits2hex across bytes, and of zero digits it has bits for
 func TestBits_ConvertToAndFromHexAndInts(t *testing.T) {
 	_Check(t, []struct{ name, expression, want string }{
 		{"bits2hex", `bits2hex("10101111")`, `"AF"`},
 		{"bits2hex pads to a nibble", `bits2hex("101")`, `"5"`},
 		{"bits2hex pads across nibbles", `bits2hex("11010")`, `"1A"`},
 		{"bits2hex of nothing", `bits2hex("")`, `""`},
+		{"bits2hex keeps a leading zero digit", `bits2hex("00000001")`, `"01"`},
+		{"bits2hex pads across bytes", `bits2hex("110101111")`, `"1AF"`},
+		{"bits2hex keeps zero digits it has bits for", `bits2hex("000000001")`, `"001"`},
 		{"hex2bits", `hex2bits("AF")`, `"10101111"`},
 		{"hex2bits strips 0x", `hex2bits("0xAF")`, `"10101111"`},
+		{"hex2bits strips 0X", `hex2bits("0XAF")`, `"10101111"`},
 		{"hex2bits pads to a byte", `hex2bits("A")`, `"00001010"`},
+		{"hex2bits pads odd digits to a byte", `hex2bits("ABC")`, `"0000101010111100"`},
+		{"hex2bits of nothing", `hex2bits("")`, `""`},
 		{"hex2bits lower case", `hex2bits("af")`, `"10101111"`},
 		{"int2bits", `int2bits(5, 8)`, `"00000101"`},
 		{"int2bits not truncated", `int2bits(300, 4)`, `"100101100"`},
@@ -179,10 +192,11 @@ func TestBits_ConvertToAndFromHexAndInts(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"bits2hex not bits", `bits2hex("12")`, codec.ErrBits},
-		{"hex2bits not hex", `hex2bits("0xZZ")`, codec.ErrHex},
-		{"int2bits negative", `int2bits(-5, 8)`, codec.ErrRange},
-		{"bits2int not bits", `bits2int("")`, codec.ErrBits},
+		{"bits2hex not bits", `bits2hex("12")`, codec.ERR_BITS},
+		{"hex2bits not hex", `hex2bits("0xZZ")`, codec.ERR_HEX},
+		{"hex2bits signed", `hex2bits("-1")`, codec.ERR_HEX},
+		{"int2bits negative", `int2bits(-5, 8)`, codec.ERR_RANGE},
+		{"bits2int not bits", `bits2int("")`, codec.ERR_BITS},
 	})
 }
 
@@ -206,7 +220,60 @@ func TestHexInts_ComposeTheOtherTwo(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"int2hex negative", `int2hex(-1, 8)`, codec.ErrRange},
-		{"hex2int not hex", `hex2int("g")`, codec.ErrHex},
+		{"int2hex negative", `int2hex(-1, 8)`, codec.ERR_RANGE},
+		{"hex2int not hex", `hex2int("g")`, codec.ERR_HEX},
 	})
+}
+
+// TestBits_AgreeForEveryByte converts every byte value through bytes2bits,
+// bits2bytes and bits2hex, against answers reached another way: the bits a test
+// of each one spells, the byte itself, and the digits encoding/hex writes.
+//
+// Every value, because a conversion that works on the bytes of a word side by
+// side can be right for most values and wrong for one; and all of them in one
+// input as well, so that whole words follow one another.
+//
+// Revisions:
+//   - 2026-10-03 19:01: initial creation
+func TestBits_AgreeForEveryByte(t *testing.T) {
+	const EVERY = `[b for b in range(256) if not (
+    bytes2bits(bytes([b])) == "".join(["1" if b & (128 >> i) else "0" for i in range(8)])
+    and bits2bytes(bytes2bits(bytes([b]))) == bytes([b])
+    and bits2hex(bytes2bits(bytes([b]))) == bytes2hex(bytes([b])).upper()
+)]`
+
+	_Check(t, []struct{ name, expression, want string }{
+		{"every byte alone", EVERY, `[]`},
+		{
+			"every byte in one input",
+			`bits2bytes(bytes2bits(bytes(range(256)))) == bytes(range(256))`,
+			`True`,
+		},
+	})
+}
+
+// TestBits_RefusedWhereverTheWrongCharacterIs puts one character that is not a
+// bit at every position of seventeen - two words of eight, and one character
+// left over - and expects each refused.
+//
+// Each character differs from 0 in one bit, from the second bit to the seventh,
+// so every bit a check of eight characters at once compares is tried; é is two
+// bytes, each with the eighth bit set.
+//
+// Revisions:
+//   - 2026-10-03 19:01: initial creation
+func TestBits_RefusedWhereverTheWrongCharacterIs(t *testing.T) {
+	const LENGTH = 17
+
+	for _, wrong := range []string{"2", "4", "8", " ", "\x10", "p", "é"} {
+		for at := range LENGTH {
+			bits := strings.Repeat("1", at) + wrong + strings.Repeat("0", LENGTH-1-at)
+			expression := fmt.Sprintf("bits2int(%q)", bits)
+
+			_, err := _Eval(t, expression)
+			if !errors.Is(err, codec.ERR_BITS) {
+				t.Fatalf("%s gave %v, want %v", expression, err, codec.ERR_BITS)
+			}
+		}
+	}
 }

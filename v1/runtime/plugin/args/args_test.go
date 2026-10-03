@@ -1,6 +1,7 @@
 package args_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -92,8 +93,8 @@ func TestArg_NumbersArriveWhole(t *testing.T) {
 //   - 2026-09-22 22:56: initial creation
 func TestArg_RequiredAndMissingFailsTheRun(t *testing.T) {
 	_, err := _Run(t, "required.star", "{}")
-	if !errors.Is(err, args.ErrNotSupplied) {
-		t.Fatalf("got %v, want ErrNotSupplied", err)
+	if !errors.Is(err, args.ERR_NOT_SUPPLIED) {
+		t.Fatalf("got %v, want ERR_NOT_SUPPLIED", err)
 	}
 
 	got, err := _Run(t, "required.star", `{"token": "t-123"}`)
@@ -117,8 +118,8 @@ func TestArg_RequiredAndMissingFailsTheRun(t *testing.T) {
 //   - 2026-09-22 22:56: initial creation
 func TestArg_InABodyIsRefused(t *testing.T) {
 	_, err := _Run(t, "inbody.star", `{"host": "db.internal"}`)
-	if !errors.Is(err, args.ErrNotDeclaring) {
-		t.Fatalf("got %v, want ErrNotDeclaring", err)
+	if !errors.Is(err, args.ERR_NOT_DECLARING) {
+		t.Fatalf("got %v, want ERR_NOT_DECLARING", err)
 	}
 }
 
@@ -230,21 +231,25 @@ func _Run(t *testing.T, name string, supplied string) (starlark.Value, error) {
 //
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
+//   - 2026-10-02 13:12: supplies the JSON in one call
+//   - 2026-10-02 16:08: hands the run the arguments, as an option of it
+//   - 2026-10-02 16:18: reads the JSON into the Struct a run is handed
+//   - 2026-10-03 16:31: reads the JSON into the map a run is handed
 func _Invoked(t *testing.T, art *runtime.Artifact, supplied string) (starlark.Value, error) {
 	t.Helper()
 
-	ctx := t.Context()
-
-	if supplied != "" {
-		parsed, err := runtime.Parsed([]byte(supplied))
-		if err != nil {
-			t.Fatalf("parse: %v", err)
-		}
-
-		ctx = runtime.WithArgs(ctx, parsed)
+	if supplied == "" {
+		return runtime.Start(t.Context(), art).Wait()
 	}
 
-	return art.Run(ctx)
+	var held map[string]any
+
+	err := json.Unmarshal([]byte(supplied), &held)
+	if err != nil {
+		t.Fatalf("arguments: %v", err)
+	}
+
+	return runtime.Start(t.Context(), art, runtime.WithArgs(held)).Wait()
 }
 
 // _Compiled is a fixture compiled, with nothing run.
@@ -261,7 +266,7 @@ func _Compiled(t *testing.T, name string) *runtime.Artifact {
 		t.Fatalf("read %s: %v", name, err)
 	}
 
-	art, err := runtime.NewCompiler().Compile(path, src)
+	art, err := runtime.Compile(&runtime.Source{Entry: path, Text: src})
 	if err != nil {
 		t.Fatalf("compile %s: %v", name, err)
 	}
@@ -288,8 +293,8 @@ func TestArg_AModuleLevelCheckValidatesWhatWasSupplied(t *testing.T) {
 	}
 
 	_, err := _Invoked(t, art, `{"port": -1}`)
-	if !errors.Is(err, runtime.ErrAssert) {
-		t.Fatalf("got %v, want ErrAssert", err)
+	if !errors.Is(err, runtime.ERR_ASSERT) {
+		t.Fatalf("got %v, want ERR_ASSERT", err)
 	}
 
 	// And the same artifact still runs, so the refusal belonged to that run

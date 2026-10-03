@@ -127,7 +127,7 @@ func _Of(thread *starlark.Thread) (*_Store, error) {
 // A new entry holds None, which is what a get of a name nothing has written
 // answers anyway.
 //
-// Returns ErrMemory when the run cannot afford another name, having made
+// Returns ERR_MEMORY when the run cannot afford another name, having made
 // nothing.
 //
 // Revisions:
@@ -174,11 +174,11 @@ func (s *_Store) _Named(budget *scheduler.Budget, name string) (*_Entry, error) 
 // The store's own mutex could not prevent that: it is held for the read and
 // for the write, and released around the call, which is the window.
 //
-// Returns ErrNested when called from inside an update, as a nested update is:
+// Returns ERR_NESTED when called from inside an update, as a nested update is:
 // waiting there would be waiting for a lock this evaluation already holds,
 // which never ends.
 //
-// Returns ErrMemory when the run cannot afford the name or the value, and keeps
+// Returns ERR_MEMORY when the run cannot afford the name or the value, and keeps
 // nothing it could not afford.
 //
 // Revisions:
@@ -215,7 +215,7 @@ func _Set(
 	bad, ok := deep.IsData(value)
 	if !ok {
 		return nil, scheduler.Fail(thread, fmt.Errorf(
-			"%s %q: %s: %w", fn.Name(), name, bad.Type(), ErrNotData))
+			"%s %q: %s: %w", fn.Name(), name, bad.Type(), ERR_NOT_DATA))
 	}
 
 	budget := scheduler.Allowance(thread)
@@ -321,12 +321,12 @@ func _Get(
 // must return the new one. It runs while the name is locked, so it should do
 // little: every other thread updating that name waits for it.
 //
-// Returns scheduler.ErrNested when called from inside an update, on this
+// Returns scheduler.ERR_NESTED when called from inside an update, on this
 // thread or on any thread that update started. Two threads updating two names
 // in opposite orders would deadlock, and a script cannot be asked to take
 // locks in an order it cannot see - so nesting is refused rather than ordered.
 //
-// Returns ErrMemory when the run cannot afford the name or what fn returned.
+// Returns ERR_MEMORY when the run cannot afford the name or what fn returned.
 //
 // Revisions:
 //   - 2026-09-20 00:41: initial creation
@@ -414,7 +414,7 @@ func (e *_Entry) _Apply(
 	bad, ok := deep.IsData(updated)
 	if !ok {
 		return nil, scheduler.Fail(thread, fmt.Errorf(
-			"%s.%s %q: %s: %w", NAME, UPDATE, name, bad.Type(), ErrNotData))
+			"%s.%s %q: %s: %w", NAME, UPDATE, name, bad.Type(), ERR_NOT_DATA))
 	}
 
 	updated.Freeze()
@@ -451,7 +451,7 @@ func (e *_Entry) _Value() starlark.Value {
 // of them costs. What was charged is remembered in the entry, so the old value
 // is not walked again.
 //
-// Returns ErrMemory when the run cannot afford the increase, and keeps nothing
+// Returns ERR_MEMORY when the run cannot afford the increase, and keeps nothing
 // in that case - the value a script has is unchanged, which is the only answer
 // that leaves the store consistent.
 //

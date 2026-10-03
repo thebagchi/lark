@@ -24,7 +24,7 @@ const SCRIPT = "jsonpath_test.star"
 func _Eval(t *testing.T, expression string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -110,6 +110,8 @@ func TestPointer_RefusesWhatIsNotAPointer(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:27: initial creation
 //   - 2026-09-21 08:09: a move onto itself, which the specification allows
+//   - 2026-10-03 19:28: a move of the whole document onto itself, and a member moved onto
+//     itself keeping its place
 func TestPatch_AppliesRFC6902(t *testing.T) {
 	_Check(t, []struct{ name, expression, want string }{
 		{
@@ -164,6 +166,17 @@ func TestPatch_AppliesRFC6902(t *testing.T) {
 			`{"a": {"b": 1}}`,
 		},
 		{
+			"move the whole document onto itself",
+			`patch_json({"a": 1}, [{"op": "move", "from": "", "path": ""}])`,
+			`{"a": 1}`,
+		},
+		{
+			"move onto itself keeps the member's place",
+			`patch_json({"a": 1, "b": 2}, [{"op": "move", "from": "/a", "path": ` +
+				`"/a"}])`,
+			`{"a": 1, "b": 2}`,
+		},
+		{
 			"operations apply in order",
 			`patch_json({"a": 1}, [{"op": "add", "path": "/b", "value": 2}, {"op": ` +
 				`"remove", "path": "/a"}])`,
@@ -178,6 +191,7 @@ func TestPatch_AppliesRFC6902(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-20 01:29: initial creation
+//   - 2026-10-03 19:28: a move onto itself of what is not there
 func TestPatch_RefusesWhatTheSpecificationRefuses(t *testing.T) {
 	cases := []struct{ name, expression, carries string }{
 		{
@@ -212,6 +226,11 @@ func TestPatch_RefusesWhatTheSpecificationRefuses(t *testing.T) {
 				`"/a/b"}])`,
 			"into itself",
 		},
+		{
+			"move onto itself what is not there",
+			`patch_json({"a": 1}, [{"op": "move", "from": "/b", "path": "/b"}])`,
+			"no such path",
+		},
 	}
 
 	for _, item := range cases {
@@ -241,7 +260,7 @@ before = {"a": [1, 2]}
 after = patch_json(before, [{"op": "add", "path": "/a/-", "value": 3}])
 `
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -306,7 +325,7 @@ func TestQueries_AnswerQuestionsRatherThanFail(t *testing.T) {
 func _Global(t *testing.T, script string, name string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -354,6 +373,77 @@ out["b"]["x"].append(2)
 		{"the original is untouched", FLAT, "doc", `{"a": [1]}`},
 		{"and the copy is its own list", FLAT, "out", `{"a": [1], "b": [1, 2]}`},
 		{"a nested container is copied too", NESTED, "doc", `{"a": {"x": [1]}}`},
+	}
+
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			got, err := _Global(t, item.script, item.read)
+			if err != nil {
+				t.Fatalf("%s: %v", item.read, err)
+			}
+
+			if got != item.want {
+				t.Fatalf("%s was %s, want %s", item.read, got, item.want)
+			}
+		})
+	}
+}
+
+// TestPatch_ManyOperationsLeaveTheInputAlone holds a patch that writes again
+// and again under the containers it has already made, which it may change in
+// place, and still reaches the caller's, which it may not.
+//
+// A copy written into after it is made is the case in-place editing could
+// break: the copy is its own, so writing to it changes nothing at its source.
+//
+// Revisions:
+//   - 2026-10-03 16:47: initial creation
+func TestPatch_ManyOperationsLeaveTheInputAlone(t *testing.T) {
+	const (
+		// MANY writes again and again under what it has already copied.
+		MANY = `
+doc = {"a": {"b": 1, "items": [1, 2]}, "keep": [0]}
+out = patch_json(doc, [
+    {"op": "replace", "path": "/a/b", "value": 2},
+    {"op": "add", "path": "/a/c", "value": 3},
+    {"op": "add", "path": "/a/items/-", "value": 3},
+    {"op": "add", "path": "/a/items/0", "value": 0},
+    {"op": "replace", "path": "/a/items/1", "value": 10},
+    {"op": "copy", "from": "/a", "path": "/d"},
+    {"op": "add", "path": "/d/e", "value": 4},
+    {"op": "add", "path": "/d/items/-", "value": 99},
+    {"op": "remove", "path": "/a/b"},
+    {"op": "move", "from": "/a/c", "path": "/moved"},
+    {"op": "remove", "path": "/a/items/0"},
+])
+`
+
+		// UNTOUCHED is the document MANY hands its patch, and LANDED what the
+		// patch hands back.
+		UNTOUCHED = `{"a": {"b": 1, "items": [1, 2]}, "keep": [0]}`
+		LANDED    = `{"a": {"items": [10, 2, 3]}, "keep": [0], ` +
+			`"d": {"b": 2, "items": [0, 10, 2, 3, 99], "c": 3, "e": 4}, "moved": 3}`
+
+		// SIBLING writes once under each of two containers of the caller's.
+		SIBLING = `
+doc = {"x": {"y": 1}, "z": {"w": 1}}
+out = patch_json(doc, [
+    {"op": "replace", "path": "/x/y", "value": 2},
+    {"op": "replace", "path": "/z/w", "value": 2},
+])
+`
+	)
+
+	cases := []struct{ name, script, read, want string }{
+		{"the input is untouched", MANY, "doc", UNTOUCHED},
+		{"every operation lands, the copy apart from its source", MANY, "out", LANDED},
+		{
+			"a container still the caller's is copied",
+			SIBLING,
+			"doc",
+			`{"x": {"y": 1}, "z": {"w": 1}}`,
+		},
+		{"and written", SIBLING, "out", `{"x": {"y": 2}, "z": {"w": 2}}`},
 	}
 
 	for _, item := range cases {

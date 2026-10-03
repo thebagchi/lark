@@ -19,24 +19,20 @@ import (
 
 	"go.starlark.net/starlark"
 
+	larkfile "github.com/thebagchi/lark/v1/plugin/file"
 	"github.com/thebagchi/lark/v1/runtime"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/base32"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/base64"
 	larkbase64 "github.com/thebagchi/lark/v1/runtime/plugin/base64"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/codec"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/file"
-	larkfile "github.com/thebagchi/lark/v1/runtime/plugin/file"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/flow"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/hash"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/jsonpath"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/math"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/path"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/random"
 	larkrandom "github.com/thebagchi/lark/v1/runtime/plugin/random"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/regexp"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/state"
 )
 
+// TestScript_ExistsCRCCopyAndSetTogether runs four fixes in one script: an
+// exists behind a directory it may not search, a crc32 seed, a patch that
+// copies, and a set inside an update.
+//
+// Revisions:
+//   - 2026-09-24 17:32: initial creation
+//   - 2026-10-02 17:12: hands the compiler file, which the runtime no longer
+//     gives a script by itself
 func TestScript_ExistsCRCCopyAndSetTogether(t *testing.T) {
 	dir := t.TempDir()
 	secret := filepath.Join(dir, "secret")
@@ -62,11 +58,11 @@ def main():
     out["b"].append(2)
 
     def slow(v):
-        sleep(0.05)
+        sleep(50)
         return "from-update"
 
     def writer():
-        sleep(0.01)
+        sleep(10)
         state.set("n", "from-set")
 
     handle = spawn(writer)
@@ -75,11 +71,14 @@ def main():
     return [hidden, seed == plain, doc["a"], state.get("n")]
 `, note)
 
-	built, err := runtime.NewCompiler().Compile("probe.star", []byte(src))
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: "probe.star", Text: []byte(src)},
+		runtime.WithPlugins(&larkfile.Plugin{}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err := built.Run(context.Background())
+	value, err := runtime.Start(context.Background(), built).Wait()
 	if err != nil {
 		// file.exists is first. After the fix it refuses an unsearchable
 		// directory, so this script stops there. That refusal is the pass.
@@ -141,11 +140,11 @@ def main():
     out["b"].append(2)
 
     def slow(v):
-        sleep(0.05)
+        sleep(50)
         return "from-update"
 
     def writer():
-        sleep(0.01)
+        sleep(10)
         state.set("n", "from-set")
 
     handle = spawn(writer)
@@ -177,9 +176,9 @@ def main():
 `)
 	if err != nil {
 		if strings.Contains(err.Error(), "recovered") {
-			t.Fatalf("recovered panic, want a number or ErrRange: %v", err)
+			t.Fatalf("recovered panic, want a number or ERR_RANGE: %v", err)
 		}
-		if !errors.Is(err, larkrandom.ErrRange) {
+		if !errors.Is(err, larkrandom.ERR_RANGE) {
 			t.Fatal(err)
 		}
 		return
@@ -222,8 +221,8 @@ def main():
     random.seed(1)
     return random.int(3, 1)
 `)
-	if !errors.Is(err, larkrandom.ErrRange) {
-		t.Fatalf("got %v, want ErrRange", err)
+	if !errors.Is(err, larkrandom.ERR_RANGE) {
+		t.Fatalf("got %v, want ERR_RANGE", err)
 	}
 }
 
@@ -330,7 +329,7 @@ def main():
 def main():
     return file.read(%q)
 `, dir))
-	if !errors.Is(err, larkfile.ErrFile) {
+	if !errors.Is(err, larkfile.ERR_FILE) {
 		t.Fatalf("read directory: %v", err)
 	}
 
@@ -344,7 +343,7 @@ def main():
     file.write(%q, "x")
     return None
 `, child))
-	if !errors.Is(err, larkfile.ErrFile) {
+	if !errors.Is(err, larkfile.ERR_FILE) {
 		t.Fatalf("write through a file: %v", err)
 	}
 	body, err = os.ReadFile(parent)
@@ -535,7 +534,7 @@ def main():
 	started := time.Now()
 	value, err = _Run(t, `
 def main():
-    sleep(1e-10)
+    sleep(1)
     return "done"
 `)
 	if err != nil {
@@ -545,7 +544,7 @@ def main():
 		t.Fatalf("sleep: %s", value.String())
 	}
 	if time.Since(started) > time.Second {
-		t.Fatalf("sleep(1e-10) took %s", time.Since(started))
+		t.Fatalf("sleep(1) took %s", time.Since(started))
 	}
 
 	wins, timeouts := 0, 0
@@ -614,7 +613,7 @@ func TestBase64_RefusesTheOtherAlphabet(t *testing.T) {
 def main():
     return base64.decode(%q)
 `, url))
-	if !errors.Is(err, larkbase64.ErrEncoded) {
+	if !errors.Is(err, larkbase64.ERR_ENCODED) {
 		t.Fatalf("standard decode of url text: %v", err)
 	}
 
@@ -622,7 +621,7 @@ def main():
 def main():
     return base64.urldecode(%q)
 `, standard))
-	if !errors.Is(err, larkbase64.ErrEncoded) {
+	if !errors.Is(err, larkbase64.ERR_ENCODED) {
 		t.Fatalf("url decode of standard text: %v", err)
 	}
 

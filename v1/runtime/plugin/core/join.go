@@ -9,9 +9,9 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// ErrNotAHandle is returned when join or cancel is given something that is not
+// ERR_NOT_A_HANDLE is returned when join or cancel is given something that is not
 // a handle, or any keyword argument.
-var ErrNotAHandle = errors.New("join wants handles")
+var ERR_NOT_A_HANDLE = errors.New("join wants handles")
 
 // _Join waits for every handle given and returns what each produced, in the
 // order they were passed.
@@ -21,8 +21,12 @@ var ErrNotAHandle = errors.New("join wants handles")
 // arrived. The first failure in argument order wins, which makes the outcome
 // depend on how the script was written rather than on which thread lost a race.
 //
-// Returns ErrNotAHandle when an argument is something else, and
-// scheduler.ErrCancelled when a joined handle was cancelled or the joining
+// A join is a line of the thread that waits, reported around the wait with the
+// threads it waits on, so a watcher can say which threads were joined. A join
+// refused before it waits is still a line, and it fails.
+//
+// Returns ERR_NOT_A_HANDLE when an argument is something else, and
+// scheduler.ERR_CANCELLED when a joined handle was cancelled or the joining
 // evaluation was.
 //
 // Revisions:
@@ -32,6 +36,8 @@ var ErrNotAHandle = errors.New("join wants handles")
 //   - 2026-09-21 08:09: waits through Wait, so the joining evaluation's own
 //     cancellation ends the join
 //   - 2026-09-21 09:46: moved here from the scheduler
+//   - 2026-10-02 00:48: reports itself as a line, naming the threads it waits
+//     on
 func _Join(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -39,6 +45,28 @@ func _Join(
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
 	handles, err := _Handles(JOIN, args, kwargs)
+
+	scheduler.Open(thread, &scheduler.Line{Builtin: JOIN, Waits: _Threads(handles)})
+
+	values, err := _Joined(thread, fn, handles, err)
+
+	scheduler.Close(thread, "", err)
+
+	return values, err
+}
+
+// _Joined waits for every handle given, once _Handles has read them, and
+// returns what each produced, in the order they were passed.
+//
+// Revisions:
+//   - 2026-10-02 00:48: initial creation, from _Join's body, so the line _Join
+//     reports closes whichever way this ends
+func _Joined(
+	thread *starlark.Thread,
+	fn *starlark.Builtin,
+	handles []*scheduler.Handle,
+	err error,
+) (starlark.Value, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +86,7 @@ func _Join(
 
 	if updating != "" {
 		return nil, fmt.Errorf("%s inside an update of %q: %w",
-			fn.Name(), updating, scheduler.ErrNested)
+			fn.Name(), updating, scheduler.ERR_NESTED)
 	}
 
 	values := make([]starlark.Value, 0, len(handles))
@@ -81,19 +109,24 @@ func _Join(
 //
 // Cancelling is not an outcome: a joined handle that was cancelled raises,
 // because a caller asking for its result is asking for something that will
-// never exist.
+// never exist. A cancel is a line of the thread that wrote it.
 //
 // Revisions:
 //   - 2026-09-19 20:44: initial creation
 //   - 2026-09-21 09:46: moved here from the scheduler
+//   - 2026-10-02 00:48: reports itself as a line
 func _Cancel(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+	scheduler.Open(thread, &scheduler.Line{Builtin: CANCEL})
+
 	handles, err := _Handles(CANCEL, args, kwargs)
 	if err != nil {
+		scheduler.Close(thread, "", err)
+
 		return nil, err
 	}
 
@@ -101,7 +134,23 @@ func _Cancel(
 		handle.Stop()
 	}
 
+	scheduler.Close(thread, "", nil)
+
 	return starlark.None, nil
+}
+
+// _Threads is the thread each handle runs on, in order.
+//
+// Revisions:
+//   - 2026-10-02 00:48: initial creation
+func _Threads(handles []*scheduler.Handle) []string {
+	threads := make([]string, 0, len(handles))
+
+	for _, handle := range handles {
+		threads = append(threads, handle.Thread())
+	}
+
+	return threads
 }
 
 // _Handles reads a builtin's arguments as a list of handles.
@@ -114,7 +163,7 @@ func _Handles(
 	kwargs []starlark.Tuple,
 ) ([]*scheduler.Handle, error) {
 	if len(kwargs) > 0 {
-		return nil, fmt.Errorf("%s takes no keyword arguments: %w", name, ErrNotAHandle)
+		return nil, fmt.Errorf("%s takes no keyword arguments: %w", name, ERR_NOT_A_HANDLE)
 	}
 
 	handles := make([]*scheduler.Handle, 0, len(args))
@@ -122,7 +171,7 @@ func _Handles(
 	for _, arg := range args {
 		handle, ok := arg.(*scheduler.Handle)
 		if !ok {
-			return nil, fmt.Errorf("%s got %s: %w", name, arg.Type(), ErrNotAHandle)
+			return nil, fmt.Errorf("%s got %s: %w", name, arg.Type(), ERR_NOT_A_HANDLE)
 		}
 
 		handles = append(handles, handle)

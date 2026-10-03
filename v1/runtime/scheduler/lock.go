@@ -7,9 +7,9 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// ErrNested is returned when an evaluation inside an update, or anything that
+// ERR_NESTED is returned when an evaluation inside an update, or anything that
 // evaluation started, begins another.
-var ErrNested = errors.New("an update cannot start another")
+var ERR_NESTED = errors.New("an update cannot start another")
 
 // Lock takes the run's lock for name on behalf of the evaluation on thread, and
 // returns the function that releases it.
@@ -18,11 +18,11 @@ var ErrNested = errors.New("an update cannot start another")
 // sync.Mutex cannot: a run cancelled while a thread waits for a name another
 // thread holds must end, not hang.
 //
-// Returns ErrNested when the evaluation, or the evaluation that started it, is
+// Returns ERR_NESTED when the evaluation, or the evaluation that started it, is
 // already inside an update - so a nested update is refused through a spawn or
 // a timeout as surely as on the thread that started it. Two threads updating
 // two names in opposite orders would deadlock, and a script cannot be asked to
-// take locks in an order it cannot see. Returns ErrCancelled wrapping the
+// take locks in an order it cannot see. Returns ERR_CANCELLED wrapping the
 // context's error when the wait is cancelled.
 //
 // **A thread spawned inside an update cannot lock for the rest of its life.**
@@ -50,14 +50,14 @@ func Lock(thread *starlark.Thread, name string) (func(), error) {
 	}
 
 	if locals.holding {
-		return nil, fmt.Errorf("already updating %q: %w", locals.inside, ErrNested)
+		return nil, fmt.Errorf("already updating %q: %w", locals.inside, ERR_NESTED)
 	}
 
 	if locals.inside != "" {
 		return nil, fmt.Errorf(
 			"started inside an update of %q: %w",
 			locals.inside,
-			ErrNested,
+			ERR_NESTED,
 		)
 	}
 
@@ -69,7 +69,7 @@ func Lock(thread *starlark.Thread, name string) (func(), error) {
 		return nil, fmt.Errorf(
 			"waiting for %q: %w: %w",
 			name,
-			ErrCancelled,
+			ERR_CANCELLED,
 			locals.ctx.Err(),
 		)
 	}

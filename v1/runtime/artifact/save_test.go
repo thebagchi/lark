@@ -11,17 +11,11 @@ import (
 )
 
 const (
-	SAVE_FIXTURE      = "app.star"
-	UNCARRIED_FIXTURE = "uncarried.star"
-	SAVED_UNITS       = 3
-	FIRST_SAVED       = "lib.star"
-	LAST_SAVED        = "app.star"
-	EXPECTED_EDGE     = "lib.star"
-
-	// GRAPHED is a fixture whose graph derives, and the function it defines
-	// that a bundle should name without carrying its text.
-	GRAPHED      = "concurrent.star"
-	GRAPHED_FUNC = "left"
+	SAVE_FIXTURE  = "app.star"
+	SAVED_UNITS   = 3
+	FIRST_SAVED   = "lib.star"
+	LAST_SAVED    = "app.star"
+	EXPECTED_EDGE = "lib.star"
 )
 
 // _Program decodes compiled bytes back through the interpreter's own reader.
@@ -174,65 +168,5 @@ func TestSave_EveryUnitRoundTripsAsAProgram(t *testing.T) {
 				len(unit.GetLoads()),
 			)
 		}
-	}
-}
-
-// TestSave_CarriesTheGraphWithoutBodies is what a bundle gained: the shape a
-// user interface draws, and not a second copy of the program.
-//
-// Revisions:
-//   - 2026-09-21 17:19: initial creation
-func TestSave_CarriesTheGraphWithoutBodies(t *testing.T) {
-	described := _Bundle(t, GRAPHED).GetGraph()
-
-	if described == nil {
-		t.Fatal("want the graph in the bundle")
-	}
-
-	if len(described.GetThreads()) == 0 {
-		t.Fatal("want the threads a user interface draws")
-	}
-
-	named := false
-
-	for _, fn := range described.GetFunctions() {
-		if fn.GetBody() != "" {
-			t.Fatalf("%s carries its body, which the compiled code already is",
-				fn.GetName())
-		}
-
-		if fn.GetName() == GRAPHED_FUNC {
-			named = true
-		}
-	}
-
-	if !named {
-		t.Fatalf("want %s among the functions the graph names", GRAPHED_FUNC)
-	}
-}
-
-// TestCompile_AScriptNoGraphDescribesStillRuns is why deriving never fails a
-// compile: a script that runs may still be one no graph can describe, and
-// refusing to compile it would let a display concern decide whether a program
-// may run.
-//
-// Revisions:
-//   - 2026-09-21 17:19: initial creation, as TestCompile_RecordsAGraphItCouldNotCarry
-//   - 2026-09-21 23:47: a bundle either has a graph or has none, so there is
-//     no record to read
-func TestCompile_AScriptNoGraphDescribesStillRuns(t *testing.T) {
-	built := _Built(t, UNCARRIED_FIXTURE)
-
-	if built.Graph() != nil {
-		t.Fatal("want no graph for a script no graph describes")
-	}
-
-	if _, err := built.Run(t.Context()); err != nil {
-		t.Fatalf("want a script with no graph to run: %v", err)
-	}
-
-	// And the bundle is still a bundle: the program is what it carries.
-	if len(_Bundle(t, UNCARRIED_FIXTURE).GetUnits()) == 0 {
-		t.Fatal("want the compiled units")
 	}
 }

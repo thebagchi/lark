@@ -23,8 +23,8 @@ const (
 	SPAWN  = spelling.SPAWN
 	JOIN   = spelling.JOIN
 	CANCEL = spelling.CANCEL
+	SLEEP  = spelling.SLEEP
 	ASSERT = "assert"
-	SLEEP  = "sleep"
 )
 
 // init registers this plugin, so that a host importing this package for its

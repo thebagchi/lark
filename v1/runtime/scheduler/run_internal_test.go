@@ -163,8 +163,8 @@ func TestOf_FindsTheRunOnAThread(t *testing.T) {
 //   - 2026-09-19 22:01: initial creation
 func TestOf_RefusesAThreadWithNoRun(t *testing.T) {
 	_, err := _Of(&starlark.Thread{Name: THREAD_NAME})
-	if !errors.Is(err, ErrNoRun) {
-		t.Fatalf("got %v, want ErrNoRun", err)
+	if !errors.Is(err, ERR_NO_RUN) {
+		t.Fatalf("got %v, want ERR_NO_RUN", err)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestFail_EndsTheRunUnlessSomethingIsCatching(t *testing.T) {
 		&_Locals{run: caught, thread: SPINE, ctx: caught.ctx, catching: 1},
 	)
 
-	if err := Fail(catching, ErrNested); !errors.Is(err, ErrNested) {
+	if err := Fail(catching, ERR_NESTED); !errors.Is(err, ERR_NESTED) {
 		t.Fatalf("want the cause back, got %v", err)
 	}
 
@@ -193,11 +193,11 @@ func TestFail_EndsTheRunUnlessSomethingIsCatching(t *testing.T) {
 
 	plain := _Started(t.Context())
 
-	if err := Fail(_Thread(plain), ErrNested); !errors.Is(err, ErrNested) {
+	if err := Fail(_Thread(plain), ERR_NESTED); !errors.Is(err, ERR_NESTED) {
 		t.Fatalf("want the cause back, got %v", err)
 	}
 
-	if !errors.Is(plain._Outcome(), ErrNested) || plain.ctx.Err() == nil {
+	if !errors.Is(plain._Outcome(), ERR_NESTED) || plain.ctx.Err() == nil {
 		t.Fatalf("an uncaught failure left the run with %v", plain._Outcome())
 	}
 }

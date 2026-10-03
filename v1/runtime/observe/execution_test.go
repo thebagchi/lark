@@ -1,9 +1,14 @@
 package observe_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,12 +18,19 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/artifact"
 	"github.com/thebagchi/lark/v1/runtime/observe"
 	"github.com/thebagchi/lark/v1/runtime/plugin/core"
+	"github.com/thebagchi/lark/v1/runtime/scheduler"
+	"github.com/thebagchi/lark/v1/runtime/script"
 )
 
 const (
 	SLOW    = "testdata/slow.star"
 	QUICK   = "testdata/quick.star"
 	FAILING = "testdata/failing.star"
+
+	// PRINTS is a script that prints from the spine and from two spawns, so
+	// SPEAKERS threads print.
+	PRINTS   = "testdata/prints.star"
+	SPEAKERS = 3
 
 	// RESULT is what the quick script returns.
 	RESULT = "7"
@@ -55,7 +67,7 @@ func _Compile(t *testing.T, path string) *artifact.Artifact {
 		t.Fatal(err)
 	}
 
-	built, err := artifact.NewCompiler().Compile(path, src)
+	built, err := artifact.Compile(&script.Source{Entry: path, Text: src})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +274,7 @@ func TestWait_CarriesTheRunsOwnFailure(t *testing.T) {
 	run := observe.Start(t.Context(), _Compile(t, FAILING))
 
 	_, err := run.Wait()
-	if !errors.Is(err, core.ErrAssert) {
+	if !errors.Is(err, core.ERR_ASSERT) {
 		t.Fatalf("want an assertion, got %v", err)
 	}
 }
@@ -301,17 +313,19 @@ func TestDone_LetsACallerGiveUpWithoutStoppingTheRun(t *testing.T) {
 	}
 }
 
-// TestStop_ReachesASpawnedSleep is the part worth proving: a run holds only a
-// cancel function, yet stopping it still reaches a spawned thread parked in
-// sleep.
+// TestCancel_ReachesASpawnedSleep is the part worth proving: a run holds no
+// cancel function, yet cancelling the context it was started with still
+// reaches a spawned thread parked in sleep.
 //
 // Revisions:
 //   - 2026-09-20 01:36: initial creation, as TestCancel_ReachesASpawnedSleep
 //   - 2026-09-23 23:28: stops the run it holds
-func TestStop_ReachesASpawnedSleep(t *testing.T) {
-	run := observe.Start(t.Context(), _Compile(t, SLOW))
+//   - 2026-10-03 00:22: stops the run by cancelling its context, the one way to stop one
+func TestCancel_ReachesASpawnedSleep(t *testing.T) {
+	ctx, stop := context.WithCancel(t.Context())
+	run := observe.Start(ctx, _Compile(t, SLOW))
 
-	run.Stop()
+	stop()
 
 	select {
 	case <-run.Done():
@@ -329,23 +343,24 @@ func TestStop_ReachesASpawnedSleep(t *testing.T) {
 	}
 }
 
-// TestStop_IsIdempotentAndForgivesAFinishedRun checks that stopping twice, and
-// stopping something already over, are both quiet.
+// TestCancel_ForgivesAFinishedRun checks that cancelling the context of a run
+// already over is quiet: what it ended with stands.
 //
 // Revisions:
 //   - 2026-09-20 01:36: initial creation, as
 //     TestCancel_IsIdempotentAndForgivesAFinishedRun
 //   - 2026-09-23 23:28: stops the run it holds
-func TestStop_IsIdempotentAndForgivesAFinishedRun(t *testing.T) {
-	run := observe.Start(t.Context(), _Compile(t, QUICK))
+//   - 2026-10-03 00:22: cancels the run's context, the one way to stop one
+func TestCancel_ForgivesAFinishedRun(t *testing.T) {
+	ctx, stop := context.WithCancel(t.Context())
+	run := observe.Start(ctx, _Compile(t, QUICK))
 
 	got, err := run.Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	run.Stop()
-	run.Stop()
+	stop()
 
 	if run.Status().GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
 		t.Fatalf("stopping a finished run changed it to %v", run.Status().GetStatus())
@@ -354,5 +369,57 @@ func TestStop_IsIdempotentAndForgivesAFinishedRun(t *testing.T) {
 	again, err := run.Wait()
 	if err != nil || again.String() != got.String() {
 		t.Fatalf("after stopping got %v, %v; want the value unchanged", again, err)
+	}
+}
+
+// TestStart_LogsWhatItsScriptPrints checks a started run logs what its script
+// prints to the logger its options name, each record saying which thread and
+// which function printed the line.
+//
+// Revisions:
+//   - 2026-10-02 13:12: initial creation, as
+//     TestStart_WritesTheTranscriptItsContextCarries
+//   - 2026-10-02 16:21: reads the records a JSON handler writes
+func TestStart_LogsWhatItsScriptPrints(t *testing.T) {
+	var out bytes.Buffer
+
+	logger := slog.New(slog.NewJSONHandler(&out, nil))
+
+	run := observe.Start(t.Context(), _Compile(t, PRINTS), artifact.WithLogger(logger))
+
+	_, err := run.Wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Who prints what in the fixture.
+	speakers := map[string]string{
+		"from the spine": ENTRY,
+		"from alpha":     "alpha",
+		"from beta":      "beta",
+	}
+
+	lanes := make(map[string]bool)
+
+	for line := range strings.Lines(out.String()) {
+		record := map[string]any{}
+
+		err = json.Unmarshal([]byte(line), &record)
+		if err != nil {
+			t.Fatalf("record %q: %v", line, err)
+		}
+
+		said := fmt.Sprint(record[slog.MessageKey])
+		name := fmt.Sprint(record[scheduler.ATTR_FUNCTION])
+
+		if speakers[said] != name {
+			t.Fatalf("want %q printed by %s, got %q", said, speakers[said], name)
+		}
+
+		lanes[fmt.Sprint(record[scheduler.ATTR_THREAD])] = true
+	}
+
+	if len(lanes) != SPEAKERS {
+		t.Fatalf("want a line from each of %d threads, got %v", SPEAKERS, lanes)
 	}
 }

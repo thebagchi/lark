@@ -1,80 +1,71 @@
-# A workflow.Graph using every step kind and every argument kind, and the
-# Starlark that runtime/graph generates from it. The code below this comment is
-# that generator's output, pasted unedited - a test reads the graph back out of
-# this comment, generates from it, and fails if the two ever disagree.
+# A workflow.Flow using every statement kind but cancel, and every kind of
+# argument, and the Starlark that runtime/graph generates from it. The code
+# below this comment is that generator's output, pasted unedited - a test reads
+# the flow back out of this comment, generates from it, and fails if the two
+# ever disagree.
 #
-# Every thread says what it runs in its first step, the spine included: its
-# first step calls main, and the steps after it are main's own body. A thread
-# with only that one step is a fork pointing at a leaf, and the leaf keeps its
-# text. A fork says it too, in func, so the spine's own steps read without
-# walking to each thread it starts.
+# Read the JSON as three parts. functions is the code: a name, its parameters,
+# and either a body of text or a list of statements. constants is what the
+# module binds before main runs. main is the spine: the statements main
+# performs, in order. Every function here is text, because each of its lines
+# is a library call or a return, and a flow states neither. main is
+# statements, because every line of it is one.
 #
-# Read the JSON as two halves. functions is the code: a name, its parameters,
-# and a body of statements. threads is the workflow: what runs, on which
-# thread, in what order. A function no thread runs is a helper - greet is
-# called by two spawned threads, and every other leaf by a step - and helpers
-# never appear in a status report, because a report is of steps.
+# Every statement kind, in the order main performs them:
 #
-# Every step kind, in the order the spine performs them:
-#
-#   Fork      h1 = spawn(lambda: greet("alice"))
+#   Spawn     h1 = spawn(lambda: greet("alice"))
 #             h2 = spawn(lambda: greet(GREETING))
 #   Join      join(h1, h2)
 #   Call      record("ada", 36, True, ["x", 1.5], {"k": 1}, None)
-#   Repeat    repeat(3, tick)
+#   Repeat    repeat(3, tick, 5)
 #   Retry     retry(5, flaky)
-#   Sleep     sleep(0.02)
-#   Timeout   timeout(2, settle)
+#   Loop      for _ in range(2): wave()
+#   Sleep     sleep(20)
+#   Timeout   timeout(2000, settle)
 #   If        if both_greeted(): ... else: ...
 #   Match     _match = kind(); if _match == "alpha": ...
 #
-# Cancel is the tenth and is not here, because this script cancels nothing -
-# see samples/cancel.star. Every builtin has a message of its own, so a step
-# that names a thread carries a list of thread ids rather than values something
-# has to read back as strings.
+# Cancel is the eleventh and is not here, because this script cancels nothing -
+# see samples/cancel.star.
 #
-# An argument is a value or a parameter. All six kinds of value are in that one
-# Call, each under "value", and they keep their JSON kinds: a string, a number,
-# a bool, a list, an object and null become "ada", 36, True, ["x", 1.5],
-# {"k": 1} and None. A parameter is a name the call can see, under
-# "parameter": thread_2 greets GREETING, a constant the graph declares, and
-# the spawn passes the name rather than a value - greet(GREETING). A
-# function's own params are names its calls can pass the same way. A thread is
-# never one: the one thing a script does with a thread is join it.
+# A call's arguments are values under args when every one is a literal, and
+# operands when any is a name: h2 greets GREETING, a constant the flow
+# declares, and passes the name rather than its value - greet(GREETING). The
+# six kinds of value keep their JSON kinds: a string, a number, a bool, a list,
+# an object and null become "ada", 36, True, ["x", 1.5], {"k": 1} and None.
 #
-# Six things worth matching back to the JSON:
+# Things worth matching back to the JSON:
 #
-#   spawn(lambda: ...)   a Call that passes arguments becomes a lambda, because
-#                        spawn takes none to pass on. A site without them is
-#                        the bare name - see timeout(2, settle).
+#   h1 = spawn(...)      a spawn's binding is the name a join waits on. A flow
+#                        does not predict thread ids - a run assigns them - and
+#                        the graph of a run matches join(h1) to its thread by
+#                        that binding.
 #
-#   h1, h2               a spawn names a thread by id, and the handle is that
-#                        id with its prefix swapped - thread_1 is h1. What runs
-#                        there is the fork's func, which is also that thread's
-#                        own first step; a graph where the two differ is
-#                        refused.
+#   spawn(lambda: ...)   a call that passes arguments becomes a lambda, because
+#                        spawn takes none to pass on. A call without them is the
+#                        bare name - see timeout(2000, settle).
 #
-#   repeat(3, tick)      the count comes first and the callable last. It calls
+#   repeat(3, tick, 5)   the count first, the callable second, and the delay in
+#                        milliseconds third, waited between calls. It calls
 #                        straight away: the wrappers are not factories.
 #
-#   sleep(0.02)          the schema counts milliseconds and the builtins take
-#                        seconds, so 20 becomes 0.02 and 2000 becomes 2 - an
-#                        integer, because Starlark has two number types where
-#                        JSON has one. One unit throughout, so a reader never
-#                        checks which a duration is in.
+#   sleep(20)            a script and the schema both count milliseconds, so
+#                        durationMs 20 is sleep(20) and nothing converts.
 #
-#   36, not 36.0         the same rule for an argument. A whole number is an
-#                        integer, and // and % treat the two differently.
+#   36, not 36.0         a whole number is an integer, and // and % treat the
+#                        two differently.
 #
-#   _match = kind()      a Match evaluates its expression once, into a local.
+#   _match = kind()      a match evaluates its expression once, into a local.
 #                        Calling it per case would be a different program.
 #
-# It prints its results and returns None. The None is not an oversight: no step
-# expresses a return. A generated main performs its steps and gives nothing
-# back, so a graph describes what a workflow does and not what it answers -
-# which is why this one ends with a step that prints.
+#   pass                 every suite that does not end in return closes with
+#                        one, so where a block ends is not left to indentation
+#                        alone. The flow does not store it.
 #
-# graph:
+# It prints its results and returns None: main is statements, and no statement
+# returns.
+#
+# flow:
 #   {
 #     "constants": {
 #       "GREETING": {
@@ -83,7 +74,7 @@
 #     },
 #     "functions": [
 #       {
-#         "body": "state.update(\"greeted\", lambda s: 1 if s == None else s + 1)\n\nreturn \"hello \" + who",
+#         "body": "state.update(\"greeted\", lambda s: 1 if s == None else s + 1)\nreturn \"hello \" + who",
 #         "name": "greet",
 #         "params": [
 #           "who"
@@ -102,15 +93,19 @@
 #         ]
 #       },
 #       {
-#         "body": "state.update(\"ticks\", lambda t: 1 if t == None else t + 1)\n\nreturn n()",
+#         "body": "state.update(\"ticks\", lambda t: 1 if t == None else t + 1)\nreturn n()",
 #         "name": "tick"
 #       },
 #       {
-#         "body": "assert(n() \u003e= 2, \"not ready on attempt \" + str(n()))\n\nreturn \"ready\"",
+#         "body": "assert(n() >= 2, \"not ready on attempt \" + str(n()))\nreturn \"ready\"",
 #         "name": "flaky"
 #       },
 #       {
-#         "body": "sleep(0.01)\n\nreturn \"settled\"",
+#         "body": "state.update(\"waves\", lambda w: 1 if w == None else w + 1)",
+#         "name": "wave"
+#       },
+#       {
+#         "body": "sleep(10)\nreturn \"settled\"",
 #         "name": "settle"
 #       },
 #       {
@@ -142,209 +137,169 @@
 #         "name": "on_other"
 #       },
 #       {
-#         "body": "print(\"greeted\", state.get(\"greeted\"), \"| ticks\", state.get(\"ticks\"),\n      \"| branch\", state.get(\"branch\"), \"| matched\", state.get(\"matched\"),\n      \"| record\", state.get(\"record\"))",
+#         "body": "print(\"greeted\", state.get(\"greeted\"), \"| ticks\", state.get(\"ticks\"),\n      \"| waves\", state.get(\"waves\"), \"| branch\", state.get(\"branch\"),\n      \"| matched\", state.get(\"matched\"), \"| record\", state.get(\"record\"))",
 #         "name": "report"
-#       },
-#       {
-#         "name": "main"
 #       }
 #     ],
-#     "threads": [
-#       {
-#         "id": "thread_0",
-#         "static": {
-#           "steps": [
-#             {
-#               "call": {
-#                 "function": "main"
-#               }
-#             },
-#             {
-#               "fork": {
-#                 "func": {
-#                   "args": [
-#                     {
-#                       "value": "alice"
-#                     }
-#                   ],
-#                   "function": "greet"
-#                 },
-#                 "thread": "thread_1"
-#               }
-#             },
-#             {
-#               "fork": {
-#                 "func": {
-#                   "args": [
-#                     {
-#                       "parameter": "GREETING"
-#                     }
-#                   ],
-#                   "function": "greet"
-#                 },
-#                 "thread": "thread_2"
-#               }
-#             },
-#             {
-#               "join": {
-#                 "threads": [
-#                   "thread_1",
-#                   "thread_2"
-#                 ]
-#               }
-#             },
-#             {
-#               "call": {
-#                 "args": [
-#                   {
-#                     "value": "ada"
-#                   },
-#                   {
-#                     "value": 36
-#                   },
-#                   {
-#                     "value": true
-#                   },
-#                   {
-#                     "value": [
-#                       "x",
-#                       1.5
-#                     ]
-#                   },
-#                   {
-#                     "value": {
-#                       "k": 1
-#                     }
-#                   },
-#                   {
-#                     "value": null
-#                   }
-#                 ],
-#                 "function": "record"
-#               }
-#             },
-#             {
-#               "repeat": {
-#                 "call": {
-#                   "function": "tick"
-#                 },
-#                 "count": 3
-#               }
-#             },
-#             {
-#               "retry": {
-#                 "attempts": 5,
-#                 "call": {
-#                   "function": "flaky"
+#     "main": {
+#       "statement": [
+#         {
+#           "spawn": {
+#             "binding": "h1",
+#             "call": {
+#               "args": [
+#                 "alice"
+#               ],
+#               "function": "greet"
+#             }
+#           }
+#         },
+#         {
+#           "spawn": {
+#             "binding": "h2",
+#             "call": {
+#               "function": "greet",
+#               "operands": [
+#                 {
+#                   "name": "GREETING"
 #                 }
+#               ]
+#             }
+#           }
+#         },
+#         {
+#           "join": {
+#             "bindings": [
+#               "h1",
+#               "h2"
+#             ]
+#           }
+#         },
+#         {
+#           "call": {
+#             "args": [
+#               "ada",
+#               36,
+#               true,
+#               [
+#                 "x",
+#                 1.5
+#               ],
+#               {
+#                 "k": 1
+#               },
+#               null
+#             ],
+#             "function": "record"
+#           }
+#         },
+#         {
+#           "repeat": {
+#             "call": {
+#               "function": "tick"
+#             },
+#             "count": 3,
+#             "delayMs": 5
+#           }
+#         },
+#         {
+#           "retry": {
+#             "attempts": 5,
+#             "call": {
+#               "function": "flaky"
+#             }
+#           }
+#         },
+#         {
+#           "loop": {
+#             "body": {
+#               "call": {
+#                 "function": "wave"
 #               }
 #             },
-#             {
-#               "sleep": {
-#                 "durationMs": 20
+#             "times": {
+#               "literal": 2
+#             }
+#           }
+#         },
+#         {
+#           "sleep": {
+#             "durationMs": 20
+#           }
+#         },
+#         {
+#           "timeout": {
+#             "call": {
+#               "function": "settle"
+#             },
+#             "timeoutMs": 2000
+#           }
+#         },
+#         {
+#           "if": {
+#             "condition": {
+#               "call": {
+#                 "function": "both_greeted"
 #               }
 #             },
-#             {
-#               "timeout": {
-#                 "call": {
-#                   "function": "settle"
-#                 },
-#                 "timeoutMs": 2000
+#             "else": {
+#               "call": {
+#                 "function": "hush"
 #               }
 #             },
-#             {
-#               "if": {
-#                 "condition": {
+#             "then": {
+#               "call": {
+#                 "function": "announce"
+#               }
+#             }
+#           }
+#         },
+#         {
+#           "match": {
+#             "cases": [
+#               {
+#                 "statement": {
 #                   "call": {
-#                     "function": "both_greeted"
+#                     "function": "on_alpha"
 #                   }
 #                 },
-#                 "else": {
-#                   "function": "hush"
-#                 },
-#                 "then": {
-#                   "function": "announce"
-#                 }
-#               }
-#             },
-#             {
-#               "match": {
-#                 "cases": [
-#                   {
-#                     "call": {
-#                       "function": "on_alpha"
-#                     },
-#                     "value": "alpha"
-#                   },
-#                   {
-#                     "call": {
-#                       "function": "on_beta"
-#                     },
-#                     "value": "beta"
-#                   }
-#                 ],
-#                 "default": {
-#                   "function": "on_other"
-#                 },
-#                 "expression": {
+#                 "value": "alpha"
+#               },
+#               {
+#                 "statement": {
 #                   "call": {
-#                     "function": "kind"
+#                     "function": "on_beta"
 #                   }
-#                 }
+#                 },
+#                 "value": "beta"
+#               }
+#             ],
+#             "default": {
+#               "call": {
+#                 "function": "on_other"
 #               }
 #             },
-#             {
+#             "expression": {
 #               "call": {
-#                 "function": "report"
+#                 "function": "kind"
 #               }
 #             }
-#           ]
+#           }
+#         },
+#         {
+#           "call": {
+#             "function": "report"
+#           }
 #         }
-#       },
-#       {
-#         "id": "thread_1",
-#         "static": {
-#           "steps": [
-#             {
-#               "call": {
-#                 "args": [
-#                   {
-#                     "value": "alice"
-#                   }
-#                 ],
-#                 "function": "greet"
-#               }
-#             }
-#           ]
-#         }
-#       },
-#       {
-#         "id": "thread_2",
-#         "static": {
-#           "steps": [
-#             {
-#               "call": {
-#                 "args": [
-#                   {
-#                     "parameter": "GREETING"
-#                   }
-#                 ],
-#                 "function": "greet"
-#               }
-#             }
-#           ]
-#         }
-#       }
-#     ]
+#       ]
+#     }
 #   }
 
-# Generated from the graph above:
+# Generated from the flow above:
 
 def greet(who):
     state.update("greeted", lambda s: 1 if s == None else s + 1)
-
     return "hello " + who
-    pass
 
 def record(name, age, admin, tags, meta, note):
     state.set("record", [name, age, admin, tags, meta, note])
@@ -352,25 +307,22 @@ def record(name, age, admin, tags, meta, note):
 
 def tick():
     state.update("ticks", lambda t: 1 if t == None else t + 1)
-
     return n()
-    pass
 
 def flaky():
     assert(n() >= 2, "not ready on attempt " + str(n()))
-
     return "ready"
+
+def wave():
+    state.update("waves", lambda w: 1 if w == None else w + 1)
     pass
 
 def settle():
-    sleep(0.01)
-
+    sleep(10)
     return "settled"
-    pass
 
 def both_greeted():
     return state.get("greeted") == 2
-    pass
 
 def announce():
     state.set("branch", "announced")
@@ -382,7 +334,6 @@ def hush():
 
 def kind():
     return "beta"
-    pass
 
 def on_alpha():
     state.set("matched", "alpha")
@@ -398,32 +349,38 @@ def on_other():
 
 def report():
     print("greeted", state.get("greeted"), "| ticks", state.get("ticks"),
-          "| branch", state.get("branch"), "| matched", state.get("matched"),
-          "| record", state.get("record"))
+          "| waves", state.get("waves"), "| branch", state.get("branch"),
+          "| matched", state.get("matched"), "| record", state.get("record"))
     pass
+GREETING = "bob"
 
 def main():
     h1 = spawn(lambda: greet("alice"))
     h2 = spawn(lambda: greet(GREETING))
     join(h1, h2)
     record("ada", 36, True, ["x", 1.5], {"k": 1}, None)
-    repeat(3, tick)
+    repeat(3, tick, 5)
     retry(5, flaky)
-    sleep(0.02)
-    timeout(2, settle)
+    for _ in range(2):
+        wave()
+        pass
+    sleep(20)
+    timeout(2000, settle)
     if both_greeted():
         announce()
+        pass
     else:
         hush()
+        pass
     _match = kind()
     if _match == "alpha":
         on_alpha()
+        pass
     elif _match == "beta":
         on_beta()
+        pass
     else:
         on_other()
+        pass
     report()
     pass
-
-GREETING = "bob"
-

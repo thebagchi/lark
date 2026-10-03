@@ -15,15 +15,15 @@ import (
 )
 
 var (
-	// ErrPointer is returned for a pointer that is not RFC 6901.
-	ErrPointer = errors.New("not a json pointer")
+	// ERR_POINTER is returned for a pointer that is not RFC 6901.
+	ERR_POINTER = errors.New("not a json pointer")
 
-	// ErrMissing is returned when a pointer names something that is not there.
-	ErrMissing = errors.New("no such path")
+	// ERR_MISSING is returned when a pointer names something that is not there.
+	ERR_MISSING = errors.New("no such path")
 
-	// ErrKind is returned when a step asks for a member of something that has
+	// ERR_KIND is returned when a step asks for a member of something that has
 	// no members, or an index of something that is not a list.
-	ErrKind = errors.New("cannot be indexed")
+	ERR_KIND = errors.New("cannot be indexed")
 )
 
 const (
@@ -54,7 +54,7 @@ func _Steps(pointer string) ([]string, error) {
 
 	if !strings.HasPrefix(pointer, SEPARATOR) {
 		return nil, fmt.Errorf("%q does not start with %q: %w",
-			pointer, SEPARATOR, ErrPointer)
+			pointer, SEPARATOR, ERR_POINTER)
 	}
 
 	raw := strings.Split(strings.TrimPrefix(pointer, SEPARATOR), SEPARATOR)
@@ -72,7 +72,7 @@ func _Steps(pointer string) ([]string, error) {
 
 // _Walk returns the value at the given steps, starting from doc.
 //
-// Returns ErrMissing when a step names nothing, and ErrKind when a step asks a
+// Returns ERR_MISSING when a step names nothing, and ERR_KIND when a step asks a
 // value for something it cannot hold - a member of a list, or an index of a
 // dict.
 //
@@ -107,7 +107,7 @@ func _Step(at starlark.Value, step string) (starlark.Value, error) {
 		}
 
 		if !found {
-			return nil, ErrMissing
+			return nil, ERR_MISSING
 		}
 
 		return value, nil
@@ -121,7 +121,7 @@ func _Step(at starlark.Value, step string) (starlark.Value, error) {
 		return holder.Index(index), nil
 
 	default:
-		return nil, fmt.Errorf("%s %w", at.Type(), ErrKind)
+		return nil, fmt.Errorf("%s %w", at.Type(), ERR_KIND)
 	}
 }
 
@@ -138,16 +138,16 @@ func _Step(at starlark.Value, step string) (starlark.Value, error) {
 //   - 2026-09-21 08:09: digits only, so a signed step is not an index
 func _Index(step string, length int) (int, error) {
 	if !_Digits(step) || (len(step) > 1 && strings.HasPrefix(step, "0")) {
-		return 0, fmt.Errorf("%q is not an index: %w", step, ErrPointer)
+		return 0, fmt.Errorf("%q is not an index: %w", step, ERR_POINTER)
 	}
 
 	index, err := strconv.Atoi(step)
 	if err != nil {
-		return 0, fmt.Errorf("%q is not an index: %w", step, ErrPointer)
+		return 0, fmt.Errorf("%q is not an index: %w", step, ERR_POINTER)
 	}
 
 	if index >= length {
-		return 0, fmt.Errorf("%d is outside a list of %d: %w", index, length, ErrMissing)
+		return 0, fmt.Errorf("%d is outside a list of %d: %w", index, length, ERR_MISSING)
 	}
 
 	return index, nil

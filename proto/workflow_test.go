@@ -1,74 +1,107 @@
-// Package workflow_test exercises the authored Graph JSON: Function body and
-// params, Call args, and a Thread that carries its own id and names what runs
-// on it.
+// Package workflow_test exercises the workflow schema's JSON: a flow as a user
+// interface authors it, a graph as a run reports it, and a change to that
+// graph as a JSON Patch.
 package workflow_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 )
 
 const (
-	// ENTRY is the function every script starts at.
-	ENTRY = "main"
-
-	// BODY is the statements inside def greet(name).
+	// BODY is the statements inside def greet(name), as text.
 	BODY = `return "hello " + name`
 
-	// TODAY is a name-only graph as measured before this phase.
-	TODAY = `{"functions":[{"name":"first"},{"name":"second"},{"name":"main"}],` +
-		`"threads":[{"id":"thread_0","static":{"steps":[` +
-		`{"call":{"function":"main"}},` +
-		`{"fork":{"thread":"thread_1"}},` +
-		`{"fork":{"thread":"thread_2"}},` +
-		`{"join":{"threads":["thread_1","thread_2"]}}]}},` +
-		`{"id":"thread_1","static":{"steps":[{"call":{"function":"first"}}]}},` +
-		`{"id":"thread_2","static":{"steps":[{"call":{"function":"second"}}]}}]}`
+	// CHANGE is a change as a host is sent it: an RFC 6902 patch, which any
+	// JSON Patch library applies to a graph held as JSON. Its operations take
+	// a value, none, and a from, so each field is seen present and absent.
+	CHANGE = `{"operations": [
+		{"op": "add", "path": "/functions/-",
+		 "value": {"name": "sign", "status": "STATUS_RUNNING"}},
+		{"op": "remove", "path": "/cause"},
+		{"op": "move", "from": "/calls/2", "path": "/calls/1"}
+	]}`
+
+	// GRAPH is a graph as a user interface reads it: each function with its
+	// status, sorted by name, the calls between them, and the cause of the
+	// failure that ended the run.
+	GRAPH = `{
+		"status": "STATUS_FAILED",
+		"functions": [
+			{"name": "boom", "status": "STATUS_FAILED"},
+			{"name": "main", "status": "STATUS_FAILED"},
+			{"name": "work", "status": "STATUS_SUCCEEDED"}
+		],
+		"calls": [
+			{"caller": "main", "callee": "boom"},
+			{"caller": "main", "callee": "work"}
+		],
+		"cause": {"function": "boom", "failure": "fail: boom"}
+	}`
+
+	// AUTHORED is a flow as a user interface sends it: one function as
+	// statements, one as text, and main as statements.
+	AUTHORED = `{
+		"functions": [
+			{"name": "greet", "params": ["name"], "body": "return \"hello \" + name"},
+			{"name": "task", "statements": {"statement": [
+				{"call": {"function": "greet", "args": ["west"]}}
+			]}}
+		],
+		"main": {"statement": [
+			{"spawn": {"binding": "h", "call": {"function": "task"}}},
+			{"join": {"bindings": ["h"]}}
+		]}
+	}`
 )
 
-// TestFunction_CarriesBodyAndParams is the draft a UI sends: a chatbot
-// fills body, the UI names the parameters, and there is no status.
+// TestFunction_CarriesBodyOrStatements checks a function travels as text or as
+// statements, never both: setting one clears the other.
 //
 // Revisions:
-//   - 2026-09-20 18:40: initial creation
-func TestFunction_CarriesBodyAndParams(t *testing.T) {
-	raw, err := protojson.Marshal(&workflowpb.Function{
+//   - 2026-09-20 18:40: initial creation, as TestFunction_CarriesBodyAndParams
+//   - 2026-10-02 01:46: a body or statements, which a oneof keeps apart
+func TestFunction_CarriesBodyOrStatements(t *testing.T) {
+	fn := &workflowpb.Function{
 		Name:   "greet",
-		Body:   BODY,
 		Params: []string{"name"},
-	})
+		Code:   &workflowpb.Function_Body{Body: BODY},
+	}
+
+	raw, err := protojson.Marshal(fn)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	text := string(raw)
-	if !strings.Contains(text, `"body"`) {
-		t.Fatalf("want a body the chatbot can fill, got %s", text)
+	if !strings.Contains(text, `"body"`) || !strings.Contains(text, `"params"`) {
+		t.Fatalf("want the body and the parameters, got %s", text)
 	}
 
-	if !strings.Contains(text, `"params"`) {
-		t.Fatalf("want parameter names on the function, got %s", text)
-	}
+	fn.Code = &workflowpb.Function_Statements{Statements: new(workflowpb.Statements)}
 
-	if strings.Contains(text, `"status"`) {
-		t.Fatalf("Function has no status field: %s", text)
+	if fn.GetBody() != "" {
+		t.Fatal("want setting the statements to clear the body")
 	}
 }
 
-// TestCall_ArgsKeepJsonKinds is option C: a string, a number and an object
-// round-trip as JSON under value, not as three strings, and a parameter is the
-// name it holds under parameter.
+// TestCall_ArgsKeepJsonKinds checks literal arguments round-trip as JSON
+// values, a string, a number and an object, and that a name travels as an
+// operand of its own.
 //
 // Revisions:
 //   - 2026-09-20 18:40: initial creation
 //   - 2026-09-30 00:44: an argument is a value or a parameter, each under a key
 //     of its own
+//   - 2026-10-02 01:46: args are values, and a name is an operand
 func TestCall_ArgsKeepJsonKinds(t *testing.T) {
 	list, err := structpb.NewList([]any{
 		"alice",
@@ -79,266 +112,151 @@ func TestCall_ArgsKeepJsonKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var passed []*workflowpb.Parameters
-
-	for _, value := range list.GetValues() {
-		passed = append(passed, &workflowpb.Parameters{
-			Param: &workflowpb.Parameters_Value{Value: value},
-		})
-	}
-
-	passed = append(passed, &workflowpb.Parameters{
-		Param: &workflowpb.Parameters_Parameter{Parameter: "word"},
-	})
-
-	raw, err := protojson.Marshal(&workflowpb.Call{Function: "greet", Args: passed})
+	raw, err := protojson.Marshal(&workflowpb.Call{Function: "greet", Args: list.GetValues()})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Logf("call: %s", raw)
-
 	var site map[string]any
 
-	if err := json.Unmarshal(raw, &site); err != nil {
+	err = json.Unmarshal(raw, &site)
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	args, ok := site["args"].([]any)
-	if !ok || len(args) != len(passed) {
-		t.Fatalf("want %d args, got %s", len(passed), raw)
+	if !ok || len(args) != len(list.GetValues()) {
+		t.Fatalf("want %d args, got %s", len(list.GetValues()), raw)
 	}
 
-	if _Under(t, args[0], "value") != "alice" {
+	if args[0] != "alice" {
 		t.Fatalf("want a string, got %#v", args[0])
 	}
 
-	n, ok := _Under(t, args[1], "value").(float64)
-	if !ok || n != 3 {
+	if args[1] != float64(3) {
 		t.Fatalf("want the number 3, got %#v", args[1])
 	}
 
-	obj, ok := _Under(t, args[2], "value").(map[string]any)
+	obj, ok := args[2].(map[string]any)
 	if !ok || obj["k"] != float64(1) {
 		t.Fatalf("want an object, got %#v", args[2])
 	}
 
-	if _Under(t, args[3], "parameter") != "word" {
-		t.Fatalf("want the name word, got %#v", args[3])
+	named := &workflowpb.Operand{Source: &workflowpb.Operand_Name{Name: "word"}}
+
+	raw, err = protojson.Marshal(named)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(raw) != `{"name":"word"}` {
+		t.Fatalf("want the name under name, got %s", raw)
 	}
 }
 
-// _Under is what one JSON argument holds under key, failing when the argument
-// is not an object holding one.
+// TestFlow_DecodesWhatAUserInterfaceSends checks the authored JSON decodes into
+// a flow whose main is statements, holding a spawn bound to a name and a join
+// of that name.
 //
 // Revisions:
-//   - 2026-09-30 00:44: initial creation
-func _Under(t *testing.T, arg any, key string) any {
+//   - 2026-10-02 01:46: initial creation
+func TestFlow_DecodesWhatAUserInterfaceSends(t *testing.T) {
+	flow := new(workflowpb.Flow)
+
+	err := protojson.Unmarshal([]byte(AUTHORED), flow)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if flow.GetFunctions()[0].GetBody() != BODY {
+		t.Fatalf("want greet as text, got %v", flow.GetFunctions()[0])
+	}
+
+	called := flow.GetFunctions()[1].GetStatements().GetStatement()[0].GetCall()
+	if called.GetFunction() != "greet" || called.GetArgs()[0].GetStringValue() != "west" {
+		t.Fatalf("want task to call greet with west, got %v", called)
+	}
+
+	spawned := flow.GetMain().GetStatement()[0].GetSpawn()
+	if spawned.GetBinding() != "h" || spawned.GetCall().GetFunction() != "task" {
+		t.Fatalf("want main to spawn task as h, got %v", spawned)
+	}
+
+	if flow.GetText() != "" {
+		t.Fatal("want main as statements, not as text")
+	}
+}
+
+// TestGraph_IsACallGraph checks a graph reads and writes as a user interface
+// draws it: functions by name with their status, calls as caller and callee,
+// and a cause naming a function.
+//
+// Revisions:
+//   - 2026-10-02 01:46: initial creation, as TestGraph_ReportsWhatARunDid
+//   - 2026-10-02 15:34: a call graph, of functions and the calls between them
+func TestGraph_IsACallGraph(t *testing.T) {
+	held := new(workflowpb.Graph)
+
+	err := protojson.Unmarshal([]byte(GRAPH), held)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if held.GetCalls()[0].GetCallee() != "boom" {
+		t.Fatalf("want main's first call to be boom, got %v", held.GetCalls())
+	}
+
+	_Same(t, held, GRAPH)
+}
+
+// TestChange_IsAJSONPatch checks a change reads and writes as RFC 6902 JSON:
+// op spelled as the RFC spells it, path and from as pointers, value as any
+// JSON, and nothing written for a field an operation does not take.
+//
+// Revisions:
+//   - 2026-10-02 15:21: initial creation
+//   - 2026-10-02 15:34: compares through _Same, which the graph shares
+func TestChange_IsAJSONPatch(t *testing.T) {
+	held := new(workflowpb.Change)
+
+	err := protojson.Unmarshal([]byte(CHANGE), held)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if held.GetOperations()[0].GetOp() != "add" {
+		t.Fatalf("want the first operation an add, got %v", held.GetOperations()[0])
+	}
+
+	_Same(t, held, CHANGE)
+}
+
+// _Same fails the test unless message writes as the JSON want states, whatever
+// the spacing or the order of its members.
+//
+// Revisions:
+//   - 2026-10-02 15:34: initial creation, from TestChange_IsAJSONPatch's body
+func _Same(t *testing.T, message proto.Message, want string) {
 	t.Helper()
 
-	held, ok := arg.(map[string]any)
-	if !ok {
-		t.Fatalf("want an object, got %#v", arg)
-	}
-
-	value, ok := held[key]
-	if !ok {
-		t.Fatalf("want %q in %#v", key, held)
-	}
-
-	return value
-}
-
-// TestGraph_NameOnlyStillDecodes is today's JSON after the new fields:
-// empty body, empty args, no index on authored threads.
-//
-// Revisions:
-//   - 2026-09-20 18:40: initial creation
-func TestGraph_NameOnlyStillDecodes(t *testing.T) {
-	graph := new(workflowpb.Graph)
-	if err := protojson.Unmarshal([]byte(TODAY), graph); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(graph.GetFunctions()) != 3 {
-		t.Fatalf("want three functions, got %d", len(graph.GetFunctions()))
-	}
-
-	for _, fn := range graph.GetFunctions() {
-		if fn.GetBody() != "" {
-			t.Fatalf("want today's body empty, got %q", fn.GetBody())
-		}
-
-		if len(fn.GetParams()) != 0 {
-			t.Fatalf("want today's params empty, got %v", fn.GetParams())
-		}
-	}
-
-	spine := graph.GetThreads()[0].GetStatic().GetSteps()
-	if spine[0].GetCall().GetFunction() != "main" {
-		t.Fatalf("want the spine to run main in its first step, got %v", spine[0])
-	}
-
-	call := graph.GetThreads()[1].GetStatic().GetSteps()[0].GetCall()
-	if call.GetFunction() != "first" {
-		t.Fatalf("want thread_1 to run first, got %s", call.GetFunction())
-	}
-
-	if len(call.GetArgs()) != 0 {
-		t.Fatalf("want today's args empty, got %v", call.GetArgs())
-	}
-}
-
-// TestThread_NamesItsParent is what a list position could not carry: an id
-// that says whose child a thread is.
-//
-// Revisions:
-//   - 2026-09-20 18:40: initial creation, as TestGraphThread_HasNoIndex
-//   - 2026-09-21 00:59: a thread carries an id, reversing the earlier plan
-//     §9, because a hierarchical id states parentage and a slot cannot
-//   - 2026-09-21 23:53: the first step is what the thread runs, so the fork
-//     it makes is the one after
-func TestThread_NamesItsParent(t *testing.T) {
-	graph := new(workflowpb.Graph)
-	if err := protojson.Unmarshal([]byte(TODAY), graph); err != nil {
-		t.Fatal(err)
-	}
-
-	// Past the first, which is what the spine itself runs.
-	named := graph.GetThreads()[0].GetStatic().GetSteps()[1].GetFork().GetThread()
-	if named != "thread_1" {
-		t.Fatalf("want the spawn to name thread_1, got %s", named)
-	}
-
-	if graph.GetThreads()[1].GetId() != named {
-		t.Fatalf("want a thread under %s, got %s", named, graph.GetThreads()[1].GetId())
-	}
-}
-
-// TestThread_RefusesNodesOnAnAuthoredGraph is what the oneof buys over a
-// single flat message: a graph cannot carry progress, by type rather than
-// by convention.
-//
-// Revisions:
-//   - 2026-09-21 00:59: initial creation
-func TestThread_RefusesNodesOnAnAuthoredGraph(t *testing.T) {
-	raw := []byte(`{"id":"thread_1","static":{"nodes":[{"function":"first"}]}}`)
-
-	opts := protojson.UnmarshalOptions{DiscardUnknown: false}
-
-	lane := new(workflowpb.Thread)
-	err := opts.Unmarshal(raw, lane)
-	if err == nil {
-		t.Fatal("want the static half to refuse nodes")
-	}
-
-	if !strings.Contains(err.Error(), "nodes") {
-		t.Fatalf("want the refusal to name nodes, got %v", err)
-	}
-}
-
-// TestThread_NamesOneHalfNeverBoth is what a oneof is for.
-//
-// Revisions:
-//   - 2026-09-21 00:59: initial creation
-func TestThread_NamesOneHalfNeverBoth(t *testing.T) {
-	lane := &workflowpb.Thread{
-		Id:    "thread_1",
-		State: &workflowpb.Thread_Static{Static: new(workflowpb.Static)},
-	}
-
-	lane.State = &workflowpb.Thread_Live{Live: new(workflowpb.Live)}
-
-	if lane.GetStatic() != nil {
-		t.Fatal("want setting the live half to clear the static one")
-	}
-
-	if lane.GetLive() == nil {
-		t.Fatal("want the live half set")
-	}
-}
-
-// TestWorkflow_KeepsItsThreadIds is the live result a UI draws: thread_1
-// then thread_1_1, each carrying the id, not the list slot.
-//
-// Revisions:
-//   - 2026-09-20 18:40: initial creation, as TestWorkflow_KeepsIndex
-//   - 2026-09-21 00:59: a thread id is a string that names its parent
-func TestWorkflow_KeepsItsThreadIds(t *testing.T) {
-	snap := &workflowpb.Workflow{
-		Status: workflowpb.Status_STATUS_RUNNING,
-		Threads: []*workflowpb.Thread{
-			_Running("thread_1", "first", workflowpb.Status_STATUS_SUCCEEDED),
-			_Running("thread_1_1", "first", workflowpb.Status_STATUS_RUNNING),
-		},
-	}
-
-	raw, err := protojson.Marshal(snap)
+	raw, err := protojson.Marshal(message)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	text := string(raw)
-	if !strings.Contains(text, `"id":"thread_1"`) {
-		t.Fatalf("want live thread_1, got %s", text)
-	}
+	var expected, got any
 
-	if !strings.Contains(text, `"id":"thread_1_1"`) {
-		t.Fatalf("want live thread_1_1, got %s", text)
-	}
-
-	if snap.GetThreads()[0].GetId() != "thread_1" {
-		t.Fatalf("want the first snapshot thread to be thread_1, not list slot 0")
-	}
-}
-
-// _Running is one live thread, running or having run a single function.
-//
-// Revisions:
-//   - 2026-09-21 00:59: initial creation
-func _Running(id string, name string, status workflowpb.Status) *workflowpb.Thread {
-	return &workflowpb.Thread{
-		Id: id,
-		State: &workflowpb.Thread_Live{
-			Live: &workflowpb.Live{
-				Nodes: []*workflowpb.Node{{Function: name, Status: status}},
-			},
-		},
-	}
-}
-
-// TestGraph_AuthoredJSON is the payload a UI sends after this phase:
-// bodies, params, and a spine that names no entry.
-//
-// Revisions:
-//   - 2026-09-20 18:40: initial creation
-//   - 2026-09-21 00:59: the spine carries no entry, since the entry point is
-//     the runtime's rather than the graph's to name
-func TestGraph_AuthoredJSON(t *testing.T) {
-	graph := &workflowpb.Graph{
-		Functions: []*workflowpb.Function{
-			{Name: ENTRY, Body: `return greet("world")`},
-			{Name: "greet", Params: []string{"name"}, Body: BODY},
-		},
-		Threads: []*workflowpb.Thread{{
-			Id:    "thread_0",
-			State: &workflowpb.Thread_Static{Static: new(workflowpb.Static)},
-		}},
-	}
-
-	raw, err := protojson.Marshal(graph)
+	err = json.Unmarshal([]byte(want), &expected)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Logf("authored: %s", raw)
-
-	text := string(raw)
-	if !strings.Contains(text, `"body"`) {
-		t.Fatalf("want bodies, got %s", text)
+	err = json.Unmarshal(raw, &got)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	if strings.Contains(text, `"entry"`) {
-		t.Fatalf("want the spine to name no entry, got %s", text)
+	if !reflect.DeepEqual(got, expected) {
+		t.Fatalf("got %s, want %s", raw, want)
 	}
 }

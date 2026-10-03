@@ -34,13 +34,13 @@ import (
 )
 
 var (
-	// ErrEmpty is returned for a choice or a sample from nothing, which has
+	// ERR_EMPTY is returned for a choice or a sample from nothing, which has
 	// no answer to give.
-	ErrEmpty = errors.New("nothing to choose from")
+	ERR_EMPTY = errors.New("nothing to choose from")
 
-	// ErrRange is returned for a range whose end is below its start, and for
+	// ERR_RANGE is returned for a range whose end is below its start, and for
 	// a count below zero.
-	ErrRange = errors.New("out of range")
+	ERR_RANGE = errors.New("out of range")
 )
 
 const (
@@ -194,7 +194,7 @@ func _Int(
 	}
 
 	if high < low {
-		return nil, fmt.Errorf("%s: %d is below %d: %w", fn.Name(), high, low, ErrRange)
+		return nil, fmt.Errorf("%s: %d is below %d: %w", fn.Name(), high, low, ERR_RANGE)
 	}
 
 	source, err := _Of(thread)
@@ -260,7 +260,7 @@ func _Float(
 
 // _Choice is one element of a sequence.
 //
-// Returns ErrEmpty for a sequence with nothing in it, rather than None: a
+// Returns ERR_EMPTY for a sequence with nothing in it, rather than None: a
 // caller who meant to choose from something got nothing, and None would be
 // indistinguishable from a sequence that held one.
 //
@@ -278,7 +278,7 @@ func _Choice(
 	}
 
 	if len(held) == 0 {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), ErrEmpty)
+		return nil, fmt.Errorf("%s: %w", fn.Name(), ERR_EMPTY)
 	}
 
 	source, err := _Of(thread)
@@ -348,7 +348,7 @@ func _Bytes(
 	}
 
 	if count < 0 {
-		return nil, fmt.Errorf("%s: %d bytes: %w", fn.Name(), count, ErrRange)
+		return nil, fmt.Errorf("%s: %d bytes: %w", fn.Name(), count, ERR_RANGE)
 	}
 
 	source, err := _Of(thread)

@@ -31,17 +31,17 @@ import (
 )
 
 var (
-	// ErrHex is returned for text that is not hexadecimal, or has an odd
+	// ERR_HEX is returned for text that is not hexadecimal, or has an odd
 	// number of digits where whole bytes are wanted.
-	ErrHex = errors.New("not hexadecimal")
+	ERR_HEX = errors.New("not hexadecimal")
 
-	// ErrBits is returned for text that is not made of 0 and 1, or whose
+	// ERR_BITS is returned for text that is not made of 0 and 1, or whose
 	// length is not the multiple of eight that whole bytes need.
-	ErrBits = errors.New("not a bit string")
+	ERR_BITS = errors.New("not a bit string")
 
-	// ErrRange is returned for a negative integer, a width below one, or an
+	// ERR_RANGE is returned for a negative integer, a width below one, or an
 	// integer that does not fit the width it was given.
-	ErrRange = errors.New("out of range")
+	ERR_RANGE = errors.New("out of range")
 )
 
 const (
@@ -60,13 +60,18 @@ const (
 	HEX2INT    = "hex2int"
 	CRC32      = "crc32"
 
-	// BITS_PER_BYTE and BITS_PER_NIBBLE are what the padding rules pad to.
+	// BITS_PER_BYTE and BITS_PER_NIBBLE are what the padding rules pad to, and
+	// DIGITS_PER_BYTE is how many hex digits make a whole byte.
 	BITS_PER_BYTE   = 8
 	BITS_PER_NIBBLE = 4
+	DIGITS_PER_BYTE = BITS_PER_BYTE / BITS_PER_NIBBLE
 
-	// BINARY and HEXADECIMAL are the bases the text forms are read in.
+	// BINARY and HEXADECIMAL are the bases of the bit and hex forms.
 	BINARY      = 2
 	HEXADECIMAL = 16
+
+	// UPPER_HEX is the digit bits2hex writes for each value a nibble holds.
+	UPPER_HEX = "0123456789ABCDEF"
 
 	// PADDING is what the padded base encodings end with, and what a decoder
 	// here takes off before reading, so padded and unpadded text both decode.

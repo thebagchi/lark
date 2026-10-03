@@ -33,9 +33,9 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
-// ErrAlgorithm is returned for a keyed digest asked for under a name this does
+// ERR_ALGORITHM is returned for a keyed digest asked for under a name this does
 // not know.
-var ErrAlgorithm = errors.New("no such algorithm")
+var ERR_ALGORITHM = errors.New("no such algorithm")
 
 const (
 	// NAME is the module, and the names it holds.
@@ -127,7 +127,7 @@ func _Digest(name string) *starlark.Builtin {
 // because a script choosing between them chooses a string and a table of five
 // near-identical names would be read as five different things.
 //
-// Returns ErrAlgorithm for a name this does not know.
+// Returns ERR_ALGORITHM for a name this does not know.
 //
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
@@ -191,7 +191,7 @@ func _Maker(name string) (func() stdhash.Hash, error) {
 		return sha512.New, nil
 	}
 
-	return nil, fmt.Errorf("%q: %w", name, ErrAlgorithm)
+	return nil, fmt.Errorf("%q: %w", name, ERR_ALGORITHM)
 }
 
 // _Sum is data through made, as hex.

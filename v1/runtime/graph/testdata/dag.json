@@ -1,0 +1,22 @@
+{
+  "functions": [
+    {"name": "task_a", "params": ["region"], "body": "pass"},
+    {"name": "task_b", "body": "pass"},
+    {"name": "task_c", "body": "pass"},
+    {"name": "task_d", "params": ["both"], "body": "pass"},
+    {"name": "task_e", "body": "pass"}
+  ],
+  "main": {
+    "statement": [
+      {"spawn": {"binding": "a", "call": {"function": "task_a", "args": ["west"]}}},
+      {"spawn": {"binding": "b", "call": {"function": "task_b"}}},
+      {"join": {"bindings": ["a"]}},
+      {"spawn": {"binding": "c", "call": {"function": "task_c"}}},
+      {"join": {"bindings": ["a", "b"], "result": "got"}},
+      {"spawn": {"binding": "d", "call": {"function": "task_d", "operands": [{"name": "got"}]}}},
+      {"join": {"bindings": ["b"]}},
+      {"spawn": {"binding": "e", "call": {"function": "task_e"}}},
+      {"join": {"bindings": ["c", "d", "e"]}}
+    ]
+  }
+}

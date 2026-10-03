@@ -64,14 +64,15 @@ message Register {
 }
 
 // Accepted is the host agreeing to carry the names. Empty.
-message Accepted {}
+message Accepted {
+  // Empty
+}
 
 // Ask is one call of one name.
 message Ask {
   // id pairs this with its Answer. A script may have several threads calling
   // one plugin at once, and the stream carries their asks interleaved.
   uint64 id                           = 1;
-
   string name                         = 2;
 
   // args are what the script passed. google.protobuf.Value rather than a new
@@ -87,7 +88,6 @@ message Ask {
 // Answer is what the name produced.
 message Answer {
   uint64 id                    = 1;
-
   google.protobuf.Value result = 2;
 
   // failed is empty when the call worked. A string rather than a status code,

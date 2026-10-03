@@ -1,0 +1,102 @@
+{
+  "functions": [
+    {"name": "sign", "params": ["text", "mark"], "body": "pass"},
+    {
+      "name": "task_a",
+      "params": ["region"],
+      "statements": {
+        "statement": [
+          {"call": {"function": "sign", "operands": [{"name": "region"}, {"literal": "!"}]}},
+          {"spawn": {"call": {"function": "work"}}}
+        ]
+      }
+    },
+    {"name": "task_b", "body": "pass"},
+    {"name": "task_c", "body": "pass"},
+    {"name": "task_d", "params": ["both"], "body": "pass"},
+    {"name": "task_e", "body": "pass"},
+    {"name": "ready", "body": "return True"},
+    {"name": "once", "body": "pass"},
+    {"name": "attempt", "params": ["reason"], "body": "pass"},
+    {"name": "slow", "body": "pass"},
+    {"name": "bounded", "body": "pass"},
+    {"name": "work", "body": "pass"},
+    {"name": "classify", "body": "return \"alpha\""}
+  ],
+  "constants": {
+    "banner": {"call": {"function": "sign", "operands": [{"name": "region"}, {"literal": "!"}]}},
+    "empty": {"value": null},
+    "flag": {"value": true},
+    "label": {"call": {"function": "sign", "args": ["hello", "!"]}},
+    "limit": {"value": 3},
+    "meta": {"value": {"k": 1}},
+    "ratio": {"value": 1.5},
+    "region": {"value": "west"},
+    "tags": {"value": ["a", "b"]}
+  },
+  "args": {
+    "db": {"name": "host", "default": "localhost"},
+    "optional": {"name": "optional", "default": null},
+    "port": {"name": "port"}
+  },
+  "main": {
+    "statement": [
+      {"call": {"function": "sign", "args": ["hello", "!"], "result": "kept"}},
+      {"call": {"function": "sign", "operands": [{"name": "region"}, {"literal": "!"}], "result": "noted"}},
+      {"spawn": {"binding": "h1", "call": {"function": "task_a", "args": ["west"]}}},
+      {"spawn": {"binding": "h2", "call": {"function": "task_b"}}},
+      {"spawn": {"binding": "h3", "call": {"function": "task_d", "operands": [{"name": "kept"}]}}},
+      {"spawn": {"binding": "h4", "call": {"function": "task_c"}}},
+      {"spawn": {"binding": "h5", "call": {"function": "task_e"}}},
+      {"join": {"bindings": ["h1"]}},
+      {"join": {"bindings": ["h1", "h2"], "result": "got"}},
+      {
+        "if": {
+          "condition": {"call": {"function": "ready"}},
+          "then": {"call": {"function": "once"}},
+          "else": {"call": {"function": "attempt", "args": ["x"]}}
+        }
+      },
+      {
+        "if": {
+          "condition": {"value": true},
+          "then": {"call": {"function": "bounded"}},
+          "else": {"join": {"bindings": ["h2"]}}
+        }
+      },
+      {
+        "if": {
+          "condition": {"value": false},
+          "then": {"call": {"function": "slow"}}
+        }
+      },
+      {
+        "match": {
+          "expression": {"call": {"function": "classify"}},
+          "cases": [
+            {"value": "alpha", "statement": {"call": {"function": "bounded"}}},
+            {"value": "beta", "statement": {"call": {"function": "work"}}}
+          ],
+          "default": {"call": {"function": "slow"}}
+        }
+      },
+      {
+        "match": {
+          "expression": {"value": "gamma"},
+          "cases": [
+            {"value": "gamma", "statement": {"call": {"function": "work"}}}
+          ],
+          "default": {"join": {"bindings": ["h1", "h3"]}}
+        }
+      },
+      {"repeat": {"call": {"function": "once"}, "count": 3}},
+      {"retry": {"call": {"function": "attempt", "args": ["x"]}, "attempts": 2}},
+      {"timeout": {"call": {"function": "slow"}, "timeoutMs": 5000}},
+      {"sleep": {"durationMs": 1000}},
+      {"cancel": {"bindings": ["h2", "h4"]}},
+      {"loop": {"times": {"name": "limit"}, "body": {"spawn": {"call": {"function": "work"}}}}},
+      {"spawn": {"binding": "h6", "call": {"function": "work"}}},
+      {"join": {"bindings": ["h5", "h6"]}}
+    ]
+  }
+}

@@ -12,13 +12,13 @@ import (
 // that can cross without changing.
 const EXACT = 1 << 53
 
-// ErrValue is returned for a value the wire cannot name.
+// ERR_VALUE is returned for a value the wire cannot name.
 //
-// Separate from ErrArgument, which is the question asked before marshalling.
+// Separate from ERR_ARGUMENT, which is the question asked before marshalling.
 // This one is the marshalling itself failing, which after IsData has agreed
 // means the two notions of data have drifted apart - so it names a defect
 // here rather than a mistake in the script.
-var ErrValue = errors.New("cannot be put on the wire")
+var ERR_VALUE = errors.New("cannot be put on the wire")
 
 // _Value is a Starlark value as protobuf names it.
 //
@@ -48,7 +48,11 @@ func _Value(given starlark.Value) (*structpb.Value, error) {
 		// same float64, which is the whole problem.
 		exact, ok := held.Int64()
 		if !ok || exact > EXACT || exact < -EXACT {
-			return nil, fmt.Errorf("%s does not fit a wire number: %w", held, ErrValue)
+			return nil, fmt.Errorf(
+				"%s does not fit a wire number: %w",
+				held,
+				ERR_VALUE,
+			)
 		}
 
 		return structpb.NewNumberValue(float64(exact)), nil
@@ -72,7 +76,7 @@ func _Value(given starlark.Value) (*structpb.Value, error) {
 		return _Dict(held)
 	}
 
-	return nil, fmt.Errorf("%s: %w", given.Type(), ErrValue)
+	return nil, fmt.Errorf("%s: %w", given.Type(), ERR_VALUE)
 }
 
 // _List is a sequence as a protobuf list.
@@ -104,18 +108,22 @@ func _List(length int, at func(int) starlark.Value) (*structpb.Value, error) {
 // cannot cross. That is a narrower rule than IsData, which allows a number as
 // a key, and it is the one place the wire is stricter than the store.
 //
+// The pairs are walked through Entries rather than Items, which builds a slice
+// of every pair first, only to be read once and dropped.
+//
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
+//   - 2026-10-03 17:08: walks the pairs without first building a slice of them
 func _Dict(given *starlark.Dict) (*structpb.Value, error) {
 	held := map[string]*structpb.Value{}
 
-	for _, pair := range given.Items() {
-		key, ok := starlark.AsString(pair[0])
+	for name, value := range given.Entries() {
+		key, ok := starlark.AsString(name)
 		if !ok {
-			return nil, fmt.Errorf("a key of %s: %w", pair[0].Type(), ErrValue)
+			return nil, fmt.Errorf("a key of %s: %w", name.Type(), ERR_VALUE)
 		}
 
-		part, err := _Value(pair[1])
+		part, err := _Value(value)
 		if err != nil {
 			return nil, err
 		}
@@ -181,5 +189,5 @@ func _Starlark(given *structpb.Value) (starlark.Value, error) {
 		return into, nil
 	}
 
-	return nil, fmt.Errorf("%T: %w", given.GetKind(), ErrValue)
+	return nil, fmt.Errorf("%T: %w", given.GetKind(), ERR_VALUE)
 }

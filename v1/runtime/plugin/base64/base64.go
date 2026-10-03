@@ -25,8 +25,8 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
-// ErrEncoded is returned for text that is not the encoding it was handed to.
-var ErrEncoded = errors.New("not the encoding this reads")
+// ERR_ENCODED is returned for text that is not the encoding it was handed to.
+var ERR_ENCODED = errors.New("not the encoding this reads")
 
 const (
 	// NAME is the module, and the four names it holds.
@@ -175,7 +175,7 @@ func _URLDecode(
 func _Read(who string, text string, encoding *base64.Encoding) (starlark.Value, error) {
 	data, err := encoding.DecodeString(strings.TrimRight(text, PADDING))
 	if err != nil {
-		return nil, fmt.Errorf("%s got %q: %w", who, text, ErrEncoded)
+		return nil, fmt.Errorf("%s got %q: %w", who, text, ERR_ENCODED)
 	}
 
 	return starlark.Bytes(data), nil

@@ -1,6 +1,3 @@
-def unset():
-    return state.get("never written")
-
 def main():
     seen = state.get("runs")
 

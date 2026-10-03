@@ -1,20 +1,25 @@
-// Regression probes for the graph: what Check accepts as a thread id, and
-// that a script and the graph it describes still print the same thing.
+// Regression probe for the flow: a script and the flow it describes still
+// print the same thing.
 package testing_test
 
 import (
-	"bytes"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
-	"github.com/thebagchi/lark/v1/runtime/graph"
 )
 
+// STAMPED ends the time a log line was written, its first field.
+const STAMPED = " "
+
+// TestRoundTrip_NewModulesPrintTheSame checks a script and the flow it
+// describes print the same lines, apart from when each was printed.
+//
+// Revisions:
+//   - 2026-09-24 17:26: initial creation
+//   - 2026-10-02 13:12: compares the transcripts without when each line was
+//     printed, which no two runs share
 func TestRoundTrip_NewModulesPrintTheSame(t *testing.T) {
 	root := _ModuleRoot(t)
 	dir := t.TempDir()
@@ -45,9 +50,29 @@ def main():
 		t.Fatal(err)
 	}
 	fromGraph := _Lark(t, root, "-g", graph)
-	if !bytes.Equal(fromScript, fromGraph) {
+	if _Unstamped(fromScript) != _Unstamped(fromGraph) {
 		t.Fatalf("script:\n%s\ngraph:\n%s", fromScript, fromGraph)
 	}
+}
+
+// _Unstamped is a log with the time each line was written taken off.
+//
+// Revisions:
+//   - 2026-10-02 13:12: initial creation
+//   - 2026-10-02 16:21: takes off a text handler's time field
+func _Unstamped(transcript []byte) string {
+	var kept []string
+
+	for line := range strings.Lines(string(transcript)) {
+		_, rest, found := strings.Cut(line, STAMPED)
+		if !found {
+			rest = line
+		}
+
+		kept = append(kept, rest)
+	}
+
+	return strings.Join(kept, "")
 }
 
 func _ModuleRoot(t *testing.T) string {
@@ -77,93 +102,4 @@ func _Lark(t *testing.T, root string, args ...string) []byte {
 		t.Fatalf("lark %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return out
-}
-
-func TestCheck_ASpineForkingItself(t *testing.T) {
-	call := &workflowpb.Step{
-		Action: &workflowpb.Step_Call{Call: &workflowpb.Call{Function: graph.ENTRY}},
-	}
-	fork := &workflowpb.Step{
-		Action: &workflowpb.Step_Fork{Fork: &workflowpb.Fork{Thread: graph.SPINE}},
-	}
-	built := &workflowpb.Graph{
-		Threads: []*workflowpb.Thread{{
-			Id: graph.SPINE,
-			State: &workflowpb.Thread_Static{Static: &workflowpb.Static{
-				Steps: []*workflowpb.Step{call, fork},
-			}},
-		}},
-	}
-	fork.GetFork().Thread = "thread_1"
-	if err := graph.Check(built); err != nil {
-		t.Fatalf("spine forking thread_1: %v", err)
-	}
-
-	fork.GetFork().Thread = "thread_1_1"
-	if !errors.Is(graph.Check(built), graph.ErrParentage) {
-		t.Fatal("a grandchild id under the spine was not refused")
-	}
-
-	fork.GetFork().Thread = graph.SPINE
-	if !errors.Is(graph.Check(built), graph.ErrParentage) {
-		t.Fatalf("spine forking itself: %v", graph.Check(built))
-	}
-}
-
-func TestCheck_ANestedOrdinalIsADecimal(t *testing.T) {
-	if err := graph.Check(_Forking("thread_1", "thread_1_2")); err != nil {
-		t.Fatalf("thread_1 forking thread_1_2: %v", err)
-	}
-	if !errors.Is(graph.Check(_Forking("thread_1", "thread_1_02")), graph.ErrParentage) {
-		t.Fatalf(
-			"thread_1 forking thread_1_02: %v",
-			graph.Check(_Forking("thread_1", "thread_1_02")),
-		)
-	}
-}
-
-func TestCheck_AnOrdinalIsADecimal(t *testing.T) {
-	for _, id := range []string{"thread_1", "thread_10"} {
-		if err := graph.Check(_SpineForking(id)); err != nil {
-			t.Fatalf("spine forking %s: %v", id, err)
-		}
-	}
-
-	for _, id := range []string{"thread_01", "thread_00", "thread_1a"} {
-		if !errors.Is(graph.Check(_SpineForking(id)), graph.ErrParentage) {
-			t.Fatalf("spine forking %s: %v", id, graph.Check(_SpineForking(id)))
-		}
-	}
-}
-
-func TestCheck_AnEmptyOrdinalIsNotAChild(t *testing.T) {
-	for _, id := range []string{"thread_", "thread_01", "thread_00", "thread_1a"} {
-		t.Logf("spine forking %q -> %v", id, graph.Check(_SpineForking(id)))
-	}
-
-	if !errors.Is(graph.Check(_SpineForking("thread_")), graph.ErrParentage) {
-		t.Fatalf("spine forking thread_: %v", graph.Check(_SpineForking("thread_")))
-	}
-}
-
-func _SpineForking(id string) *workflowpb.Graph {
-	return _Forking(graph.SPINE, id)
-}
-
-func _Forking(parent string, id string) *workflowpb.Graph {
-	return &workflowpb.Graph{
-		Threads: []*workflowpb.Thread{{
-			Id: parent,
-			State: &workflowpb.Thread_Static{Static: &workflowpb.Static{
-				Steps: []*workflowpb.Step{
-					{Action: &workflowpb.Step_Call{
-						Call: &workflowpb.Call{Function: graph.ENTRY},
-					}},
-					{Action: &workflowpb.Step_Fork{
-						Fork: &workflowpb.Fork{Thread: id},
-					}},
-				},
-			}},
-		}},
-	}
 }

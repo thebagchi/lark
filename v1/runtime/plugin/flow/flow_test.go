@@ -2,21 +2,23 @@ package flow_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"go.starlark.net/starlark"
 
 	"github.com/thebagchi/lark/v1/runtime"
+	"github.com/thebagchi/lark/v1/runtime/artifact"
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 	"github.com/thebagchi/lark/v1/runtime/plugin/core"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/flow"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/state"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
+	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
 const (
@@ -26,6 +28,11 @@ const (
 	// PROMPT is how long a run that should end at once may take on a loaded
 	// machine before it is called hung.
 	PROMPT = 1500 * time.Millisecond
+
+	// PAUSE is the delay the delayed fixtures wait between their two calls:
+	// long beside what a call costs, so one pause is told apart from none and
+	// from two on a loaded machine.
+	PAUSE = 300 * time.Millisecond
 
 	// PANIC_TEXT is what the exploding builtin panics with.
 	PANIC_TEXT = "a plugin blew up"
@@ -105,7 +112,11 @@ func _Built(t *testing.T, name string) *runtime.Artifact {
 		t.Fatalf("read fixture %s: %v", name, err)
 	}
 
-	built, err := runtime.NewCompiler(runtime.WithLoader(&_Disk{})).Compile(name, src)
+	built, err := runtime.Compile(&runtime.Source{
+		Entry:  name,
+		Text:   src,
+		Loader: &_Disk{},
+	})
 	if err != nil {
 		t.Fatalf("compile %s: %v", name, err)
 	}
@@ -121,7 +132,7 @@ func _Built(t *testing.T, name string) *runtime.Artifact {
 func _Run(t *testing.T, name string) (starlark.Value, error) {
 	t.Helper()
 
-	return _Built(t, name).Run(t.Context())
+	return runtime.Start(t.Context(), _Built(t, name)).Wait()
 }
 
 // _Value runs a fixture that is expected to succeed.
@@ -183,8 +194,8 @@ func TestRetry_StopsAtTheFirstSuccess(t *testing.T) {
 //   - 2026-09-20 01:40: initial creation
 func TestRetry_PropagatesTheLastAssertion(t *testing.T) {
 	_, err := _Run(t, "retry_gives_up.star")
-	if !errors.Is(err, core.ErrAssert) {
-		t.Fatalf("got %v, want ErrAssert", err)
+	if !errors.Is(err, core.ERR_ASSERT) {
+		t.Fatalf("got %v, want ERR_ASSERT", err)
 	}
 
 	if !strings.Contains(err.Error(), "3 attempts") {
@@ -344,8 +355,8 @@ func TestTimeout_CutsAJoinShort(t *testing.T) {
 func TestRetry_AnExhaustedInnerRetryIsOneFailedAttemptOfTheOuter(t *testing.T) {
 	built := _Built(t, "nested_retry.star")
 
-	_, err := built.Run(t.Context())
-	if !errors.Is(err, core.ErrAssert) {
+	_, err := runtime.Start(t.Context(), built).Wait()
+	if !errors.Is(err, core.ERR_ASSERT) {
 		t.Fatalf("want the last assertion to end the run, got %v", err)
 	}
 
@@ -371,7 +382,213 @@ func TestRetry_AThreadSpawnedInsideAnAttemptIsInsideIt(t *testing.T) {
 //   - 2026-09-21 08:09: initial creation
 func TestSleep_RefusesWhatNoTimerHolds(t *testing.T) {
 	_, err := _Run(t, "huge_sleep.star")
-	if !errors.Is(err, scheduler.ErrDuration) {
-		t.Fatalf("want ErrDuration, got %v", err)
+	if !errors.Is(err, scheduler.ERR_DURATION) {
+		t.Fatalf("want ERR_DURATION, got %v", err)
 	}
+}
+
+// TestDelay_WaitsBetweenCallsOnly checks a delay is waited between two calls,
+// third or by name, and neither before the first call nor after the last.
+//
+// Each fixture makes two calls, so it waits exactly once. Less than one pause
+// means it did not wait; two means it waited before the first call or after
+// the last.
+//
+// Revisions:
+//   - 2026-10-02 01:04: initial creation
+func TestDelay_WaitsBetweenCallsOnly(t *testing.T) {
+	for _, name := range []string{"delayed_repeat.star", "delayed_retry.star"} {
+		t.Run(name, func(t *testing.T) {
+			started := time.Now()
+
+			got := _Value(t, name)
+			took := time.Since(started)
+
+			if got != "2" {
+				t.Fatalf("got %s, want the second call's 2", got)
+			}
+
+			once := took >= PAUSE && took < 2*PAUSE
+			if !once {
+				t.Fatalf("two calls took %s, want one pause of %s", took, PAUSE)
+			}
+		})
+	}
+}
+
+// TestDelay_EndsWithACancel checks a cancel reaches a repeat waiting out its
+// delay, so the next call never starts: a timeout of 200 milliseconds around
+// a delay of thirty seconds.
+//
+// Revisions:
+//   - 2026-10-02 01:04: initial creation
+func TestDelay_EndsWithACancel(t *testing.T) {
+	started := time.Now()
+
+	_, err := _Run(t, "delay_over_timeout.star")
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("got %v, want a timeout", err)
+	}
+
+	if time.Since(started) > PROMPT {
+		t.Fatalf("a 200 millisecond timeout took %s", time.Since(started))
+	}
+}
+
+// TestDelay_RefusesOneGivenTwice checks a delay passed third and named as well
+// is refused, rather than one of the two silently winning.
+//
+// Revisions:
+//   - 2026-10-02 01:04: initial creation
+func TestDelay_RefusesOneGivenTwice(t *testing.T) {
+	_, err := _Run(t, "delay_twice.star")
+	if err == nil || !strings.Contains(err.Error(), "multiple values") {
+		t.Fatalf("got %v, want the delay refused as given twice", err)
+	}
+}
+
+// TestDelay_RefusesAFractionOfAMillisecond checks a delay is read as sleep and
+// timeout are, in whole milliseconds the schema can hold.
+//
+// Revisions:
+//   - 2026-10-02 01:04: initial creation
+func TestDelay_RefusesAFractionOfAMillisecond(t *testing.T) {
+	_, err := _Run(t, "delay_fraction.star")
+	if !errors.Is(err, scheduler.ERR_DURATION) {
+		t.Fatalf("got %v, want ERR_DURATION", err)
+	}
+}
+
+// TestWrappers_ReportOneLine checks each wrapper reports one line under the
+// function it calls: opened by the first attempt, advanced by each later one
+// with the count it makes, and closed once, however many attempts failed. A
+// lambda that calls no function the script defines names none.
+//
+// Revisions:
+//   - 2026-10-02 01:04: initial creation
+func TestWrappers_ReportOneLine(t *testing.T) {
+	cases := map[string]struct {
+		fails bool
+		want  []string
+	}{
+		"repeat.star": {
+			want: []string{
+				`start "step" repeat 1/3`,
+				`start "step" repeat 2/3`,
+				`start "step" repeat 3/3`,
+				`end "step" succeeded`,
+			},
+		},
+		"retry.star": {
+			want: []string{
+				`start "flaky" retry 1/5`,
+				`start "flaky" retry 2/5`,
+				`start "flaky" retry 3/5`,
+				`end "flaky" succeeded`,
+			},
+		},
+		"retry_gives_up.star": {
+			fails: true,
+			want: []string{
+				`start "never" retry 1/3`,
+				`start "never" retry 2/3`,
+				`start "never" retry 3/3`,
+				`end "never" failed`,
+			},
+		},
+		"timeout_ok.star": {
+			want: []string{
+				`start "quick" timeout 0/0`,
+				`end "quick" succeeded`,
+			},
+		},
+		LAMBDAS: {
+			want: []string{
+				`start "" repeat 1/2`,
+				`start "" repeat 2/2`,
+				`end "" succeeded`,
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			into := new(_Lines)
+
+			_, err := artifact.Run(
+				t.Context(),
+				_Built(t, name),
+				artifact.Reporting(into),
+			)
+			if (err != nil) != tc.fails {
+				t.Fatalf("run gave %v", err)
+			}
+
+			got := into._All()
+			if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// _Lines is a reporter that keeps, one line of text each, every start a
+// builtin reported and every end but the entry's.
+type _Lines struct {
+	guard sync.Mutex
+	lines []string
+}
+
+// Started keeps a start some builtin reported.
+//
+// Revisions:
+//   - 2026-10-02 01:04: initial creation
+func (l *_Lines) Started(thread string, line *scheduler.Line) {
+	if line.Builtin == "" {
+		return
+	}
+
+	l.guard.Lock()
+	defer l.guard.Unlock()
+
+	kept := fmt.Sprintf(
+		"start %q %s %d/%d",
+		line.Name,
+		line.Builtin,
+		line.Attempt,
+		line.Count,
+	)
+
+	l.lines = append(l.lines, kept)
+}
+
+// Ended keeps an end, unless it is the entry's.
+//
+// Revisions:
+//   - 2026-10-02 01:04: initial creation
+func (l *_Lines) Ended(thread string, name string, err error) {
+	if name == spelling.ENTRY {
+		return
+	}
+
+	l.guard.Lock()
+	defer l.guard.Unlock()
+
+	outcome := "succeeded"
+	if err != nil {
+		outcome = "failed"
+	}
+
+	l.lines = append(l.lines, fmt.Sprintf("end %q %s", name, outcome))
+}
+
+// _All is everything kept so far.
+//
+// Revisions:
+//   - 2026-10-02 01:04: initial creation
+func (l *_Lines) _All() []string {
+	l.guard.Lock()
+	defer l.guard.Unlock()
+
+	return append([]string(nil), l.lines...)
 }

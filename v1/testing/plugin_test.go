@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/thebagchi/lark/v1/runtime"
-	"github.com/thebagchi/lark/v1/runtime/plugin"
 	"github.com/thebagchi/lark/v1/runtime/plugin/remote"
 )
 
@@ -61,10 +60,15 @@ func _Clock(t *testing.T) string {
 	return binary
 }
 
-// _Host is a listener with a registry holding everything the default one does.
+// _Host is a listener, holding only what attaches: a compiler adds that to
+// every plugin registered by import.
 //
 // Revisions:
 //   - 2026-09-25 07:02: initial creation
+//   - 2026-10-02 15:56: holds only what attaches, a compiler adding it to the
+//     runtime's own plugins
+//   - 2026-10-02 17:12: hands the listener no registry, since it keeps what
+//     attaches itself
 func _Host(t *testing.T) (*remote.Listener, string) {
 	t.Helper()
 
@@ -80,13 +84,8 @@ func _Host(t *testing.T) (*remote.Listener, string) {
 	})
 
 	socket := filepath.Join(dir, "s")
-	registry := plugin.New()
 
-	for _, held := range plugin.DEFAULT.Registered() {
-		registry.Register(held)
-	}
-
-	listener, err := remote.Listen(socket, PLUGIN_TOKEN, registry)
+	listener, err := remote.Listen(socket, PLUGIN_TOKEN)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,13 +155,18 @@ func TestPlugin_AnotherProcessSuppliesNames(t *testing.T) {
 	listener, socket := _Host(t)
 	_Attached(t, listener, _Clock(t), socket)
 
-	built, err := runtime.NewCompiler(runtime.WithPlugins(listener.Registry())).
-		Compile("remote.star", []byte("def main():\n    return clock.add(2, 3)\n"))
+	built, err := runtime.Compile(
+		&runtime.Source{
+			Entry: "remote.star",
+			Text:  []byte("def main():\n    return clock.add(2, 3)\n"),
+		},
+		runtime.WithPlugins(listener.Plugins()...),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := built.Run(t.Context())
+	got, err := runtime.Start(t.Context(), built).Wait()
 	if err != nil {
 		t.Fatalf("calling another process: %v", err)
 	}
@@ -188,15 +192,15 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 	listener, socket := _Host(t)
 	held := _Attached(t, listener, _Clock(t), socket)
 
-	compiler := runtime.NewCompiler(runtime.WithPlugins(listener.Registry()))
+	plugins := runtime.WithPlugins(listener.Plugins()...)
 	src := []byte("def main():\n    return clock.add(1, 1)\n")
 
-	built, err := compiler.Compile("remote.star", src)
+	built, err := runtime.Compile(&runtime.Source{Entry: "remote.star", Text: src}, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := built.Run(t.Context())
+	got, err := runtime.Start(t.Context(), built).Wait()
 	if err != nil {
 		t.Fatalf("before the kill: %v", err)
 	}
@@ -215,7 +219,7 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 	deadline := time.Now().Add(_NOTICED)
 
 	for time.Now().Before(deadline) {
-		_, err = built.Run(t.Context())
+		_, err = runtime.Start(t.Context(), built).Wait()
 		if err != nil {
 			break
 		}
@@ -223,8 +227,8 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if !errors.Is(err, remote.ErrGone) {
-		t.Fatalf("after the kill: %v, want ErrGone", err)
+	if !errors.Is(err, remote.ERR_GONE) {
+		t.Fatalf("after the kill: %v, want ERR_GONE", err)
 	}
 
 	// The names are still there. A run has already built its environment, so
@@ -240,12 +244,12 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 	// host lived, and a plugin could be started exactly once.
 	_Attached(t, listener, _Clock(t), socket)
 
-	built, err = compiler.Compile("again.star", src)
+	built, err = runtime.Compile(&runtime.Source{Entry: "again.star", Text: src}, plugins)
 	if err != nil {
 		t.Fatalf("compiling after a restart: %v", err)
 	}
 
-	got, err = built.Run(t.Context())
+	got, err = runtime.Start(t.Context(), built).Wait()
 	if err != nil {
 		t.Fatalf("calling a restarted plugin: %v", err)
 	}
@@ -312,13 +316,18 @@ func TestLoad_ADirectoryOfPluginsIsStartedAndKeptReady(t *testing.T) {
 	t.Logf("skipped: %v", loading.Skipped[0])
 
 	// The names it announced work, which is what loading was for.
-	built, err := runtime.NewCompiler(runtime.WithPlugins(listener.Registry())).
-		Compile("loaded.star", []byte("def main():\n    return clock.add(2, 3)\n"))
+	built, err := runtime.Compile(
+		&runtime.Source{
+			Entry: "loaded.star",
+			Text:  []byte("def main():\n    return clock.add(2, 3)\n"),
+		},
+		runtime.WithPlugins(listener.Plugins()...),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := built.Run(t.Context())
+	got, err := runtime.Start(t.Context(), built).Wait()
 	if err != nil {
 		t.Fatalf("calling a loaded plugin: %v", err)
 	}
@@ -407,13 +416,15 @@ func TestLark_PluginsFlag(t *testing.T) {
 // TestPlugin_SocketIsPrivateAndGoesAway is the socket as a file: who may reach
 // it, and that it does not outlast the listener.
 //
-// Mode 0600 is the whole of the access control. A registered plugin's names go
-// into every script compiled against that registry and file reaches whatever
-// this process reaches, so the socket being readable by another user would put
-// the filesystem behind them.
+// Mode 0600 is the whole of the access control. An attached plugin's names go
+// into every script compiled with the listener's plugins, and file, when its
+// host hands it over, reaches whatever this process reaches, so the socket
+// being readable by another user would put the filesystem behind them.
 //
 // Revisions:
 //   - 2026-09-26 01:15: initial creation, from QA's probes
+//   - 2026-10-02 17:12: hands the listener no registry, since it keeps what
+//     attaches itself
 func TestPlugin_SocketIsPrivateAndGoesAway(t *testing.T) {
 	dir, err := os.MkdirTemp("", "lk")
 	if err != nil {
@@ -426,7 +437,7 @@ func TestPlugin_SocketIsPrivateAndGoesAway(t *testing.T) {
 
 	socket := filepath.Join(dir, "s")
 
-	listener, err := remote.Listen(socket, PLUGIN_TOKEN, plugin.New())
+	listener, err := remote.Listen(socket, PLUGIN_TOKEN)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +466,7 @@ func TestPlugin_SocketIsPrivateAndGoesAway(t *testing.T) {
 // rather than trusted.
 //
 // The token is the only thing between a local process and putting names into
-// every script compiled against that registry. It is passed in the environment
+// every script compiled with the listener's plugins. It is passed in the environment
 // for that reason, so it must appear in no process's argument list - which
 // /proc publishes to every user on the machine.
 //
@@ -547,8 +558,8 @@ func TestPlugin_SeveralThreadsCallOneClock(t *testing.T) {
 	listener, socket := _Host(t)
 	_Attached(t, listener, _Clock(t), socket)
 
-	built, err := runtime.NewCompiler(runtime.WithPlugins(listener.Registry())).
-		Compile("many.star", []byte(`
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: "many.star", Text: []byte(`
 def once():
     return clock.add(1, 2)
 
@@ -556,12 +567,14 @@ def main():
     held = [spawn(once) for i in range(8)]
 
     return join(*held)
-`))
+`)},
+		runtime.WithPlugins(listener.Plugins()...),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := built.Run(t.Context())
+	got, err := runtime.Start(t.Context(), built).Wait()
 	if err != nil {
 		t.Fatalf("eight threads through one plugin: %v", err)
 	}
@@ -672,13 +685,18 @@ func TestPlugin_LoadSeesAPluginThatComesBack(t *testing.T) {
 			loading.Loaded, loading.Skipped, listener.Live())
 	}
 
-	built, err := runtime.NewCompiler(runtime.WithPlugins(listener.Registry())).
-		Compile("again.star", []byte("def main():\n    return clock.add(2, 3)\n"))
+	built, err := runtime.Compile(
+		&runtime.Source{
+			Entry: "again.star",
+			Text:  []byte("def main():\n    return clock.add(2, 3)\n"),
+		},
+		runtime.WithPlugins(listener.Plugins()...),
+	)
 	if err != nil {
 		t.Fatalf("compiling after the second load: %v", err)
 	}
 
-	got, err := built.Run(t.Context())
+	got, err := runtime.Start(t.Context(), built).Wait()
 	if err != nil {
 		t.Fatalf("calling the plugin Load brought back: %v", err)
 	}

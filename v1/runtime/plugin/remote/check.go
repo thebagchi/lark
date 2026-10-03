@@ -104,7 +104,7 @@ func _Handed(called string, call *syntax.CallExpr, declared map[string]bool) err
 		}
 
 		return fmt.Errorf("%s at %s is given %s as argument %d: %w",
-			called, call.Lparen, named, index, ErrArgument)
+			called, call.Lparen, named, index, ERR_ARGUMENT)
 	}
 
 	return nil

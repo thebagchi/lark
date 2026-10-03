@@ -21,7 +21,7 @@ const SCRIPT = "path_test.star"
 func _Eval(t *testing.T, expression string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestPath_IsTextOnly(t *testing.T) {
 //   - 2026-09-24 00:53: initial creation
 func TestPath_RefusesWhatIsNotText(t *testing.T) {
 	_, err := _Eval(t, `path.join("a", 1)`)
-	if !errors.Is(err, larkpath.ErrNotAPath) {
-		t.Fatalf("got %v, want ErrNotAPath", err)
+	if !errors.Is(err, larkpath.ERR_NOT_A_PATH) {
+		t.Fatalf("got %v, want ERR_NOT_A_PATH", err)
 	}
 }

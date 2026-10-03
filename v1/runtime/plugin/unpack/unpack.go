@@ -13,9 +13,9 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// ErrData is returned when something that should be bytes or a string is
+// ERR_DATA is returned when something that should be bytes or a string is
 // neither.
-var ErrData = errors.New("wants bytes or a string")
+var ERR_DATA = errors.New("wants bytes or a string")
 
 // Data reads a builtin's one argument as bytes.
 //
@@ -52,7 +52,7 @@ func Bytes(who string, given starlark.Value) ([]byte, error) {
 		return []byte(held), nil
 
 	default:
-		return nil, fmt.Errorf("%s got %s: %w", who, given.Type(), ErrData)
+		return nil, fmt.Errorf("%s got %s: %w", who, given.Type(), ERR_DATA)
 	}
 }
 

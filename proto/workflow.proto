@@ -3,12 +3,15 @@ syntax = "proto3";
 package workflow;
 
 import "google/protobuf/struct.proto";
+import "patch.proto";
 
 option go_package = "github.com/thebagchi/lark/proto/gen/workflow;workflow";
 
-// Status is a function's execution state.
+// Status is the state of one function in a run, or of the run as a whole.
+// A generator does not write it, and a Flow does not carry it: only a run
+// reports one.
 //
-// CANCELLED is not a kind of failure. A thread stopped because something
+// CANCELLED is not a kind of failure. A function stopped because something
 // else failed did not itself fail, and a run a caller stopped did not
 // break. Reporting either as FAILED tells a reader that something went
 // wrong where nothing did - which is why the value exists separately.
@@ -21,110 +24,131 @@ enum Status {
   STATUS_CANCELLED   = 5;
 }
 
-// Parameters is one argument a call passes: a value written out, or a
-// parameter - a name the generated script can see where the call is made.
+// Operand is one argument at a call site.
 //
-// A name is looked up in the calling function's params first, then in the
-// graph's args, constants and functions, the way Starlark itself would find
-// it. It is how a thread is handed a run's argument, or the parameter of the
-// function that spawned it: spawn(lambda: fetch(url)) inside task(url)
-// passes the parameter url, and no value a graph could state would do.
-//
-// A thread is never one. The one thing a script does with a thread is join
-// it, and a Join names it.
-message Parameters {
-  oneof param {
-    string parameter            = 1;
-    google.protobuf.Value value = 2;
+// literal is the value. name is a module-level constant or argument, a
+// parameter of the function that contains the call, or the result of an
+// earlier statement on this same thread. A name has no value until the
+// run, which is why it is not a Value.
+message Operand {
+  oneof source {
+    google.protobuf.Value literal = 1;
+    string name                   = 2;
   }
 }
 
-// Call runs function with args, in order, as they are passed at this
-// site; two Calls of one function may differ here.
-message Call {
-  string function          = 1;
-  repeated Parameters args = 2;
-}
-
-// Fork starts thread as a new, concurrent thread, without pausing the
-// thread that reports it. func is what runs there, called as it was at the
-// spawn: the same call as that thread's first step.
+// Call runs function. Two Calls of one function may differ in what they
+// pass.
 //
-// Said twice on purpose. A reader of the forking thread sees what each fork
-// starts without walking to the thread, and a call's parameters are names
-// the forking function can see, which is where the fork sits. The thread
-// still says what it runs, because the spine has no fork and a thread whose
-// parent is carried as text has none either. Check refuses a graph where the
-// two disagree.
-message Fork {
-  string thread = 1;
-  Call func     = 2;
+// args is the argument list when every argument is a literal. operands
+// is the argument list when any argument is a name. A call carries one
+// of the two: when operands is non-empty it is the list and args is
+// empty, and when operands is empty args is the list. A call with no
+// arguments carries neither. operands is its own field rather than a
+// retyping of args, so a list of values keeps the shape a reader
+// already has for data.
+//
+// result is the name this call is bound to, and only when the script
+// captures it. kept = sign("hello", "!") sets it. A bare sign("hello",
+// "!") leaves it empty.
+message Call {
+  string function                     = 1;
+  repeated google.protobuf.Value args = 2;
+  repeated Operand operands           = 3;
+  string result                       = 4;
 }
 
-// Join waits for every listed thread to finish and folds them back into
-// the thread that reports it. More than one thread when several branches
+// Join waits for every listed spawn to finish and folds them back into
+// the thread that reports it. More than one when several branches
 // converge on the same call.
+//
+// bindings are the names the script gave those spawns, not thread ids.
+// join(a, b) stores a and b. The run has already assigned those spawns
+// their ids; this message does not know them.
+//
+// result is the name the joined value is bound to, when the script
+// captures it. Empty when the join is a bare statement.
 message Join {
-  repeated string threads = 1;
+  repeated string bindings = 1;
+  string result            = 2;
 }
 
 // Cancel stops every listed thread without waiting for any of them.
 //
 // Its own message rather than a Call, because it names threads and a
-// Call names a function. Nothing could express a cancel before: the
-// builtin takes a handle, a handle exists only where a fork made one,
-// and a Call passes google.protobuf.Value arguments.
+// Call names a function. The builtin takes a handle, a handle exists
+// only where a spawn bound one, and a Call passes Values.
 //
 // A list rather than one, because the builtin takes several.
+//
+// bindings are the names the script gave those spawns, as on Join.
 message Cancel {
-  repeated string threads = 1;
+  repeated string bindings = 1;
 }
 
-// Condition is a literal bool, or the name of a predicate function to
-// call and branch on. Its own message so steps other than If can reuse
-// it.
+// Condition is a literal bool, a predicate call, or the name of a value
+// already in scope. Its own message so statements other than If can
+// reuse it.
+//
+// name is a param, an earlier result, a constant, or an argument. It is
+// not a call. if flag reads flag. if ready() calls ready.
 message Condition {
   oneof kind {
-    bool value = 1;
-    Call call  = 2;
+    bool value  = 1;
+    Call call   = 2;
+    string name = 3;
   }
 }
 
-// If calls then or else, depending on condition.
+// If takes then or else, depending on condition.
+//
+// Each branch is one Statement, so a branch may call, join, or spawn.
+// An empty branch is one the script did not write. A branch of more
+// than one statement is not an If: the function, or main, keeps its
+// text. The pass a generator writes under a branch is not that second
+// statement.
 message If {
   Condition condition = 1;
-  Call then           = 2;
-  Call else           = 3;
+  Statement then      = 2;
+  Statement else      = 3;
 }
 
-// Expression is a literal string, or the name of a function to call for
-// the value. Its own message, rather than a bare string, so a later
-// field does not reshape whatever step embeds it.
+// Expression is a literal string, a call, or the name of a value already
+// in scope. Its own message, rather than a bare string, so a later
+// field does not reshape whatever statement embeds it.
+//
+// name resolves the way Condition.name does. A match on region reads
+// region. A match on classify() calls classify.
 message Expression {
   oneof kind {
     string value = 1;
     Call call    = 2;
+    string name  = 3;
   }
 }
 
-// Case pairs one value with the function to call when an expression
-// equals it.
+// Case pairs one value with the statement to run when an expression
+// equals it. A call, a join, and a spawn are the same Statement.
 message Case {
-  string value = 1;
-  Call call    = 2;
+  string value        = 1;
+  Statement statement = 2;
 }
 
-// Match evaluates expression and calls whichever case matches its value,
+// Match evaluates expression and takes whichever case matches its value,
 // or default if none do. The cases double as an elif chain, which is
 // what keeps If a plain binary then/else rather than a repeated shape.
+//
+// default is the Statement taken when no case matches. Empty means the
+// match has no default.
 message Match {
   Expression expression = 1;
   repeated Case cases   = 2;
-  Call default          = 3;
+  Statement default     = 3;
 }
 
 // Repeat calls function count times, pausing delay_ms milliseconds
-// between calls.
+// between calls. Zero is no pause. The builtin takes milliseconds too,
+// so nothing converts.
 message Repeat {
   Call call      = 1;
   int32 count    = 2;
@@ -132,7 +156,8 @@ message Repeat {
 }
 
 // Retry calls function up to attempts times, stopping at the first
-// success, pausing delay_ms milliseconds between attempts.
+// success, pausing delay_ms milliseconds between attempts. Zero is no
+// pause. The builtin takes milliseconds too, so nothing converts.
 message Retry {
   Call call      = 1;
   int32 attempts = 2;
@@ -143,31 +168,69 @@ message Retry {
 //
 // Milliseconds because Repeat, Retry and Timeout count them, and one
 // schema with two units is a schema a reader has to check. The builtin
-// takes seconds, so whatever renders this divides.
+// takes milliseconds as well, so the script and the schema agree.
 message Sleep {
   int32 duration_ms = 1;
 }
 
 // Timeout calls function, failing it if it runs past timeout_ms
-// milliseconds.
+// milliseconds. The builtin takes milliseconds too: timeout(5000, slow)
+// is five seconds.
 message Timeout {
   Call call        = 1;
   int32 timeout_ms = 2;
 }
 
-// Step is one action a thread performs, in execution order. A plain
-// sequential step is a Call; a fan-out is a Fork on the spawning thread
-// and the forked thread's own entry; a merge is a Join on the thread the
-// branches fold back into.
+// Spawn is a statement that starts a thread running call, without
+// pausing the thread that writes it.
 //
-// The set of actions is closed, so a oneof states that. Every builtin
-// has a message of its own rather than sharing a named-and-arguments
-// shape, so a step that names a thread is checked by the schema rather
+// The callee's statements stay on Function. Copying them under the
+// spawn would nest a function inside the thread it started.
+//
+// binding is the name the script gave this spawn. a = spawn(...) stores
+// a. A bare spawn(work) leaves it empty, and so does each iteration of
+// a Loop: the run assigns those threads their ids, and this message
+// does not predict them. A generator writes the binding back. It does
+// not invent h1 from a thread id.
+message Spawn {
+  string binding = 1;
+  Call call      = 2;
+}
+
+// Loop repeats body times times. times is a literal integer or a name.
+//
+// The form is for _ in range(n) whose body is one statement and does
+// not read the loop variable. for _ in range(limit): spawn(work) is a
+// Loop, so the spawns and joins around it stay statements. The pass
+// under that spawn is the generator's closer, not a second statement.
+// A for over a list, a body of more than one statement, or a loop
+// variable the body reads is not a Loop: the function, or main, keeps
+// its text.
+//
+// Each iteration runs body. A spawn there has no binding. A body that
+// binds a name is not a Loop: h = spawn(work) and got = once() keep
+// the function, or main, as text. The run appends one thread per
+// iteration, numbered when it is created.
+message Loop {
+  Operand times  = 1;
+  Statement body = 2;
+}
+
+// Statement is one line a generator writes. A call, a spawn, a join, a
+// branch, a repeat, a sleep, a cancel, or a loop.
+//
+// The set is closed, so a oneof states that. Every builtin has a
+// message of its own rather than sharing a named-and-arguments shape,
+// so a statement that names a thread is checked by the schema rather
 // than by whatever reads it.
-message Step {
+//
+// A statement carries no status. Status is the graph's: each function a
+// run has called, with its status. A UI reads the flow for the line and
+// the graph for what the function that line calls is doing.
+message Statement {
   oneof action {
     Call call       = 1;
-    Fork fork       = 2;
+    Spawn spawn     = 2;
     Join join       = 3;
     If if           = 4;
     Match match     = 5;
@@ -176,101 +239,79 @@ message Step {
     Sleep sleep     = 8;
     Timeout timeout = 9;
     Cancel cancel   = 10;
+    Loop loop       = 11;
   }
 }
 
-// Function is one top-level script function. Its own message, rather
-// than a bare string, so a later field does not reshape Graph. Its
-// thread is not carried here: a thread names what runs on it through its
-// entry, which is where a caller finds it, and a function no thread
-// names is a leaf that something else calls.
+// Statements is a list of statements, so a oneof can carry it. A oneof
+// cannot hold a repeated field, and a function is either this list or
+// a body.
+message Statements {
+  repeated Statement statement = 1;
+}
+
+// Function is one top-level script function.
 //
-// body is the statements inside def, not a full def. params are the
-// names in the signature, in order. Two Calls of one function share
-// this message and differ in args.
+// code is the inside of the def, stored once. statements when every
+// line is a statement this schema can say. body when it is not, the
+// inside as text, dedented. A pass that only closes the suite is not
+// stored: the generator writes it. A function whose inside is only
+// pass stores "pass". A function carries one of the two. Neither means
+// a picture that names the function and cannot be generated. params
+// are the names in the signature, in order. Two Calls of one function
+// share this message and differ in the arguments they pass.
 message Function {
-  string name            = 1;
-  string body            = 2;
-  repeated string params = 3;
-}
+  string name             = 1;
+  repeated string params  = 3;
 
-// Static is a thread as it was authored: what it will do, and nothing
-// about what happened.
-//
-// The first step is what the thread itself runs, and the rest are that
-// function's own body. A thread with one step is a fork pointing at a
-// leaf, whose body is carried as the function's text; a thread with more
-// describes what that function does.
-//
-// A fork says the same thing in func, so the forking thread reads without
-// walking to each thread it starts; see Fork for why that repetition is
-// worth it, and Check for what keeps the two in step.
-message Static {
-  repeated Step steps = 1;
-}
-
-// Live is a thread that is running or has run: the same steps, and its
-// own functions' statuses in the order it runs them.
-//
-// The two lists differ in length and in order, because a spawn or join
-// Builtin names another thread without being one of this thread's own
-// functions. One status per thread could not say which of its functions
-// are done, running or pending, since a thread runs more than one over
-// its life.
-message Live {
-  repeated Step steps = 1;
-  repeated Node nodes = 2;
-}
-
-// Thread is one thread, authored or running. A Graph carries the static
-// half and a Workflow the live one; they are one thread at two moments
-// rather than two kinds of thing, which is why the oneof states which
-// moment rather than a second message repeating the first.
-//
-// id names its parent: thread_1's first child is thread_1_1. It is a
-// fact about structure and not about time, which a list position could
-// not be - a graph numbers slots in source order while the scheduler
-// numbers in the order spawns happen, and those disagree whenever a
-// spawned function spawns before its siblings start.
-//
-// What a thread runs is its first step, not a field: see Static. The
-// spine is the thread whose id is thread_0, and its first step is the
-// artifact's entry point like any other.
-message Thread {
-  string id       = 1;
-
-  oneof state {
-    Static static = 3;
-    Live live     = 4;
+  oneof code {
+    string body           = 2;
+    Statements statements = 4;
   }
 }
 
-// Node is one function's status within a thread's timeline, which
-// attempt it is on when a repeat or a retry is calling it repeatedly,
-// and what went wrong if anything did.
+// Node is one function of a run's graph: the function, its status, and the
+// threads executing it right now.
 //
-// Zero attempts means the function is not inside one, which is the same
-// zero a script sees from n() outside a repeat or a retry. A timeout
-// reports zero too: it makes one call, not attempts.
+// One node per function, however many times the run called it, as a
+// profiler draws one. A function called more than once shows its newest
+// call's status, a call started after another being the newer: a function
+// retried until it succeeds reads succeeded, and one whose latest call is
+// still going reads running.
 //
-// failure is set only when status is FAILED. A cancelled thread leaves
-// it empty: its text would say it was cancelled, which the status
-// already says, and a reader should not have to read prose to learn
-// something the enum states.
+// name is the function as the script defines it. A spawn of a lambda is
+// the function the lambda calls. A line that calls none - a join, a sleep,
+// a cancel - is no node.
+//
+// threads are the threads whose innermost call is this function at this
+// moment: the ones executing it, in the order they arrived. A thread
+// leaves when it calls something further or returns, so a function
+// nothing is executing has none.
 message Node {
-  string function = 1;
-  Status status   = 2;
-  int32 attempt   = 3;
-  string failure  = 4;
+  string name             = 1;
+  Status status           = 2;
+  repeated string threads = 3;
+}
+
+// Edge is one call in a run's graph: caller called callee, directly or by
+// spawning it.
+//
+// One edge per caller and callee, however many times the call was made. A
+// call a module's top level makes is drawn from the entry function, which a
+// run begins before its modules initialise.
+message Edge {
+  string caller = 1;
+  string callee = 2;
 }
 
 // Constant is a module-level value a body may read: a literal, or a call
 // of a function this graph declares.
 //
 // The second arm exists because some constants are computed. A Call
-// names a declared function and passes Value arguments, so it stays
-// inspectable and editable; arbitrary code before the entry point is
-// still refused, and a named call of a declared function is not that.
+// names a declared function and passes literal arguments or the names of
+// other constants, so it stays inspectable and editable; arbitrary code
+// before the entry point is still refused, and a named call of a
+// declared function is not that.
 message Constant {
   oneof kind {
     google.protobuf.Value value = 1;
@@ -278,19 +319,26 @@ message Constant {
   }
 }
 
-// Change is one function changing status, sent as it happens: which
-// thread it ran on, and the node as it now stands.
+// Change is one step of a run: the operations that take a host's copy of the
+// run's Graph, held as JSON, from before the step to after it. A copy starts
+// as {}, and the first change a run sends makes it running.
 //
-// An event, where a Node is a position. A host is told these while a run
-// is going and decides what to keep, because what is worth keeping, and
-// for how long, is the host's decision and not this runtime's.
+// An event, where a Graph is a state. A host told these while a run is
+// going decides what to keep, because what is worth keeping, and for how
+// long, is the host's decision and not this runtime's. A host that missed
+// one asks for the whole Graph again rather than guessing.
 //
-// node rather than the four fields repeated here. A Node already says
-// what a function is doing, which attempt it is on and what went wrong;
-// declaring those a second time would be two shapes to keep in step.
+// The operations are a JSON Patch, so any library that applies one applies
+// a change. Their paths point into the Graph's JSON as protojson writes it:
+// field names in lowerCamelCase, and a field at its default value absent,
+// so a field is set with add, which writes a member whether or not it is
+// there. Changes apply in the order they are sent, and a change's
+// operations in theirs.
+//
+// A started run sends them to the function a host names with WithChanges,
+// each from the goroutine of the step that made it, one at a time.
 message Change {
-  string thread = 1;
-  Node node     = 2;
+  repeated patch.Operation operations = 1;
 }
 
 // Arg is one argument a script declares: the name a caller supplies it
@@ -310,53 +358,68 @@ message Arg {
   google.protobuf.Value default = 2;
 }
 
-// Graph is the static half of a script's workflow: one entry per
-// top-level function, grouped into the threads that run them, the
-// module-level values those functions read, and the arguments a run
-// supplies. Every thread carries its static half, since nothing has run.
+// Flow is the workflow a UI reads: the functions, the statements inside
+// them, and main. It carries no status. A run does not require a flow.
+// Walking the script can produce one before execution, and a UI can
+// show the workflow from it. Executing the script produces the graph
+// either way.
 //
 // constants is a map because names are unique and order does not matter
-// for a value. It matters for a Call naming another constant, which is
-// the one case this cannot express: a generated file emits its
-// functions before its constants, so a constant's call may name any
-// function but not another constant.
+// for a value. A constant's call may name a function, or another
+// constant through Operand.name. The map has no order; a generator
+// walks those names when one constant calls another, one layer at a
+// time, alphabetical within a layer. A name unlocked during a layer
+// waits for the next one.
 //
 // args is a separate map rather than a third kind of Constant, because a
 // host asking what a workflow takes should read one field rather than
 // filter another. The two maps share a namespace: both bind a
 // module-level name, and a name in both is refused.
-message Graph {
+//
+// main is the spine, when every line of it is a statement. text is the
+// inside of def main, when it is not. thread_0 is that list and is not
+// stored. A generator writes def main() from whichever is set. The list
+// does not begin with a call of main. Field 2 is unused: it was the
+// thread list, and a flow has none.
+message Flow {
   repeated Function functions = 1;
-  repeated Thread threads     = 2;
-  map<string, Constant> constants    = 3;
-  map<string, Arg> args              = 4;
+  map<string, Constant> constants = 3;
+  map<string, Arg> args           = 4;
+
+  oneof spine {
+    Statements main           = 5;
+    string text               = 6;
+  }
 }
 
-// Cause names the node whose failure ended a run: which thread, which
-// function, and what it said.
+// Cause names the function whose failure ended a run, and what it said.
 //
-// A pointer rather than a copy of the text alone, because a reader
-// seeing why a run failed almost always wants to see where - and a
-// sentence with no function attached leaves them scanning every thread
-// for a failed node, which is ambiguous exactly when two of them failed.
+// A pointer rather than the text alone, because a reader seeing why a run
+// failed almost always wants to see where. A node carries only a status, so
+// this is where the failure's words are.
 //
-// Its text is the same text that node carries. That is one fact in two
-// places and is deliberate: a host showing a banner should not have to
-// walk the threads to fill it in.
+// function is empty when nothing the run called failed - a script with no
+// entry point, say - and failure is then the run's own.
 message Cause {
-  string thread   = 1;
-  string function = 2;
-  string failure  = 3;
+  string function = 1;
+  string failure  = 2;
 }
 
-// Workflow is a snapshot of one run's live status. Every thread carries
-// its live half, so nodes as well as steps.
+// Graph is the status of a run, as a call graph: every function the run
+// has called, each with its status and the threads executing it, and an
+// edge for each call between them. A user interface reads it to see what is
+// happening, while the run goes or once it has ended, and draws it as a
+// profiler draws one. It starts as {}, and each Change patches it.
 //
-// cause is set only when status is FAILED, so a host can test the
-// pointer rather than the enum. A cancelled run has no cause: nothing
-// went wrong in it, which is what CANCELLED is for.
-message Workflow {
+// functions are sorted by name, and calls by caller and then callee, so two
+// reads of one run differ only where the run did.
+//
+// cause is set only when status is FAILED, so a host can test the pointer
+// rather than the enum. A cancelled run has no cause: nothing went wrong in
+// it, which is what CANCELLED is for.
+message Graph {
   Status status           = 1;
-  repeated Thread threads = 2;
-  Cause cause             = 3;
+  repeated Node functions = 2;
+  repeated Edge calls     = 3;
+  Cause cause             = 4;
 }

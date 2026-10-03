@@ -9,6 +9,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -136,8 +137,8 @@ func TestBeside_InlineStaysOnTheCallersLane(t *testing.T) {
 //   - 2026-09-19 22:07: initial creation
 func TestBeside_RefusesAThreadWithNoRun(t *testing.T) {
 	_, err := Beside(&starlark.Thread{Name: SCRIPT_NAME}, _Callable(t, WORKER))
-	if !errors.Is(err, ErrNoRun) {
-		t.Fatalf("got %v, want ErrNoRun", err)
+	if !errors.Is(err, ERR_NO_RUN) {
+		t.Fatalf("got %v, want ERR_NO_RUN", err)
 	}
 }
 
@@ -167,8 +168,8 @@ func TestBeside_CancelStopsAnEvaluationMidFlight(t *testing.T) {
 		t.Fatal("a cancelled evaluation ran on")
 	}
 
-	if !errors.Is(handle.err, ErrCancelled) {
-		t.Fatalf("got %v, want ErrCancelled", handle.err)
+	if !errors.Is(handle.err, ERR_CANCELLED) {
+		t.Fatalf("got %v, want ERR_CANCELLED", handle.err)
 	}
 }
 
@@ -203,8 +204,8 @@ func TestWait_ReturnsWhenTheWaiterIsCancelled(t *testing.T) {
 
 	select {
 	case err := <-waited:
-		if !errors.Is(err, ErrCancelled) {
-			t.Fatalf("got %v, want ErrCancelled", err)
+		if !errors.Is(err, ERR_CANCELLED) {
+			t.Fatalf("got %v, want ERR_CANCELLED", err)
 		}
 	case <-time.After(CANCEL_LIMIT):
 		t.Fatal("a cancelled waiter waited the handle out")
@@ -283,12 +284,16 @@ func TestBeside_ConcurrentEvaluationsDoNotShareAThread(t *testing.T) {
 	}
 }
 
-// TestBeside_NamesALambdaAsTheInterpreterDoes records what a handle of an
-// anonymous function is called, which a reporter resolves against a graph.
+// TestBeside_ALambdaNobodyLabelledHasNoName records what a handle of an
+// anonymous function is called when no spawn labelled it: nothing, since
+// "lambda" would read like a function of that name.
 //
 // Revisions:
-//   - 2026-09-20 20:53: initial creation
-func TestBeside_NamesALambdaAsTheInterpreterDoes(t *testing.T) {
+//   - 2026-09-20 20:53: initial creation, as
+//     TestBeside_NamesALambdaAsTheInterpreterDoes
+//   - 2026-10-02 00:42: a lambda nobody labelled has no name, now that no
+//     graph resolves one
+func TestBeside_ALambdaNobodyLabelledHasNoName(t *testing.T) {
 	run := _Started(t.Context())
 
 	handle, err := Beside(_Thread(run), _Callable(t, ANON_FUNC))
@@ -296,11 +301,122 @@ func TestBeside_NamesALambdaAsTheInterpreterDoes(t *testing.T) {
 		t.Fatalf("beside: %v", err)
 	}
 
-	if handle.Name() != LAMBDA {
-		t.Fatalf("want the interpreter's own word for it, got %q", handle.Name())
+	if handle.Name() != "" {
+		t.Fatalf("want no name, got %q", handle.Name())
 	}
 
 	if _, err := Wait(_Thread(run), handle); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestBeside_ReportsASpawnOnTheThreadThatWroteIt checks the line a spawn
+// reports: on the parent, labelled with the function the lambda calls, the
+// child's id and the binding - and that the child's end is reported on the
+// child.
+//
+// Revisions:
+//   - 2026-10-02 00:42: initial creation
+func TestBeside_ReportsASpawnOnTheThreadThatWroteIt(t *testing.T) {
+	run := _Started(t.Context())
+	into := new(_Recording)
+	run.into = into
+
+	thread := _Thread(run)
+
+	handle, err := Beside(thread, _Callable(t, ANON_FUNC), Labelled(WORKER, BINDING_NAME))
+	if err != nil {
+		t.Fatalf("beside: %v", err)
+	}
+
+	if _, err := Wait(thread, handle); err != nil {
+		t.Fatal(err)
+	}
+
+	run.group.Wait()
+
+	started := into._Started()
+	if len(started) != 1 {
+		t.Fatalf("want one start, got %v", started)
+	}
+
+	got := started[0]
+	want := &Line{
+		Name:    WORKER,
+		Builtin: SPAWN_WORD,
+		Child:   handle.Thread(),
+		Binding: BINDING_NAME,
+	}
+
+	if got.thread != SPINE || got.line.Name != want.Name || got.line.Builtin != want.Builtin ||
+		got.line.Child != want.Child || got.line.Binding != want.Binding {
+		t.Fatalf("got %s %+v, want %s %+v", got.thread, got.line, SPINE, want)
+	}
+
+	ended := into._Ended()
+	if len(ended) != 1 || ended[0] != handle.Thread()+" "+WORKER {
+		t.Fatalf("want the child's end on the child, got %v", ended)
+	}
+}
+
+const (
+	BINDING_NAME = "h1"
+	SPAWN_WORD   = "spawn"
+)
+
+// _Recording is a reporter that keeps what it was told.
+type _Recording struct {
+	guard   sync.Mutex
+	starts  []*_Start
+	endings []string
+}
+
+// _Start is one start a reporter was told of.
+type _Start struct {
+	thread string
+	line   *Line
+}
+
+// Started keeps the start.
+//
+// Revisions:
+//   - 2026-10-02 00:42: initial creation
+func (r *_Recording) Started(thread string, line *Line) {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+
+	r.starts = append(r.starts, &_Start{thread: thread, line: line})
+}
+
+// Ended keeps the thread and the name of the end.
+//
+// Revisions:
+//   - 2026-10-02 00:42: initial creation
+func (r *_Recording) Ended(thread string, name string, err error) {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+
+	r.endings = append(r.endings, thread+" "+name)
+}
+
+// _Started is every start kept so far.
+//
+// Revisions:
+//   - 2026-10-02 00:42: initial creation
+func (r *_Recording) _Started() []*_Start {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+
+	return append([]*_Start(nil), r.starts...)
+}
+
+// _Ended is every end kept so far.
+//
+// Revisions:
+//   - 2026-10-02 00:42: initial creation
+func (r *_Recording) _Ended() []string {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+
+	return append([]string(nil), r.endings...)
 }

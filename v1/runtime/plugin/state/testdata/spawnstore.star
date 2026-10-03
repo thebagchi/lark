@@ -16,6 +16,6 @@ def bad():
 def main():
     spawn(bad)
 
-    sleep(0.1)
+    sleep(100)
 
     print("run survived")

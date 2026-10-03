@@ -1,0 +1,32 @@
+{
+  "status": "STATUS_SUCCEEDED",
+  "functions": [
+    {"name": "attempt", "status": "STATUS_SUCCEEDED"},
+    {"name": "bounded", "status": "STATUS_SUCCEEDED"},
+    {"name": "main", "status": "STATUS_SUCCEEDED"},
+    {"name": "once", "status": "STATUS_SUCCEEDED"},
+    {"name": "sign", "status": "STATUS_SUCCEEDED"},
+    {"name": "slow", "status": "STATUS_SUCCEEDED"},
+    {"name": "task_a", "status": "STATUS_SUCCEEDED"},
+    {"name": "task_b", "status": "STATUS_SUCCEEDED"},
+    {"name": "task_c", "status": "STATUS_SUCCEEDED"},
+    {"name": "task_d", "status": "STATUS_SUCCEEDED"},
+    {"name": "task_e", "status": "STATUS_SUCCEEDED"},
+    {"name": "work", "status": "STATUS_SUCCEEDED"}
+  ],
+  "calls": [
+    {"caller": "main", "callee": "attempt"},
+    {"caller": "main", "callee": "bounded"},
+    {"caller": "main", "callee": "once"},
+    {"caller": "main", "callee": "sign"},
+    {"caller": "main", "callee": "slow"},
+    {"caller": "main", "callee": "task_a"},
+    {"caller": "main", "callee": "task_b"},
+    {"caller": "main", "callee": "task_c"},
+    {"caller": "main", "callee": "task_d"},
+    {"caller": "main", "callee": "task_e"},
+    {"caller": "main", "callee": "work"},
+    {"caller": "task_a", "callee": "sign"},
+    {"caller": "task_a", "callee": "work"}
+  ]
+}

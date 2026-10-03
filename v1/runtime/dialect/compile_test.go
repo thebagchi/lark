@@ -8,6 +8,8 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/thebagchi/lark/v1/runtime/dialect"
+	"github.com/thebagchi/lark/v1/runtime/scheduler"
+	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
 const (
@@ -52,6 +54,8 @@ func (h *_Held) _Keep(
 //
 // Revisions:
 //   - 2026-09-29 23:33: initial creation
+//   - 2026-10-02 01:18: predeclares CALL, which the dialect now compiles a
+//     statement call of a script function through
 func _Ran(t *testing.T, src string) ([]string, error) {
 	t.Helper()
 
@@ -60,6 +64,7 @@ func _Ran(t *testing.T, src string) ([]string, error) {
 	env := starlark.StringDict{
 		dialect.SPAWN: starlark.NewBuiltin(dialect.SPAWN, held._Keep),
 		KEEP:          starlark.NewBuiltin(KEEP, held._Keep),
+		spelling.CALL: scheduler.CALL,
 	}
 
 	_, program, err := dialect.Compile(SCRIPT, []byte(src), env.Has)

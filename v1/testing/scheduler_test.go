@@ -13,6 +13,7 @@ import (
 
 	"go.starlark.net/starlark"
 
+	larkfile "github.com/thebagchi/lark/v1/plugin/file"
 	"github.com/thebagchi/lark/v1/runtime"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
@@ -29,20 +30,31 @@ func TestDuration_Boundary(t *testing.T) {
 func TestDuration_PastInt64IsRefused(t *testing.T) {
 	seconds := float64(uint64(math.MaxInt64)+1) / float64(time.Second)
 	_, err := scheduler.Duration(starlark.Float(seconds))
-	if !errors.Is(err, scheduler.ErrDuration) {
-		t.Fatalf("got %v, want ErrDuration", err)
+	if !errors.Is(err, scheduler.ERR_DURATION) {
+		t.Fatalf("got %v, want ERR_DURATION", err)
 	}
 }
 
+// _Run compiles src and runs it, failing the test if it does not compile. Its
+// script is given file beside the runtime's own plugins, as these probes were
+// written against.
+//
+// Revisions:
+//   - 2026-09-24 17:32: initial creation
+//   - 2026-10-02 17:12: hands the compiler file, which the runtime no longer
+//     gives a script by itself
 func _Run(t *testing.T, src string) (starlark.Value, error) {
 	t.Helper()
 
-	built, err := runtime.NewCompiler().Compile("fixed.star", []byte(src))
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: "fixed.star", Text: []byte(src)},
+		runtime.WithPlugins(&larkfile.Plugin{}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return built.Run(context.Background())
+	return runtime.Start(context.Background(), built).Wait()
 }
 
 func TestState_SetOfAnotherNameInsideUpdateIsRefused(t *testing.T) {
@@ -54,8 +66,8 @@ def main():
     state.update("a", change)
     return "reached"
 `)
-	if !errors.Is(err, scheduler.ErrNested) {
-		t.Fatalf("got %v, want ErrNested", err)
+	if !errors.Is(err, scheduler.ERR_NESTED) {
+		t.Fatalf("got %v, want ERR_NESTED", err)
 	}
 }
 
@@ -66,7 +78,7 @@ func TestJoin_UnderTheLockIsRefused(t *testing.T) {
 	started := time.Now()
 	_, err := _RunCtx(t, ctx, `
 def rival():
-    sleep(0.05)
+    sleep(50)
     return state.update("k", lambda v: "rival")
 
 def main():
@@ -76,8 +88,8 @@ def main():
 	if time.Since(started) > 500*time.Millisecond {
 		t.Fatalf("join under the lock ran for %s: %v", time.Since(started), err)
 	}
-	if !errors.Is(err, runtime.ErrNested) {
-		t.Fatalf("got %v, want ErrNested", err)
+	if !errors.Is(err, runtime.ERR_NESTED) {
+		t.Fatalf("got %v, want ERR_NESTED", err)
 	}
 	if !strings.Contains(err.Error(), "join") {
 		t.Fatalf("want the refusal at join, got %v", err)
@@ -87,7 +99,7 @@ def main():
 func TestSpawn_InsideAnUpdateCarriesTheBan(t *testing.T) {
 	_, err := _Run(t, `
 def child():
-    sleep(0.05)
+    sleep(50)
     state.set("b", 1)
 
 def main():
@@ -98,7 +110,7 @@ def main():
     state.update("a", change)
     return join(found[0])
 `)
-	if !errors.Is(err, runtime.ErrNested) {
+	if !errors.Is(err, runtime.ERR_NESTED) {
 		t.Fatalf("child set after the update: %v", err)
 	}
 	if !strings.Contains(err.Error(), "started inside an update") {
@@ -136,25 +148,42 @@ def main():
 	}
 }
 
-func _RunCtx(t *testing.T, ctx context.Context, src string) (starlark.Value, error) {
+// _RunCtx compiles src and runs it with ctx, answering with a compile's error
+// as well as a run's. Its script is given file beside the runtime's own
+// plugins, as these probes were written against.
+//
+// Revisions:
+//   - 2026-09-24 17:32: initial creation
+//   - 2026-10-02 17:12: hands the compiler file, which the runtime no longer
+//     gives a script by itself
+//   - 2026-10-03 08:33: takes the run's options, a memory ceiling among them
+func _RunCtx(
+	t *testing.T,
+	ctx context.Context,
+	src string,
+	opts ...runtime.RunOption,
+) (starlark.Value, error) {
 	t.Helper()
-	built, err := runtime.NewCompiler().Compile("after.star", []byte(src))
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: "after.star", Text: []byte(src)},
+		runtime.WithPlugins(&larkfile.Plugin{}),
+	)
 	if err != nil {
 		return nil, err
 	}
-	return built.Run(ctx)
+	return runtime.Start(ctx, built, opts...).Wait()
 }
 
 const (
-	// _SETTLE is how long main waits, in seconds as its script spells it, so an
-	// unjoined child reaches its failure before the run ends. Without this the
-	// exit would cancel the child first and the test would pass having proved
-	// nothing.
-	_SETTLE = 0.2
+	// _SETTLE is how long main waits, in milliseconds as its script spells it,
+	// so an unjoined child reaches its failure before the run ends. Without
+	// this the exit would cancel the child first and the test would pass having
+	// proved nothing.
+	_SETTLE = 200
 
-	// _ORPHAN_SLEEP is how long the abandoned child asks to sleep, in seconds
-	// as its script spells it.
-	_ORPHAN_SLEEP = 2
+	// _ORPHAN_SLEEP is how long the abandoned child asks to sleep, in
+	// milliseconds as its script spells it.
+	_ORPHAN_SLEEP = 2000
 
 	// _KILLED_WITHIN is how long the run may take before its child is taken to
 	// have been waited for rather than killed. Measured 2026-09-24: 0.205s

@@ -10,14 +10,14 @@ import (
 )
 
 var (
-	// ErrAssert is what a script raises through assert, which is the only way
+	// ERR_ASSERT is what a script raises through assert, which is the only way
 	// it can signal failure: raise is a reserved lexer keyword and a builtin of
 	// that name will not parse as a call.
-	ErrAssert = errors.New("assertion failed")
+	ERR_ASSERT = errors.New("assertion failed")
 
-	// ErrNotACondition is returned for assert("text"), which reads like an
+	// ERR_NOT_A_CONDITION is returned for assert("text"), which reads like an
 	// unconditional failure and behaves like a passing test.
-	ErrNotACondition = errors.New("assert wants a condition")
+	ERR_NOT_A_CONDITION = errors.New("assert wants a condition")
 )
 
 // _Assert fails the run when cond is false, and does nothing when it is true.
@@ -44,8 +44,8 @@ var (
 // sentinel still differs, so a host can tell a malformed script from a failing
 // one.
 //
-// Returns ErrAssert when the condition is false or the keyword form was used,
-// and ErrNotACondition when the only argument is a string.
+// Returns ERR_ASSERT when the condition is false or the keyword form was used,
+// and ERR_NOT_A_CONDITION when the only argument is a string.
 //
 // Revisions:
 //   - 2026-09-19 20:46: initial creation
@@ -86,7 +86,7 @@ func _Assert(
 			text.String(),
 			ASSERT,
 			ASSERT,
-			ErrNotACondition,
+			ERR_NOT_A_CONDITION,
 		))
 	}
 
@@ -104,8 +104,8 @@ func _Assert(
 //   - 2026-09-19 23:59: initial creation
 func _Failure(msg starlark.Value) error {
 	if msg == nil {
-		return ErrAssert
+		return ERR_ASSERT
 	}
 
-	return fmt.Errorf("%s: %w", msg.String(), ErrAssert)
+	return fmt.Errorf("%s: %w", msg.String(), ERR_ASSERT)
 }

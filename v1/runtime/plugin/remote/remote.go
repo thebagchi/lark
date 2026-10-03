@@ -48,22 +48,22 @@ const (
 )
 
 var (
-	// ErrGone is returned when the plugin that supplied a name has left.
-	ErrGone = errors.New("the plugin that supplied this name has gone")
+	// ERR_GONE is returned when the plugin that supplied a name has left.
+	ERR_GONE = errors.New("the plugin that supplied this name has gone")
 
-	// ErrAttached is returned to a plugin claiming a name another process is
+	// ERR_ATTACHED is returned to a plugin claiming a name another process is
 	// already answering for.
-	ErrAttached = errors.New("a plugin of this name is already attached")
+	ERR_ATTACHED = errors.New("a plugin of this name is already attached")
 
-	// ErrRenamed is returned to a returning plugin announcing different names
+	// ERR_RENAMED is returned to a returning plugin announcing different names
 	// from the ones it announced before.
-	ErrRenamed = errors.New("a plugin may not change what it supplies by restarting")
+	ERR_RENAMED = errors.New("a plugin may not change what it supplies by restarting")
 
-	// ErrRemote is returned for a failure the plugin itself reported.
-	ErrRemote = errors.New("the plugin refused")
+	// ERR_REMOTE is returned for a failure the plugin itself reported.
+	ERR_REMOTE = errors.New("the plugin refused")
 
-	// ErrArgument is returned for an argument that cannot cross a socket.
-	ErrArgument = errors.New("not data a plugin can be given")
+	// ERR_ARGUMENT is returned for an argument that cannot cross a socket.
+	ERR_ARGUMENT = errors.New("not data a plugin can be given")
 )
 
 // _Remote is one plugin as the host sees it, across however many times its
@@ -109,12 +109,12 @@ func (r *_Remote) _Attach(names []string) (chan *pluginpb.Ask, chan struct{}, er
 	defer r.guard.Unlock()
 
 	if r.live {
-		return nil, nil, fmt.Errorf("%s: %w", r.name, ErrAttached)
+		return nil, nil, fmt.Errorf("%s: %w", r.name, ERR_ATTACHED)
 	}
 
 	if r.names != nil && !_Same(r.names, names) {
 		return nil, nil, fmt.Errorf("%s: was %v, now %v: %w",
-			r.name, r.names, names, ErrRenamed)
+			r.name, r.names, names, ERR_RENAMED)
 	}
 
 	r.names = names
@@ -229,7 +229,7 @@ func (r *_Remote) _Builtin(named string, shown string) *starlark.Builtin {
 	) (starlark.Value, error) {
 		if len(kwargs) > 0 {
 			return nil, fmt.Errorf("%s: keyword arguments do not cross: %w",
-				fn.Name(), ErrArgument)
+				fn.Name(), ERR_ARGUMENT)
 		}
 
 		sent, err := _Sendable(fn.Name(), args)
@@ -259,7 +259,7 @@ func _Sendable(who string, args starlark.Tuple) ([]*structpb.Value, error) {
 		bad, ok := deep.IsData(given)
 		if !ok {
 			return nil, fmt.Errorf("%s: argument %d holds %s: %w",
-				who, index, bad.Type(), ErrArgument)
+				who, index, bad.Type(), ERR_ARGUMENT)
 		}
 
 		held, err := _Value(given)
@@ -286,7 +286,7 @@ func _Sendable(who string, args starlark.Tuple) ([]*structpb.Value, error) {
 // it either. A plugin that never answers would have held the run for as long as
 // it liked.
 //
-// Returns ErrCancelled wrapping the context's error when the caller is
+// Returns ERR_CANCELLED wrapping the context's error when the caller is
 // cancelled first. The plugin is not told: the answer it eventually sends is
 // dropped by _Answered, because nobody is waiting for it any more.
 //
@@ -326,13 +326,13 @@ func (r *_Remote) _Ask(
 	// stream and watching another.
 	asks, gone := r._Stream()
 	if asks == nil {
-		return nil, fmt.Errorf("%s: %w", who, ErrGone)
+		return nil, fmt.Errorf("%s: %w", who, ERR_GONE)
 	}
 
 	select {
 	case asks <- ask:
 	case <-gone:
-		return nil, fmt.Errorf("%s: %w", who, ErrGone)
+		return nil, fmt.Errorf("%s: %w", who, ERR_GONE)
 	case <-ctx.Done():
 		return nil, _Cancelled(who, ctx)
 	}
@@ -340,13 +340,13 @@ func (r *_Remote) _Ask(
 	select {
 	case answer := <-answers:
 		if answer.GetFailed() != "" {
-			return nil, fmt.Errorf("%s: %s: %w", who, answer.GetFailed(), ErrRemote)
+			return nil, fmt.Errorf("%s: %s: %w", who, answer.GetFailed(), ERR_REMOTE)
 		}
 
 		return _Starlark(answer.GetResult())
 
 	case <-gone:
-		return nil, fmt.Errorf("%s: %w", who, ErrGone)
+		return nil, fmt.Errorf("%s: %w", who, ERR_GONE)
 	case <-ctx.Done():
 		return nil, _Cancelled(who, ctx)
 	}
@@ -357,7 +357,7 @@ func (r *_Remote) _Ask(
 // Revisions:
 //   - 2026-09-26 01:34: initial creation
 func _Cancelled(who string, ctx context.Context) error {
-	return fmt.Errorf("%s: %w: %w", who, scheduler.ErrCancelled, ctx.Err())
+	return fmt.Errorf("%s: %w: %w", who, scheduler.ERR_CANCELLED, ctx.Err())
 }
 
 // _Answered hands an answer to whoever is waiting for it.

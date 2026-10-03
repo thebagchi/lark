@@ -9,7 +9,6 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/thebagchi/lark/v1/runtime"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/core"
 	"github.com/thebagchi/lark/v1/runtime/plugin/random"
 )
 
@@ -30,12 +29,12 @@ func _Ran(t *testing.T, name string) starlark.Value {
 		t.Fatalf("read %s: %v", name, err)
 	}
 
-	art, err := runtime.NewCompiler().Compile(path, src)
+	art, err := runtime.Compile(&runtime.Source{Entry: path, Text: src})
 	if err != nil {
 		t.Fatalf("compile %s: %v", name, err)
 	}
 
-	got, err := art.Run(t.Context())
+	got, err := runtime.Start(t.Context(), art).Wait()
 	if err != nil {
 		t.Fatalf("run %s: %v", name, err)
 	}
@@ -53,12 +52,12 @@ func _Expression(t *testing.T, body string) (starlark.Value, error) {
 
 	src := "def main():\n    " + body + "\n"
 
-	art, err := runtime.NewCompiler().Compile("random_test.star", []byte(src))
+	art, err := runtime.Compile(&runtime.Source{Entry: "random_test.star", Text: []byte(src)})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 
-	return art.Run(t.Context())
+	return runtime.Start(t.Context(), art).Wait()
 }
 
 // TestSeed_RepeatsOnOneThread is what seeding is for, and the limit of what it
@@ -85,17 +84,17 @@ func TestSeed_RepeatsOnOneThread(t *testing.T) {
 func TestSource_BelongsToOneRun(t *testing.T) {
 	src := []byte("def main():\n    return [random.int(1, 1000000000) for i in range(8)]\n")
 
-	art, err := runtime.NewCompiler().Compile("unseeded.star", src)
+	art, err := runtime.Compile(&runtime.Source{Entry: "unseeded.star", Text: src})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 
-	first, err := art.Run(t.Context())
+	first, err := runtime.Start(t.Context(), art).Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	second, err := art.Run(t.Context())
+	second, err := runtime.Start(t.Context(), art).Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,9 +188,9 @@ func TestRandom_RefusesWhatItCannotDo(t *testing.T) {
 		body string
 		want error
 	}{
-		{"a backwards range", "return random.int(9, 1)", random.ErrRange},
-		{"a choice from nothing", "return random.choice([])", random.ErrEmpty},
-		{"negative bytes", "return random.bytes(-1)", random.ErrRange},
+		{"a backwards range", "return random.int(9, 1)", random.ERR_RANGE},
+		{"a choice from nothing", "return random.choice([])", random.ERR_EMPTY},
+		{"negative bytes", "return random.bytes(-1)", random.ERR_RANGE},
 	}
 
 	for _, item := range cases {

@@ -1,8 +1,6 @@
 package scheduler
 
 import (
-	"context"
-
 	"go.starlark.net/starlark"
 )
 
@@ -20,100 +18,44 @@ import (
 // implements it. Two methods, because there are two moments - not because a
 // third might be useful later.
 //
-// Ended takes an error rather than a status, so whoever maps "this failed" to a
-// value in some schema does it in one place, next to the schema. This package
-// names no status anywhere.
+// Started takes a Line, the facts of the line that started. Ended takes an
+// error rather than a status, so whoever maps "this failed" to a value in some
+// schema does it in one place, next to the schema. This package names no status
+// and no kind anywhere: a line carries the name of the builtin that reported
+// it, and the schema's word for that is the watcher's to choose.
 //
-// Printed is the third moment: a line a script printed, on the lane that
-// printed it. It is here rather than carried separately because it is the
-// same kind of thing - something a run tells its host - and a host collecting
-// a run's output wants it beside the statuses.
+// What a script prints is not a moment of the run, and is not here: it is the
+// run's transcript, which goes where WithTranscript says.
 type Reporter interface {
-	Started(thread string, name string, attempt int32)
+	Started(thread string, line *Line)
 	Ended(thread string, name string, err error)
-	Printed(thread string, msg string)
 }
 
-// _Key is the context key a reporter is carried under. Its own type, so
-// nothing else can collide with it.
-type _Key struct{}
-
-// _Console is a reporter that only prints, for a host that wants a script's
-// output and nothing else.
-type _Console struct {
-	print func(string)
+// Line is one line a thread reports starting.
+//
+// Name is the function it called, empty for a join, a sleep or a cancel, and
+// for a lambda that names no function the script defines. Builtin is the
+// builtin that reported it - spawn, join, cancel, sleep, repeat, retry,
+// timeout, or if and match for a branch - and empty for a plain call. Attempt
+// is which attempt a repeat or a retry is on, and Count how many it makes or
+// may make. Child is the thread a spawn started, Binding the name the script
+// gave that spawn, and Waits the threads a join waits on.
+//
+// A struct rather than seven parameters, because a line has that many facts and
+// most lines set two of them. Exported fields, because core and flow build one
+// and a watcher reads it, as go.md allows a plain data struct handed across a
+// package boundary.
+type Line struct {
+	Name    string
+	Builtin string
+	Attempt int32
+	Count   int32
+	Child   string
+	Binding string
+	Waits   []string
 }
 
-// Started is empty: a console reports nothing but what was printed.
-//
-// Revisions:
-//   - 2026-09-21 09:46: initial creation
-func (c *_Console) Started(thread string, name string, attempt int32) {
-	// Empty
-}
-
-// Ended is empty: a console reports nothing but what was printed.
-//
-// Revisions:
-//   - 2026-09-21 09:46: initial creation
-func (c *_Console) Ended(thread string, name string, err error) {
-	// Empty
-}
-
-// Printed hands the line to the host.
-//
-// Revisions:
-//   - 2026-09-21 09:46: initial creation
-func (c *_Console) Printed(thread string, msg string) {
-	c.print(msg)
-}
-
-// WithReporter returns a context carrying the reporter a run should tell what
-// it is doing.
-//
-// The context, because that is what a caller already hands to a run and the
-// only thing that reaches Begin from outside this package.
-//
-// Revisions:
-//   - 2026-09-20 01:39: initial creation
-func WithReporter(ctx context.Context, into Reporter) context.Context {
-	return context.WithValue(ctx, _Key{}, into)
-}
-
-// WithPrinter returns a context carrying a reporter that only prints, for a
-// host that wants a script's output and nothing else.
-//
-// One reporter per run: this and WithReporter set the same thing, and the
-// later call wins. A host that wants both implements Printed on its reporter.
-// Without either the interpreter's default stands, which writes to standard
-// error.
-//
-// Revisions:
-//   - 2026-09-21 08:09: initial creation, carrying a function of its own
-//   - 2026-09-21 09:46: a reporter, so a run tells its host one thing
-func WithPrinter(ctx context.Context, print func(string)) context.Context {
-	return WithReporter(ctx, &_Console{print: print})
-}
-
-// Reporting returns what this run reports to, or nil if nothing is listening.
-//
-// Nil rather than an error, and nil rather than a do-nothing reporter: a script
-// run from a command line has no watcher, and that is the ordinary case rather
-// than a degraded one. Every call site checks, and pays a nil check.
-//
-// Revisions:
-//   - 2026-09-20 01:39: initial creation
-//   - 2026-09-21 08:09: read from the run, which every evaluation carries
-func Reporting(thread *starlark.Thread) Reporter {
-	locals, err := _Of(thread)
-	if err != nil {
-		return nil
-	}
-
-	return locals.run.into
-}
-
-// Number is the id of the lane the evaluation on thread runs on.
+// _Lane is the id of the lane the evaluation on thread runs on.
 //
 // The spine when a thread carries none, which is a thread nothing set up. An id
 // is only ever used to group what is reported, so a wrong lane is a tidier
@@ -123,7 +65,8 @@ func Reporting(thread *starlark.Thread) Reporter {
 //   - 2026-09-20 01:39: initial creation
 //   - 2026-09-21 00:59: a thread id is a string that names its parent
 //   - 2026-09-21 08:09: read from the one local
-func Number(thread *starlark.Thread) string {
+//   - 2026-10-03 08:26: unexported as _Lane, nothing outside this package asking it
+func _Lane(thread *starlark.Thread) string {
 	locals, err := _Of(thread)
 	if err != nil {
 		return SPINE
@@ -132,17 +75,43 @@ func Number(thread *starlark.Thread) string {
 	return locals.thread
 }
 
-// _Reporter returns the reporter carried by ctx, or nil.
+// Open tells whatever is watching the run on thread that a line has started,
+// on the lane thread runs on.
+//
+// Through the run's guard, so a reporter that raises ends the run as one that
+// raises on a spawn does, rather than failing whatever builtin reported the
+// line. Nothing to tell when nothing is listening, or when thread carries no
+// run.
 //
 // Revisions:
-//   - 2026-09-20 01:39: initial creation
-func _Reporter(ctx context.Context) Reporter {
-	into, ok := ctx.Value(_Key{}).(Reporter)
-	if !ok {
-		return nil
+//   - 2026-10-02 00:38: initial creation, from flow's _Began, so every builtin
+//     reports a line one way
+func Open(thread *starlark.Thread, line *Line) {
+	locals, err := _Of(thread)
+	if err != nil {
+		return
 	}
 
-	return into
+	locals.run._Tell(func() {
+		locals.run.into.Started(locals.thread, line)
+	})
+}
+
+// Close tells whatever is watching the run on thread how the line that called
+// name ended, through the same guard as Open.
+//
+// Revisions:
+//   - 2026-10-02 00:38: initial creation, from flow's _Finished, so every
+//     builtin reports a line one way
+func Close(thread *starlark.Thread, name string, err error) {
+	locals, failure := _Of(thread)
+	if failure != nil {
+		return
+	}
+
+	locals.run._Tell(func() {
+		locals.run.into.Ended(locals.thread, name, err)
+	})
 }
 
 // LAMBDA is what the interpreter calls an anonymous function. Nothing refuses

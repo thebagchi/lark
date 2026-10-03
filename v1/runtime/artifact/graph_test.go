@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/thebagchi/lark/v1/runtime/artifact"
+	"github.com/thebagchi/lark/v1/runtime/script"
 )
 
 const (
@@ -84,8 +85,11 @@ func _Fixture(t *testing.T, name string) []byte {
 // Revisions:
 //   - 2026-09-19 21:45: initial creation
 func TestCompile_AllowsAModuleWithoutAnEntryPoint(t *testing.T) {
-	_, err := artifact.NewCompiler(artifact.WithLoader(_Loader())).
-		Compile(LIB_FIXTURE, _Fixture(t, LIB_FIXTURE))
+	_, err := artifact.Compile(&script.Source{
+		Entry:  LIB_FIXTURE,
+		Text:   _Fixture(t, LIB_FIXTURE),
+		Loader: _Loader(),
+	})
 	if err != nil {
 		t.Fatalf("compiling a library: %v", err)
 	}
@@ -100,10 +104,13 @@ func TestCompile_AllowsAModuleWithoutAnEntryPoint(t *testing.T) {
 func TestCompile_RefusesACycleWithoutRunningAnything(t *testing.T) {
 	loader := _Loader()
 
-	_, err := artifact.NewCompiler(artifact.WithLoader(loader)).
-		Compile(CYCLE_A_FIXTURE, _Fixture(t, CYCLE_A_FIXTURE))
-	if !errors.Is(err, artifact.ErrCycle) {
-		t.Fatalf("compiling a cycle gave %v, want ErrCycle", err)
+	_, err := artifact.Compile(&script.Source{
+		Entry:  CYCLE_A_FIXTURE,
+		Text:   _Fixture(t, CYCLE_A_FIXTURE),
+		Loader: loader,
+	})
+	if !errors.Is(err, artifact.ERR_CYCLE) {
+		t.Fatalf("compiling a cycle gave %v, want ERR_CYCLE", err)
 	}
 
 	if !strings.Contains(err.Error(), EXPECTED_RING) {
@@ -126,8 +133,11 @@ func TestCompile_RefusesACycleWithoutRunningAnything(t *testing.T) {
 func TestCompile_FetchesEachModuleOnce(t *testing.T) {
 	loader := _Loader()
 
-	_, err := artifact.NewCompiler(artifact.WithLoader(loader)).
-		Compile(APP_FIXTURE, _Fixture(t, APP_FIXTURE))
+	_, err := artifact.Compile(&script.Source{
+		Entry:  APP_FIXTURE,
+		Text:   _Fixture(t, APP_FIXTURE),
+		Loader: loader,
+	})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -140,16 +150,20 @@ func TestCompile_FetchesEachModuleOnce(t *testing.T) {
 	}
 }
 
-// TestCompile_RefusesALoadWithNoLoader proves a host that supplied no way to
-// reach modules is told so, rather than handed something that reads like a
-// parse failure.
+// TestCompile_ReadsModulesBesideTheScriptByDefault proves a source naming no
+// Modules is compiled with every module it loads read as a file beside the one
+// that loaded it.
 //
 // Revisions:
-//   - 2026-09-19 21:46: initial creation
-func TestCompile_RefusesALoadWithNoLoader(t *testing.T) {
-	_, err := artifact.NewCompiler(artifact.WithLoader(nil)).
-		Compile(APP_FIXTURE, _Fixture(t, APP_FIXTURE))
-	if !errors.Is(err, artifact.ErrNoLoader) {
-		t.Fatalf("loading without a loader gave %v, want ErrNoLoader", err)
+//   - 2026-09-19 21:46: initial creation, as TestCompile_RefusesALoadWithNoLoader
+//   - 2026-10-03 00:14: a source with no Modules reads files beside the script,
+//     there being no compile without a loader to refuse
+func TestCompile_ReadsModulesBesideTheScriptByDefault(t *testing.T) {
+	_, err := artifact.Compile(&script.Source{
+		Entry: filepath.Join(FIXTURE_DIR, APP_FIXTURE),
+		Text:  _Fixture(t, APP_FIXTURE),
+	})
+	if err != nil {
+		t.Fatalf("compiling with modules beside the script: %v", err)
 	}
 }

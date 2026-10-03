@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package patch;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/thebagchi/lark/proto/gen/patch;patch";
+
+// Operation is one operation of a JSON Patch, RFC 6902, so a document held
+// as JSON is changed by any library that applies one.
+//
+// op is add, remove, replace, move, copy or test, spelled as the RFC spells
+// it. A string rather than an enum, because an enum's JSON name would be
+// OP_ADD, which no JSON Patch library reads.
+//
+// path is a JSON Pointer, RFC 6901, to the member or element the operation
+// acts on. value is what add and replace write and what test compares, and
+// from is where move and copy read. Each is absent for an op that takes
+// none, and a value that is JSON null is present, as a null.
+message Operation {
+  string op                   = 1;
+  string path                 = 2;
+  google.protobuf.Value value = 3;
+  string from                 = 4;
+}

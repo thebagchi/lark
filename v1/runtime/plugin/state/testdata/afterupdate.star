@@ -7,7 +7,7 @@
 # not reach the run, so what it did is read from what it printed.
 
 def child():
-    sleep(0.05)
+    sleep(50)
 
     print("child reached the store")
 
@@ -23,4 +23,4 @@ def spawner(v):
 def main():
     state.update("a", spawner)
 
-    sleep(0.3)
+    sleep(300)

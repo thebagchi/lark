@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/v1/runtime/artifact"
 )
 
 const (
@@ -51,7 +53,7 @@ func (e *_Exploding) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-19 23:23: initial creation
 func TestRun_APanickingBuiltinFailsTheRunNotTheProcess(t *testing.T) {
-	_, err := _Built(t, EXPLODES_FIXTURE).Run(t.Context())
+	_, err := artifact.Run(t.Context(), _Built(t, EXPLODES_FIXTURE))
 	if err == nil {
 		t.Fatal("a panicking builtin did not fail the run")
 	}

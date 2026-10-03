@@ -45,7 +45,7 @@ func _Int2Bytes(
 
 	if number.BitLen() > width*BITS_PER_BYTE {
 		return nil, fmt.Errorf("%s: %s does not fit %d bytes: %w",
-			fn.Name(), number, width, ErrRange)
+			fn.Name(), number, width, ERR_RANGE)
 	}
 
 	return starlark.Bytes(number.FillBytes(make([]byte, width))), nil

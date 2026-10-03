@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/v1/runtime/graph"
+	"github.com/thebagchi/lark/v1/runtime/script"
 )
 
 // DECLARING is a script declaring every shape an argument can take, with the
@@ -52,8 +54,9 @@ const DECLARED = 9
 //
 // Revisions:
 //   - 2026-09-22 22:48: initial creation
+//   - 2026-10-02 00:16: reads a Flow
 func TestOf_AnArgumentCarriesBothNames(t *testing.T) {
-	args := _Derived(t, DECLARING).Graph.GetArgs()
+	args := _Derived(t, DECLARING).GetArgs()
 
 	if len(args) != DECLARED {
 		t.Fatalf("derived %d arguments, want %d", len(args), DECLARED)
@@ -70,8 +73,9 @@ func TestOf_AnArgumentCarriesBothNames(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-22 22:48: initial creation
+//   - 2026-10-02 00:16: reads a Flow
 func TestOf_AnArgumentWithNoDefaultCarriesNone(t *testing.T) {
-	args := _Derived(t, DECLARING).Graph.GetArgs()
+	args := _Derived(t, DECLARING).GetArgs()
 
 	if args["token"].GetDefault() != nil {
 		t.Fatalf("token defaults to %v, want nothing", args["token"].GetDefault())
@@ -87,8 +91,9 @@ func TestOf_AnArgumentWithNoDefaultCarriesNone(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-22 22:48: initial creation
+//   - 2026-10-02 00:16: reads a Flow
 func TestOf_AConstantIsNotAnArgument(t *testing.T) {
-	derived := _Derived(t, DECLARING).Graph
+	derived := _Derived(t, DECLARING)
 
 	if derived.GetConstants()["limit"].GetValue().GetNumberValue() != 3 {
 		t.Fatalf(
@@ -109,6 +114,7 @@ func TestOf_AConstantIsNotAnArgument(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-22 22:48: initial creation
+//   - 2026-10-02 00:16: reads a Flow
 func TestOf_AMalformedDeclarationIsRefused(t *testing.T) {
 	cases := map[string]string{
 		"no name":     "x = arg()\n",
@@ -119,13 +125,12 @@ func TestOf_AMalformedDeclarationIsRefused(t *testing.T) {
 
 	for name, declaring := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := graph.Of(
-				[]byte(declaring+"\ndef main():\n    pass\n"),
-				SOURCED,
-				nil,
-			)
-			if !errors.Is(err, graph.ErrNotCarried) {
-				t.Fatalf("got %v, want ErrNotCarried", err)
+			_, err := graph.Of(&script.Source{
+				Entry: "script.star",
+				Text:  []byte(declaring + "\ndef main():\n    pass\n"),
+			})
+			if !errors.Is(err, graph.ERR_NOT_CARRIED) {
+				t.Fatalf("got %v, want ERR_NOT_CARRIED", err)
 			}
 		})
 	}
@@ -137,15 +142,16 @@ func TestOf_AMalformedDeclarationIsRefused(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-22 22:48: initial creation
+//   - 2026-10-02 00:16: reads a Flow
 func TestEmit_DeclarationsSurviveTheRoundTrip(t *testing.T) {
-	first := _Derived(t, DECLARING).Graph
+	first := _Derived(t, DECLARING)
 
 	out, err := graph.Emit(first)
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
 
-	again := _Derived(t, string(out)).Graph
+	again := _Derived(t, string(out))
 
 	for bound, declared := range first.GetArgs() {
 		if !proto.Equal(declared, again.GetArgs()[bound]) {
@@ -166,11 +172,12 @@ func TestEmit_DeclarationsSurviveTheRoundTrip(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-22 22:48: initial creation
+//   - 2026-10-02 00:16: reads a Flow
 func TestEmit_WritesTheDeclarationAScriptWrote(t *testing.T) {
-	out, err := graph.Emit(&workflowpb.Graph{
-		Functions: []*workflowpb.Function{{Name: "main", Body: "print(db)"}},
+	out, err := graph.Emit(&workflowpb.Flow{
+		Spine: &workflowpb.Flow_Text{Text: "print(db)"},
 		Args: map[string]*workflowpb.Arg{
-			"db":    {Name: "host", Default: _Text("db.internal")},
+			"db":    {Name: "host", Default: structpb.NewStringValue("db.internal")},
 			"token": {Name: "token"},
 		},
 	})
@@ -195,8 +202,9 @@ func TestEmit_WritesTheDeclarationAScriptWrote(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-22 23:12: initial creation
+//   - 2026-10-02 00:16: reads a Flow
 func TestOf_AScriptsOwnArgIsNotADeclaration(t *testing.T) {
-	derived := _Derived(t, SHADOWING).Graph
+	derived := _Derived(t, SHADOWING)
 
 	if len(derived.GetArgs()) != 0 {
 		t.Fatalf("derived %v as arguments, want none", derived.GetArgs())
@@ -228,12 +236,13 @@ func TestOf_AScriptsOwnArgIsNotADeclaration(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-22 23:20: initial creation
+//   - 2026-10-02 00:16: reads a Flow
 func TestEmit_AHostileNameStaysAString(t *testing.T) {
 	payload := "x\")\nprint(\"broken out\nevil = arg(\"y"
 
-	out, err := graph.Emit(&workflowpb.Graph{
-		Functions: []*workflowpb.Function{{Name: "main", Body: "print(taken)"}},
-		Args:      map[string]*workflowpb.Arg{"taken": {Name: payload}},
+	out, err := graph.Emit(&workflowpb.Flow{
+		Spine: &workflowpb.Flow_Text{Text: "print(taken)"},
+		Args:  map[string]*workflowpb.Arg{"taken": {Name: payload}},
 	})
 	if err != nil {
 		t.Fatalf("emit: %v", err)
@@ -242,7 +251,7 @@ func TestEmit_AHostileNameStaysAString(t *testing.T) {
 	// The payload tries to close the literal and bind a second argument. What
 	// the generated script actually declares is the test: one argument, named
 	// by the whole payload, and no sign of the one it tried to smuggle in.
-	again := _Derived(t, string(out)).Graph
+	again := _Derived(t, string(out))
 
 	if len(again.GetArgs()) != 1 || again.GetConstants()["evil"] != nil {
 		t.Fatalf("emitted:\n%s\nwhich declared %v", out, again.GetArgs())

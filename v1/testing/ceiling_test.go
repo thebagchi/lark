@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	larkfile "github.com/thebagchi/lark/v1/plugin/file"
 	"github.com/thebagchi/lark/v1/runtime"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
@@ -50,16 +51,21 @@ func _Reading(t *testing.T) []byte {
 //
 // Revisions:
 //   - 2026-09-24 23:40: initial creation
+//   - 2026-10-02 17:12: hands the compiler file, which the runtime no longer
+//     gives a script by itself
 func TestCeiling_AHostChoosesWhatARunMayHold(t *testing.T) {
 	src := _Reading(t)
 
-	built, err := runtime.NewCompiler().Compile("ceiling.star", src)
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: "ceiling.star", Text: src},
+		runtime.WithPlugins(&larkfile.Plugin{}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = built.Run(scheduler.Allowing(context.Background(), _NARROW))
-	if !errors.Is(err, scheduler.ErrMemory) {
+	_, err = runtime.Start(context.Background(), built, runtime.WithMemory(_NARROW)).Wait()
+	if !errors.Is(err, scheduler.ERR_MEMORY) {
 		t.Fatalf("a host's ceiling did not reach the run: %v", err)
 	}
 
@@ -67,7 +73,7 @@ func TestCeiling_AHostChoosesWhatARunMayHold(t *testing.T) {
 
 	// And the same artifact under the default ceiling still reads the file, so
 	// the refusal was the ceiling rather than the file.
-	got, err := built.Run(context.Background())
+	got, err := runtime.Start(context.Background(), built).Wait()
 	if err != nil {
 		t.Fatalf("under the default ceiling: %v", err)
 	}
@@ -87,6 +93,8 @@ func TestCeiling_AHostChoosesWhatARunMayHold(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-24 23:40: initial creation
+//   - 2026-10-02 17:12: hands the compiler file, which the runtime no longer
+//     gives a script by itself
 func TestCeiling_IsGivenBackBetweenReads(t *testing.T) {
 	named := filepath.Join(t.TempDir(), "blob.bin")
 
@@ -101,13 +109,16 @@ func TestCeiling_IsGivenBackBetweenReads(t *testing.T) {
 		"        total += len(file.read(%q))\n"+
 		"    return total\n", named)
 
-	built, err := runtime.NewCompiler().Compile("repeat.star", src)
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: "repeat.star", Text: src},
+		runtime.WithPlugins(&larkfile.Plugin{}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Room for a few copies at once, nowhere near a hundred.
-	got, err := built.Run(scheduler.Allowing(context.Background(), 8*_BLOB))
+	got, err := runtime.Start(context.Background(), built, runtime.WithMemory(8*_BLOB)).Wait()
 	if err != nil {
 		t.Fatalf("a hundred reads of one file needed more than eight of it: %v", err)
 	}
@@ -129,7 +140,7 @@ func TestCeiling_IsGivenBackBetweenReads(t *testing.T) {
 func TestCeiling_ASpawnedThreadIsCharged(t *testing.T) {
 	src := []byte(`
 def quiet():
-    sleep(5)
+    sleep(5000)
 
     return 1
 
@@ -142,15 +153,19 @@ def main():
     return len(held)
 `)
 
-	built, err := runtime.NewCompiler().Compile("threads.star", src)
+	built, err := runtime.Compile(&runtime.Source{Entry: "threads.star", Text: src})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Room for a handful of threads, nowhere near two hundred.
-	_, err = built.Run(scheduler.Allowing(t.Context(), 10*scheduler.THREAD_COST))
-	if !errors.Is(err, scheduler.ErrMemory) {
-		t.Fatalf("two hundred threads under ten threads' worth: %v, want ErrMemory", err)
+	_, err = runtime.Start(
+		t.Context(),
+		built,
+		runtime.WithMemory(10*scheduler.THREAD_COST),
+	).Wait()
+	if !errors.Is(err, scheduler.ERR_MEMORY) {
+		t.Fatalf("two hundred threads under ten threads' worth: %v, want ERR_MEMORY", err)
 	}
 }
 
@@ -178,12 +193,16 @@ def main():
     return total
 `)
 
-	built, err := runtime.NewCompiler().Compile("churn.star", src)
+	built, err := runtime.Compile(&runtime.Source{Entry: "churn.star", Text: src})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := built.Run(scheduler.Allowing(t.Context(), 10*scheduler.THREAD_COST))
+	got, err := runtime.Start(
+		t.Context(),
+		built,
+		runtime.WithMemory(10*scheduler.THREAD_COST),
+	).Wait()
 	if err != nil {
 		t.Fatalf("two hundred threads one at a time: %v", err)
 	}
@@ -215,12 +234,12 @@ def main():
     return "stored"
 `)
 
-	built, err := runtime.NewCompiler().Compile("small.star", small)
+	built, err := runtime.Compile(&runtime.Source{Entry: "small.star", Text: small})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
+	_, err = runtime.Start(t.Context(), built, runtime.WithMemory(_NARROW)).Wait()
 	if err != nil {
 		t.Fatalf("one value of 1KB under %d bytes: %v", _NARROW, err)
 	}
@@ -232,14 +251,14 @@ def main():
     return "stored"
 `)
 
-	built, err = runtime.NewCompiler().Compile("large.star", large)
+	built, err = runtime.Compile(&runtime.Source{Entry: "large.star", Text: large})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
-	if !errors.Is(err, scheduler.ErrMemory) {
-		t.Fatalf("one value of 128KB under %d bytes: %v, want ErrMemory", _NARROW, err)
+	_, err = runtime.Start(t.Context(), built, runtime.WithMemory(_NARROW)).Wait()
+	if !errors.Is(err, scheduler.ERR_MEMORY) {
+		t.Fatalf("one value of 128KB under %d bytes: %v, want ERR_MEMORY", _NARROW, err)
 	}
 
 	// One name replaced many times costs what one of them costs, because the
@@ -252,12 +271,12 @@ def main():
     return state.get("k")
 `)
 
-	built, err = runtime.NewCompiler().Compile("reset.star", reset)
+	built, err = runtime.Compile(&runtime.Source{Entry: "reset.star", Text: reset})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
+	_, err = runtime.Start(t.Context(), built, runtime.WithMemory(_NARROW)).Wait()
 	if err != nil {
 		t.Fatalf("one name set twenty thousand times: %v", err)
 	}
@@ -282,14 +301,14 @@ def main():
     return "stored"
 `)
 
-	built, err := runtime.NewCompiler().Compile("named.star", named)
+	built, err := runtime.Compile(&runtime.Source{Entry: "named.star", Text: named})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
-	if !errors.Is(err, scheduler.ErrMemory) {
-		t.Fatalf("a thousand names under %d bytes: %v, want ErrMemory", _NARROW, err)
+	_, err = runtime.Start(t.Context(), built, runtime.WithMemory(_NARROW)).Wait()
+	if !errors.Is(err, scheduler.ERR_MEMORY) {
+		t.Fatalf("a thousand names under %d bytes: %v, want ERR_MEMORY", _NARROW, err)
 	}
 
 	read := []byte(`
@@ -300,13 +319,79 @@ def main():
     return "read"
 `)
 
-	built, err = runtime.NewCompiler().Compile("read.star", read)
+	built, err = runtime.Compile(&runtime.Source{Entry: "read.star", Text: read})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = built.Run(scheduler.Allowing(t.Context(), _NARROW))
+	_, err = runtime.Start(t.Context(), built, runtime.WithMemory(_NARROW)).Wait()
 	if err != nil {
 		t.Fatalf("reading a thousand unwritten names under %d bytes: %v", _NARROW, err)
+	}
+}
+
+// WALKING is a script whose spawned reader loops over the lines of the file it
+// is given, beside a sibling that sleeps far longer than the test.
+const WALKING = `
+def reader():
+    for line in file.lines(%q):
+        pass
+
+def slow():
+    sleep(30000)
+
+def main():
+    r = spawn(reader)
+    s = spawn(slow)
+    join(s)
+`
+
+// TestCeiling_AWalkCutShortFailsItsOwnThread checks a file.lines loop the
+// ceiling cuts short, in a spawned thread, fails that thread and is named as
+// the run's cause, while the sibling still going is cancelled.
+//
+// The loop ends quietly, since Starlark's iterator has no error to raise, and
+// the failure is recorded once it is done. Unless the thread's own result
+// carries it, the run ends for a reason nothing in its graph owns: the cause
+// named main, and the thread that read the file read as succeeded.
+//
+// Revisions:
+//   - 2026-10-03 23:52: initial creation
+func TestCeiling_AWalkCutShortFailsItsOwnThread(t *testing.T) {
+	named := filepath.Join(t.TempDir(), "line.txt")
+
+	err := os.WriteFile(named, []byte(strings.Repeat("y", _BLOB)), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: "walk.star", Text: fmt.Appendf(nil, WALKING, named)},
+		runtime.WithPlugins(&larkfile.Plugin{}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run := runtime.Start(t.Context(), built, runtime.WithMemory(_NARROW))
+
+	_, err = run.Wait()
+	if !errors.Is(err, runtime.ERR_MEMORY) {
+		t.Fatalf("got %v, want the ceiling's refusal", err)
+	}
+
+	graph := run.Status()
+
+	if got := graph.GetCause().GetFunction(); got != "reader" {
+		t.Fatalf("the run's cause is %q, want the reader whose loop was cut short", got)
+	}
+
+	want := map[string]string{"reader": "STATUS_FAILED", "slow": "STATUS_CANCELLED"}
+
+	for _, node := range graph.GetFunctions() {
+		status, listed := want[node.GetName()]
+		if listed && node.GetStatus().String() != status {
+			t.Errorf("%s reads %s, want %s", node.GetName(), node.GetStatus(), status)
+		}
 	}
 }

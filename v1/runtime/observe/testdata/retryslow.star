@@ -1,5 +1,5 @@
 def flaky():
-    sleep(0.05)
+    sleep(50)
     assert(n() == 3, "not ready yet")
     return "ready"
 

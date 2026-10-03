@@ -15,15 +15,13 @@ PROTO_FILES := $(shell find proto -name '*.proto' -print)
 # generated message never rebuilding the binary that carries it.
 GO_SOURCES := $(shell find . -name '*.go' -print) go.mod go.sum
 
-.PHONY: all bootstrap generate tidy check lint lint-go lint-proto fmt build binaries vet test poc clean
+.PHONY: all bootstrap generate tidy check lint lint-go lint-proto fmt build binaries vet test clean
 
-# all no longer runs poc: there is no .poc module. The practice stays in
-# .guidelines/working.md - a new signature is still planned with one - and the
-# next POC creates its module in one command.
 all: generate build check test
 
-# Everything that reads the code without changing it. This is the gate
-# CLAUDE.md's before-done checklist asks for, minus the test run.
+# Everything that reads the code without changing it: go vet, then the
+# linters, whose formatters and staticcheck are among them. This is the whole
+# gate CLAUDE.md's before-done checklist asks for, run after every edit.
 check: vet lint
 
 # Bootstrapping is one command in Go: go.mod and go.sum already carry every pin.
@@ -73,7 +71,6 @@ fmt:
 # and not a tidy-up to reach for. buf lint and buf generate are unaffected.
 	@if [ -n "$(PROTO_FILES)" ]; then python3 tools/fmt_proto.py $(PROTO_FILES); fi
 
-# Both modules: the planning POCs are a module of their own.
 tidy:
 	go mod tidy
 

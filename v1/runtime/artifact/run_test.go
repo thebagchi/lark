@@ -11,13 +11,13 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/thebagchi/lark/v1/runtime/artifact"
-	"github.com/thebagchi/lark/v1/runtime/plugin"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
+	"github.com/thebagchi/lark/v1/runtime/script"
 )
 
-// ErrSpelling is what the plugin below refuses with, so that a test can tell
+// ERR_SPELLING is what the plugin below refuses with, so that a test can tell
 // being asked from not being asked.
-var ErrSpelling = errors.New("refused on spelling")
+var ERR_SPELLING = errors.New("refused on spelling")
 
 const (
 	CONCURRENT_FIXTURE  = "concurrent.star"
@@ -35,8 +35,6 @@ const (
 	EXPECTED_SUM     = 10
 	EXPECTED_DEFAULT = 1
 	EXPECTED_DONE    = "done"
-	MISSING_GLOBAL   = "absent"
-	ENTRY_NAME       = "main"
 	ABANDON_BUDGET   = 2 * time.Second
 	CANCEL_AFTER     = 20 * time.Millisecond
 	CANCEL_BUDGET    = 5 * time.Second
@@ -49,8 +47,11 @@ const (
 func _Built(t *testing.T, name string) *artifact.Artifact {
 	t.Helper()
 
-	built, err := artifact.NewCompiler(artifact.WithLoader(_Loader())).
-		Compile(name, _Fixture(t, name))
+	built, err := artifact.Compile(&script.Source{
+		Entry:  name,
+		Text:   _Fixture(t, name),
+		Loader: _Loader(),
+	})
 	if err != nil {
 		t.Fatalf("compile %s: %v", name, err)
 	}
@@ -85,7 +86,7 @@ func _Number(t *testing.T, value starlark.Value) int64 {
 // Revisions:
 //   - 2026-09-19 22:46: initial creation
 func TestRun_AScriptCanSpawnAndJoin(t *testing.T) {
-	value, err := _Built(t, CONCURRENT_FIXTURE).Run(t.Context())
+	value, err := artifact.Run(t.Context(), _Built(t, CONCURRENT_FIXTURE))
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestRun_AScriptCanSpawnAndJoin(t *testing.T) {
 func TestRun_ReturnsWithoutWaitingForWhatNobodyJoined(t *testing.T) {
 	start := time.Now()
 
-	value, err := _Built(t, FORGETS_FIXTURE).Run(t.Context())
+	value, err := artifact.Run(t.Context(), _Built(t, FORGETS_FIXTURE))
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -142,14 +143,14 @@ func TestRun_CancellingTheContextStopsTheSpine(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		_, err := built.Run(ctx)
+		_, err := artifact.Run(ctx, built)
 		done <- err
 	}()
 
 	select {
 	case err := <-done:
-		if !errors.Is(err, scheduler.ErrCancelled) {
-			t.Fatalf("a cancelled run gave %v, want ErrCancelled", err)
+		if !errors.Is(err, scheduler.ERR_CANCELLED) {
+			t.Fatalf("a cancelled run gave %v, want ERR_CANCELLED", err)
 		}
 
 		if !errors.Is(err, context.DeadlineExceeded) {
@@ -168,9 +169,9 @@ func TestRun_CancellingTheContextStopsTheSpine(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:49: initial creation
 func TestRun_RefusesAnEntryPointWithArguments(t *testing.T) {
-	_, err := _Built(t, MAINARGS_FIXTURE).Run(t.Context())
-	if !errors.Is(err, artifact.ErrNoMain) {
-		t.Fatalf("got %v, want ErrNoMain", err)
+	_, err := artifact.Run(t.Context(), _Built(t, MAINARGS_FIXTURE))
+	if !errors.Is(err, artifact.ERR_NO_MAIN) {
+		t.Fatalf("got %v, want ERR_NO_MAIN", err)
 	}
 
 	if !strings.Contains(err.Error(), MAINARGS_FIXTURE) {
@@ -186,7 +187,7 @@ func TestRun_RefusesAnEntryPointWithArguments(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:50: initial creation
 func TestRun_AcceptsADefaultedEntryPoint(t *testing.T) {
-	value, err := _Built(t, MAINDEFAULT_FIXTURE).Run(t.Context())
+	value, err := artifact.Run(t.Context(), _Built(t, MAINDEFAULT_FIXTURE))
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -202,43 +203,30 @@ func TestRun_AcceptsADefaultedEntryPoint(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:50: initial creation
 func TestRun_RefusesALibrary(t *testing.T) {
-	_, err := _Built(t, LIB_FIXTURE).Run(t.Context())
-	if !errors.Is(err, artifact.ErrNoMain) {
-		t.Fatalf("got %v, want ErrNoMain", err)
+	_, err := artifact.Run(t.Context(), _Built(t, LIB_FIXTURE))
+	if !errors.Is(err, artifact.ERR_NO_MAIN) {
+		t.Fatalf("got %v, want ERR_NO_MAIN", err)
 	}
 }
 
-// TestInvoke_RefusesWhatIsNotACallableGlobal proves the two refusals a host
-// tells apart by sentinel rather than by message.
+// TestRun_NumbersEachRunFromItsOwnSpine proves two runs of one artifact are
+// two runs: each numbers its spawns from 1, so a recorded graph stays
+// comparable with a later run of the same script.
 //
 // Revisions:
-//   - 2026-09-19 22:51: initial creation
-func TestInvoke_RefusesWhatIsNotACallableGlobal(t *testing.T) {
-	built := _Built(t, CONCURRENT_FIXTURE)
-
-	_, err := built.Invoke(t.Context(), MISSING_GLOBAL)
-	if !errors.Is(err, artifact.ErrNoGlobal) {
-		t.Fatalf("invoking a missing global gave %v, want ErrNoGlobal", err)
-	}
-}
-
-// TestInvoke_NumbersEachCallFromItsOwnSpine proves two invocations of one
-// artifact are two runs: each numbers its spawns from 1, so a recorded graph
-// stays comparable with a later run of the same function.
-//
-// Revisions:
-//   - 2026-09-19 22:52: initial creation
-func TestInvoke_NumbersEachCallFromItsOwnSpine(t *testing.T) {
+//   - 2026-09-19 22:52: initial creation, as TestInvoke_NumbersEachCallFromItsOwnSpine
+//   - 2026-10-03 00:21: runs the entry point twice, a run calling it and nothing else
+func TestRun_NumbersEachRunFromItsOwnSpine(t *testing.T) {
 	built := _Built(t, CONCURRENT_FIXTURE)
 
 	for attempt := range 2 {
-		value, err := built.Invoke(t.Context(), ENTRY_NAME)
+		value, err := artifact.Run(t.Context(), built)
 		if err != nil {
-			t.Fatalf("invoke %d: %v", attempt, err)
+			t.Fatalf("run %d: %v", attempt, err)
 		}
 
 		if got := _Number(t, value); got != EXPECTED_SUM {
-			t.Fatalf("invoke %d gave %d, want %d", attempt, got, EXPECTED_SUM)
+			t.Fatalf("run %d gave %d, want %d", attempt, got, EXPECTED_SUM)
 		}
 	}
 }
@@ -255,14 +243,17 @@ func TestInvoke_NumbersEachCallFromItsOwnSpine(t *testing.T) {
 // Revisions:
 //   - 2026-09-22 23:02: initial creation
 func TestRun_AModuleLevelFailureFailsTheRunNotTheCompile(t *testing.T) {
-	built, err := artifact.NewCompiler(artifact.WithLoader(_Loader())).
-		Compile(BREAKS_FIXTURE, _Fixture(t, BREAKS_FIXTURE))
+	built, err := artifact.Compile(&script.Source{
+		Entry:  BREAKS_FIXTURE,
+		Text:   _Fixture(t, BREAKS_FIXTURE),
+		Loader: _Loader(),
+	})
 	if err != nil {
 		t.Fatalf("compile %s: %v", BREAKS_FIXTURE, err)
 	}
 
 	for attempt := range RUNS_OF_ONE {
-		_, err = built.Run(context.Background())
+		_, err = artifact.Run(context.Background(), built)
 		if err == nil {
 			t.Fatalf("run %d succeeded, want the module-level failure", attempt)
 		}
@@ -310,7 +301,7 @@ func (s *_Spelling) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-24 20:46: initial creation
 func (s *_Spelling) Check(tree *syntax.File) error {
-	return ErrSpelling
+	return ERR_SPELLING
 }
 
 // TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken is the mistake the
@@ -324,15 +315,18 @@ func (s *_Spelling) Check(tree *syntax.File) error {
 //
 // Revisions:
 //   - 2026-09-24 20:46: initial creation
+//   - 2026-10-02 13:12: hands the compiler the plugin, there being no registry
+//     to build
 func TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken(t *testing.T) {
-	registry := plugin.New()
-	registry.Register(new(_Spelling))
+	spelling := new(_Spelling)
 
-	compiler := artifact.NewCompiler(artifact.WithPlugins(registry))
+	plugins := artifact.WithPlugins(spelling)
 
 	// This file leaves the name alone, so the plugin is asked and refuses.
-	_, err := compiler.Compile("uses.star", []byte("def main():\n    "+SPELLING+"()\n"))
-	if !errors.Is(err, ErrSpelling) {
+	uses := []byte("def main():\n    " + SPELLING + "()\n")
+
+	_, err := artifact.Compile(&script.Source{Entry: "uses.star", Text: uses}, plugins)
+	if !errors.Is(err, ERR_SPELLING) {
 		t.Fatalf("a file using the name gave %v, want the plugin to have been asked", err)
 	}
 
@@ -351,9 +345,12 @@ func TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken(t *testing.T) {
 
 	for name, binding := range taken {
 		t.Run(name, func(t *testing.T) {
-			script := binding + "\n\ndef main():\n    return 1\n"
+			src := []byte(binding + "\n\ndef main():\n    return 1\n")
 
-			_, err := compiler.Compile(name+".star", []byte(script))
+			_, err := artifact.Compile(
+				&script.Source{Entry: name + ".star", Text: src},
+				plugins,
+			)
 			if err != nil {
 				t.Fatalf("a file that took the name by %s was refused: %v",
 					name, err)
@@ -363,15 +360,17 @@ func TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken(t *testing.T) {
 
 	// A load binds too, and needs a loader to reach the file it names.
 	t.Run("a load", func(t *testing.T) {
-		loading := artifact.NewCompiler(
-			artifact.WithPlugins(registry),
-			artifact.WithLoader(_Loader()),
-		)
-
-		script := `load("spelling.star", "` + SPELLING + `")` +
+		src := `load("spelling.star", "` + SPELLING + `")` +
 			"\n\ndef main():\n    return " + SPELLING + "\n"
 
-		_, err := loading.Compile("loads.star", []byte(script))
+		_, err := artifact.Compile(
+			&script.Source{
+				Entry:  "loads.star",
+				Text:   []byte(src),
+				Loader: _Loader(),
+			},
+			plugins,
+		)
 		if err != nil {
 			t.Fatalf("a file that took the name by a load was refused: %v", err)
 		}

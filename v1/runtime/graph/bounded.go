@@ -1,7 +1,6 @@
 package graph
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 
@@ -10,169 +9,266 @@ import (
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 )
 
-// ErrNoDelay is returned for a Repeat or a Retry asking for a pause between
-// attempts.
-//
-// The schema declares delay_ms and the builtins take no delay, so a graph
-// asking for one describes a workflow this runtime cannot run. Generating the
-// call without it produces a script that runs, gives the right answer, and
-// hammers whatever it talks to - a dropped delay is invisible until something
-// downstream falls over.
-var ErrNoDelay = errors.New("delay is not supported")
+// Both directions of one subject live here: reading a sleep and the wrappers
+// that repeat, retry and bound a call out of a script, and writing them back.
+// A script and the schema both count milliseconds, so nothing converts.
 
 const (
-	// The wrappers a script calls, and the pause.
-	REPEAT  = "repeat"
-	RETRY   = "retry"
-	TIMEOUT = "timeout"
-	SLEEP   = "sleep"
-
-	// MILLIS is how many milliseconds a second holds. The schema counts
-	// milliseconds and the builtins take seconds.
-	MILLIS = 1000
-
-	// WRAPPED is how many arguments a wrapper takes: how much, and what to do
-	// that much of. A call with any other number is not one of these.
+	// WRAPPED is how many arguments a wrapper takes before its delay: how
+	// much, and what to do that much of. DELAYED is the count with a delay
+	// passed by position.
 	WRAPPED = 2
+	DELAYED = 3
+
+	// ONCE is the fewest calls a repeat makes and the fewest attempts a retry
+	// may make. The builtin refuses fewer, so fewer is no statement.
+	ONCE = 1
 )
 
-// _Bounded is a repeat, retry or timeout as the line that builds it and calls
-// it.
+// _Sleep is the statement a sleep is, and whether it models.
 //
 // Revisions:
-//   - 2026-09-20 21:05: initial creation
-func (g *_Gen) _Bounded(step *workflowpb.Step) (string, error) {
-	switch {
-	case step.GetRepeat() != nil:
-		return g._Wrap(
-			REPEAT,
-			step.GetRepeat().GetCall(),
-			strconv.Itoa(int(step.GetRepeat().GetCount())),
-			step.GetRepeat().GetDelayMs(),
-		)
-
-	case step.GetRetry() != nil:
-		return g._Wrap(
-			RETRY,
-			step.GetRetry().GetCall(),
-			strconv.Itoa(int(step.GetRetry().GetAttempts())),
-			step.GetRetry().GetDelayMs(),
-		)
+//   - 2026-09-21 01:32: initial creation, as _Pauses
+//   - 2026-09-21 08:09: a number only; sleep("1") used to derive as 0
+//   - 2026-10-02 00:04: reads milliseconds, which the builtin now takes, and
+//     returns the Statement
+func (r *_Reading) _Sleep(call *syntax.CallExpr) (*workflowpb.Statement, bool) {
+	if len(call.Args) != 1 {
+		return nil, false
 	}
 
-	return g._Wrap(
-		TIMEOUT,
-		step.GetTimeout().GetCall(),
-		_Seconds(step.GetTimeout().GetTimeoutMs()),
-		0,
-	)
-}
-
-// _Wrap is one wrapper as a script writes it, refusing a delay it cannot
-// express.
-//
-// The site comes from _Site, so a wrapped call that passes arguments is a
-// lambda and one that does not is the function itself - the same rule a spawn
-// follows, from the same place, because both wrap a Call.
-//
-// Revisions:
-//   - 2026-09-20 21:05: initial creation
-//   - 2026-09-20 21:12: takes a Call rather than a name, so a wrapped site can
-//     pass arguments
-func (g *_Gen) _Wrap(
-	who string,
-	call *workflowpb.Call,
-	bound string,
-	delay int32,
-) (string, error) {
-	if delay != 0 {
-		return "", fmt.Errorf("%s %s: %dms %w", who, call.GetFunction(), delay, ErrNoDelay)
+	pause, ok := _Natural(call.Args[0])
+	if !ok {
+		return nil, false
 	}
 
-	site, err := g._Site(call)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%s(%s%s%s)", who, bound, SEPARATOR, site), nil
+	return &workflowpb.Statement{Action: &workflowpb.Statement_Sleep{
+		Sleep: &workflowpb.Sleep{DurationMs: pause},
+	}}, true
 }
 
-// _Seconds is a duration in milliseconds as the number of seconds a builtin
-// takes.
+// _Attempts is the statement a repeat or a retry is, and whether it models.
 //
-// A whole number of seconds is written as an integer, by the same rule a JSON
-// argument follows: Starlark has two number types where the schema has one, and
-// they differ under // and %.
-//
-// Revisions:
-//   - 2026-09-20 21:05: initial creation
-func _Seconds(ms int32) string {
-	return _Number(float64(ms) / MILLIS)
-}
-
-// _Pause is a sleep, in the seconds the builtin takes.
+// The count comes first and the function after it, with an optional delay
+// third or named delay. The count is a whole number of at least one, and the
+// delay a whole number of milliseconds; anything else is a call the builtin
+// refuses, and no statement.
 //
 // Revisions:
-//   - 2026-09-20 21:05: initial creation
-//   - 2026-09-21 01:32: Sleep carries milliseconds again, so this divides
-func _Pause(sleep *workflowpb.Sleep) string {
-	return fmt.Sprintf("%s(%s)", SLEEP, _Seconds(sleep.GetDurationMs()))
-}
-
-// _Wrapper is the bounded step a repeat, retry or timeout states, and whether
-// it states one.
-//
-// The count or the budget comes first and the callable last, and the wrappers
-// call straight away - there is no second call to read past. The callable
-// takes the two spellings a spawned site takes, so a wrapped call carries
-// arguments through a lambda.
-//
-// delay_ms is never set. No builtin can spell a delay, and the emitter already
-// refuses a graph that asks for one, so this is the symmetric half.
-//
-// A lambda passing something the graph cannot carry states no step, so the
-// function holding it keeps its text. It used to state one with the argument
-// gone: retry(3, lambda: fetch(url)) derived as retry(3, fetch), which a graph
-// then generated and could not run.
-//
-// Revisions:
-//   - 2026-09-21 01:32: initial creation
+//   - 2026-09-21 01:32: initial creation, as _Wrapper
 //   - 2026-09-21 08:09: a number only; repeat(True, f) used to derive as 0
 //   - 2026-09-30 00:41: reads on a lane, and states no step for a lambda
 //     whose arguments it could not carry
-func (r *_Reading) _Wrapper(lane *_Lane, name string, call *syntax.CallExpr) *workflowpb.Step {
-	if len(call.Args) != WRAPPED {
-		return nil
+//   - 2026-10-02 00:04: reads the optional delay, and leaves the timeout to
+//     _Timeout
+func (r *_Reading) _Attempts(
+	name string,
+	call *syntax.CallExpr,
+	scope *_Scope,
+) (*workflowpb.Statement, bool) {
+	positional, delay, ok := _Delayed(call.Args)
+	if !ok || len(positional) < WRAPPED || len(positional) > DELAYED {
+		return nil, false
 	}
 
-	bound, ok := _Quantity(call.Args[0])
+	if len(positional) == DELAYED {
+		if delay != nil {
+			return nil, false
+		}
+
+		delay = positional[DELAYED-1]
+	}
+
+	count, ok := _Count(positional[0])
 	if !ok {
-		return nil
+		return nil, false
 	}
 
-	site, def, carried := r._Target(lane, call.Args[1])
-	if def == nil || !carried {
-		return nil
+	target, ok := r._Target(positional[1], scope)
+	if !ok {
+		return nil, false
 	}
 
-	count := int32(bound)
+	var pause int32
 
-	switch name {
-	case REPEAT:
-		return &workflowpb.Step{Action: &workflowpb.Step_Repeat{
-			Repeat: &workflowpb.Repeat{Call: site, Count: count},
-		}}
-
-	case RETRY:
-		return &workflowpb.Step{Action: &workflowpb.Step_Retry{
-			Retry: &workflowpb.Retry{Call: site, Attempts: count},
-		}}
+	if delay != nil {
+		pause, ok = _Natural(delay)
+		if !ok {
+			return nil, false
+		}
 	}
 
-	return &workflowpb.Step{Action: &workflowpb.Step_Timeout{
-		Timeout: &workflowpb.Timeout{
-			Call:      site,
-			TimeoutMs: int32(bound * MILLIS),
-		},
-	}}
+	if name == REPEAT {
+		return &workflowpb.Statement{Action: &workflowpb.Statement_Repeat{
+			Repeat: &workflowpb.Repeat{Call: target, Count: count, DelayMs: pause},
+		}}, true
+	}
+
+	return &workflowpb.Statement{Action: &workflowpb.Statement_Retry{
+		Retry: &workflowpb.Retry{Call: target, Attempts: count, DelayMs: pause},
+	}}, true
+}
+
+// _Timeout is the statement a timeout is, and whether it models.
+//
+// Revisions:
+//   - 2026-10-02 00:04: initial creation
+func (r *_Reading) _Timeout(call *syntax.CallExpr, scope *_Scope) (*workflowpb.Statement, bool) {
+	if len(call.Args) != WRAPPED {
+		return nil, false
+	}
+
+	budget, ok := _Natural(call.Args[0])
+	if !ok {
+		return nil, false
+	}
+
+	target, ok := r._Target(call.Args[1], scope)
+	if !ok {
+		return nil, false
+	}
+
+	return &workflowpb.Statement{Action: &workflowpb.Statement_Timeout{
+		Timeout: &workflowpb.Timeout{Call: target, TimeoutMs: budget},
+	}}, true
+}
+
+// _Delayed is a wrapper's arguments split in two: those passed by position,
+// and the value of the delay keyword when one is named.
+//
+// Any other keyword, or an unpacked *args or **kwargs, is a call the schema has
+// no place for.
+//
+// Revisions:
+//   - 2026-10-02 00:04: initial creation
+func _Delayed(args []syntax.Expr) ([]syntax.Expr, syntax.Expr, bool) {
+	var (
+		positional []syntax.Expr
+		delay      syntax.Expr
+	)
+
+	for _, arg := range args {
+		if _, unpacked := arg.(*syntax.UnaryExpr); unpacked {
+			return nil, nil, false
+		}
+
+		keyword, ok := arg.(*syntax.BinaryExpr)
+		if !ok || keyword.Op != syntax.EQ {
+			positional = append(positional, arg)
+
+			continue
+		}
+
+		name, ok := keyword.X.(*syntax.Ident)
+		if !ok || name.Name != DELAY || delay != nil {
+			return nil, nil, false
+		}
+
+		delay = keyword.Y
+	}
+
+	return positional, delay, true
+}
+
+// _Count is the count an expression states for a repeat or a retry: a whole
+// number of at least one that fits an int32.
+//
+// Revisions:
+//   - 2026-10-02 00:04: initial creation
+//   - 2026-10-03 20:50: the number _Natural reads, held to at least one, rather than
+//     a second copy of the reading with another lower bound
+func _Count(expr syntax.Expr) (int32, bool) {
+	count, ok := _Natural(expr)
+
+	counted := ok && count >= ONCE
+	if !counted {
+		return 0, false
+	}
+
+	return count, true
+}
+
+// _Sleep is a sleep, in the milliseconds the builtin and the schema count.
+//
+// Revisions:
+//   - 2026-10-01 11:57: initial creation
+//   - 2026-10-01 13:08: returns the statement node
+//   - 2026-10-02 00:04: lifted into graph, writing milliseconds, which the
+//     builtin now takes
+func _Sleep(sleep *workflowpb.Sleep) (syntax.Stmt, error) {
+	if sleep == nil || sleep.GetDurationMs() < 0 {
+		return nil, fmt.Errorf("sleep: %w", ERR_FORM)
+	}
+
+	pause := _Num(strconv.Itoa(int(sleep.GetDurationMs())))
+
+	return &syntax.ExprStmt{X: _Bare(SLEEP, []syntax.Expr{pause})}, nil
+}
+
+// _Repeat is a repeat. A delay is written only when there is one.
+//
+// Revisions:
+//   - 2026-10-01 11:57: initial creation
+//   - 2026-10-01 13:08: returns the statement node
+//   - 2026-10-02 00:04: lifted into graph, taking the generated Repeat
+func _Repeat(rep *workflowpb.Repeat) (syntax.Stmt, error) {
+	return _Attempts(REPEAT, rep.GetCall(), rep.GetCount(), rep.GetDelayMs())
+}
+
+// _Retry is a retry. A delay is written only when there is one.
+//
+// Revisions:
+//   - 2026-10-01 11:57: initial creation
+//   - 2026-10-01 13:08: returns the statement node
+//   - 2026-10-02 00:04: lifted into graph, taking the generated Retry
+func _Retry(ret *workflowpb.Retry) (syntax.Stmt, error) {
+	return _Attempts(RETRY, ret.GetCall(), ret.GetAttempts(), ret.GetDelayMs())
+}
+
+// _Attempts is repeat or retry: a count, a target, and a delay when one is set.
+//
+// Revisions:
+//   - 2026-10-01 11:57: initial creation
+//   - 2026-10-01 13:08: returns the statement node
+//   - 2026-10-02 00:04: lifted into graph, writing the delay in milliseconds,
+//     which the builtin now takes
+func _Attempts(word string, call *workflowpb.Call, count, delay int32) (syntax.Stmt, error) {
+	if count < 0 || delay < 0 {
+		return nil, fmt.Errorf("%s: %w", word, ERR_FORM)
+	}
+
+	target, err := _Target(call)
+	if err != nil {
+		return nil, err
+	}
+
+	args := []syntax.Expr{_Num(strconv.Itoa(int(count))), target}
+
+	if delay != 0 {
+		args = append(args, _Num(strconv.Itoa(int(delay))))
+	}
+
+	return &syntax.ExprStmt{X: _Bare(word, args)}, nil
+}
+
+// _Timeout is a timeout, in the milliseconds the builtin and the schema count.
+//
+// Revisions:
+//   - 2026-10-01 11:57: initial creation
+//   - 2026-10-01 13:08: returns the statement node
+//   - 2026-10-02 00:04: lifted into graph, writing milliseconds, which the
+//     builtin now takes
+func _Timeout(held *workflowpb.Timeout) (syntax.Stmt, error) {
+	if held == nil || held.GetTimeoutMs() < 0 {
+		return nil, fmt.Errorf("timeout: %w", ERR_FORM)
+	}
+
+	target, err := _Target(held.GetCall())
+	if err != nil {
+		return nil, err
+	}
+
+	args := []syntax.Expr{_Num(strconv.Itoa(int(held.GetTimeoutMs()))), target}
+
+	return &syntax.ExprStmt{X: _Bare(TIMEOUT, args)}, nil
 }

@@ -23,7 +23,7 @@ const SCRIPT = "base64_test.star"
 // the package under test twice in every row.
 var ENCODED = _Sentinel()
 
-// _Sentinel is base64.ErrEncoded, found through an expression that raises it.
+// _Sentinel is base64.ERR_ENCODED, found through an expression that raises it.
 //
 // Reached this way rather than imported, because importing the package for its
 // side effect and for a name is two import lines for one package and reads as
@@ -43,7 +43,7 @@ func _Sentinel() error {
 func _Eval(t *testing.T, expression string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestBase64_RefusesWhatItCannotRead(t *testing.T) {
 		expression string
 		want       string
 	}{
-		{"of a number", `base64.encode(1)`, unpack.ErrData.Error()},
+		{"of a number", `base64.encode(1)`, unpack.ERR_DATA.Error()},
 		{"not base64", `base64.decode("!!!!")`, ENCODED.Error()},
 		{
 			"the url alphabet is not the standard one",

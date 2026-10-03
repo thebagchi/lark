@@ -52,8 +52,8 @@ const (
 	_POLL = 5 * time.Millisecond
 )
 
-// ErrQuiet is returned for a plugin that started but never announced itself.
-var ErrQuiet = errors.New("started but never announced itself")
+// ERR_QUIET is returned for a plugin that started but never announced itself.
+var ERR_QUIET = errors.New("started but never announced itself")
 
 // Loading is what a Load did.
 //
@@ -176,7 +176,7 @@ func (l *Listener) _Start(named string) error {
 		time.Sleep(_POLL)
 	}
 
-	return fmt.Errorf("%s: %w", named, ErrQuiet)
+	return fmt.Errorf("%s: %w", named, ERR_QUIET)
 }
 
 // _Stop sees off every plugin this listener started.

@@ -38,8 +38,8 @@ func TestEncodings_RefuseWhatTheyCannotRead(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"crc32 of a number", `crc32(1)`, unpack.ErrData},
-		{"crc32 continuing a negative", `crc32("x", -1)`, codec.ErrRange},
+		{"crc32 of a number", `crc32(1)`, unpack.ERR_DATA},
+		{"crc32 continuing a negative", `crc32("x", -1)`, codec.ERR_RANGE},
 	})
 }
 
@@ -55,9 +55,9 @@ func TestCRC32_RefusesASeedTooWideToBeAChecksum(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"one past the width", `crc32(b"abc", 4294967296)`, codec.ErrRange},
-		{"far past it", `crc32(b"abc", 18446744073709551616)`, codec.ErrRange},
-		{"negative", `crc32(b"abc", -1)`, codec.ErrRange},
+		{"one past the width", `crc32(b"abc", 4294967296)`, codec.ERR_RANGE},
+		{"far past it", `crc32(b"abc", 18446744073709551616)`, codec.ERR_RANGE},
+		{"negative", `crc32(b"abc", -1)`, codec.ERR_RANGE},
 	})
 
 	_Check(t, []struct{ name, expression, want string }{

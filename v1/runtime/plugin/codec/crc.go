@@ -48,7 +48,7 @@ func _CRC32(
 
 	held, ok := seed.Uint64()
 	if !ok || held > math.MaxUint32 {
-		return nil, fmt.Errorf("%s got %s to continue: %w", fn.Name(), seed, ErrRange)
+		return nil, fmt.Errorf("%s got %s to continue: %w", fn.Name(), seed, ERR_RANGE)
 	}
 
 	return starlark.MakeUint64(uint64(crc32.Update(uint32(held), crc32.IEEETable, data))), nil

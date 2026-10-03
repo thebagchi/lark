@@ -12,15 +12,14 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/thebagchi/lark/v1/runtime"
-	"github.com/thebagchi/lark/v1/runtime/plugin"
 	"github.com/thebagchi/lark/v1/runtime/plugin/state"
 )
 
 var (
-	ErrSpelling = errors.New("refused on spelling")
-	ErrFirst    = errors.New("first checker refused")
-	ErrSecond   = errors.New("second checker refused")
-	ErrPair     = errors.New("pair refused")
+	ERR_SPELLING = errors.New("refused on spelling")
+	ERR_FIRST    = errors.New("first checker refused")
+	ERR_SECOND   = errors.New("second checker refused")
+	ERR_PAIR     = errors.New("pair refused")
 )
 
 const (
@@ -82,7 +81,7 @@ func (s *_Spelling) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func (s *_Spelling) Check(tree *syntax.File) error {
-	return ErrSpelling
+	return ERR_SPELLING
 }
 
 // _Pair supplies two names and refuses every tree.
@@ -112,10 +111,10 @@ func (p *_Pair) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func (p *_Pair) Check(tree *syntax.File) error {
-	return ErrPair
+	return ERR_PAIR
 }
 
-// _First refuses every tree with ErrFirst.
+// _First refuses every tree with ERR_FIRST.
 type _First struct{}
 
 // Name is what this plugin is called when a conflict has to name it.
@@ -139,10 +138,10 @@ func (f *_First) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func (f *_First) Check(tree *syntax.File) error {
-	return ErrFirst
+	return ERR_FIRST
 }
 
-// _Second refuses every tree with ErrSecond.
+// _Second refuses every tree with ERR_SECOND.
 type _Second struct{}
 
 // Name is what this plugin is called when a conflict has to name it.
@@ -166,7 +165,7 @@ func (s *_Second) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func (s *_Second) Check(tree *syntax.File) error {
-	return ErrSecond
+	return ERR_SECOND
 }
 
 // _Quiet supplies a name and does not implement Checking.
@@ -188,30 +187,21 @@ func (q *_Quiet) Values() starlark.StringDict {
 	return starlark.StringDict{SILENT: starlark.None}
 }
 
-func _With(plugins ...plugin.Plugin) *runtime.Compiler {
-	registry := plugin.New()
-	for _, installed := range plugins {
-		registry.Register(installed)
-	}
-
-	return runtime.NewCompiler(runtime.WithPlugins(registry))
-}
-
 func _Compiled(t *testing.T, src string) error {
 	t.Helper()
-	_, err := runtime.NewCompiler().Compile("probe.star", []byte(src))
+	_, err := runtime.Compile(&runtime.Source{Entry: "probe.star", Text: []byte(src)})
 
 	return err
 }
 
 func _Ran(t *testing.T, src string) error {
 	t.Helper()
-	built, err := runtime.NewCompiler().Compile("probe.star", []byte(src))
+	built, err := runtime.Compile(&runtime.Source{Entry: "probe.star", Text: []byte(src)})
 	if err != nil {
 		return err
 	}
 
-	_, err = built.Run(context.Background())
+	_, err = runtime.Start(context.Background(), built).Wait()
 
 	return err
 }
@@ -234,8 +224,8 @@ def main():
 	}
 
 	err := _Ran(t, src)
-	if !errors.Is(err, state.ErrNotData) {
-		t.Fatalf("run: %v, want ErrNotData", err)
+	if !errors.Is(err, state.ERR_NOT_DATA) {
+		t.Fatalf("run: %v, want ERR_NOT_DATA", err)
 	}
 }
 
@@ -248,8 +238,8 @@ func TestSet_MainIsRefusedAtCompile(t *testing.T) {
 def main():
     state.set("k", main)
 `)
-	if !errors.Is(err, state.ErrNotData) {
-		t.Fatalf("compile: %v, want ErrNotData", err)
+	if !errors.Is(err, state.ERR_NOT_DATA) {
+		t.Fatalf("compile: %v, want ERR_NOT_DATA", err)
 	}
 }
 
@@ -294,15 +284,18 @@ def store():
     state.set("k", helper)
 `,
 	}}
-	compiler := runtime.NewCompiler(runtime.WithLoader(loader))
-	_, err := compiler.Compile("app.star", []byte(`
+	_, err := runtime.Compile(&runtime.Source{
+		Entry: "app.star",
+		Text: []byte(`
 load("lib.star", "store")
 
 def main():
     store()
-`))
-	if !errors.Is(err, state.ErrNotData) {
-		t.Fatalf("compile: %v, want ErrNotData from the loaded file", err)
+`),
+		Loader: loader,
+	})
+	if !errors.Is(err, state.ERR_NOT_DATA) {
+		t.Fatalf("compile: %v, want ERR_NOT_DATA from the loaded file", err)
 	}
 }
 
@@ -319,8 +312,8 @@ def helper():
 def main():
     state.set("k", {"a": helper})
 `)
-	if !errors.Is(err, state.ErrNotData) {
-		t.Fatalf("run: %v, want ErrNotData", err)
+	if !errors.Is(err, state.ERR_NOT_DATA) {
+		t.Fatalf("run: %v, want ERR_NOT_DATA", err)
 	}
 }
 
@@ -337,8 +330,8 @@ def worker():
 def main():
     state.update("k", lambda v: spawn(worker))
 `)
-	if !errors.Is(err, state.ErrNotData) {
-		t.Fatalf("run: %v, want ErrNotData", err)
+	if !errors.Is(err, state.ERR_NOT_DATA) {
+		t.Fatalf("run: %v, want ERR_NOT_DATA", err)
 	}
 }
 
@@ -347,14 +340,17 @@ def main():
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func TestCheck_ADefOfTheNameIsASkip(t *testing.T) {
-	compiler := _With(new(_Spelling))
-	_, err := compiler.Compile("taken.star", []byte(`
+	plugins := runtime.WithPlugins(new(_Spelling))
+	_, err := runtime.Compile(
+		&runtime.Source{Entry: "taken.star", Text: []byte(`
 def spelling():
     return 1
 
 def main():
     return spelling()
-`))
+`)},
+		plugins,
+	)
 	if err != nil {
 		t.Fatalf("a file that took the name by a def was refused: %v", err)
 	}
@@ -365,18 +361,24 @@ def main():
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func TestCheck_TakingOneNameSkipsTheWholePlugin(t *testing.T) {
-	compiler := _With(new(_Pair))
-	_, err := compiler.Compile("uses.star", []byte("def main():\n    return 1\n"))
-	if !errors.Is(err, ErrPair) {
+	plugins := runtime.WithPlugins(new(_Pair))
+	_, err := runtime.Compile(
+		&runtime.Source{Entry: "uses.star", Text: []byte("def main():\n    return 1\n")},
+		plugins,
+	)
+	if !errors.Is(err, ERR_PAIR) {
 		t.Fatalf("a file that took neither name: %v, want the plugin asked", err)
 	}
 
-	_, err = compiler.Compile("taken.star", []byte(`
+	_, err = runtime.Compile(
+		&runtime.Source{Entry: "taken.star", Text: []byte(`
 alpha = 1
 
 def main():
     return 1
-`))
+`)},
+		plugins,
+	)
 	if err != nil {
 		t.Fatalf("a file that took one of two names was refused: %v", err)
 	}
@@ -387,9 +389,12 @@ def main():
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func TestCheck_APluginThatDoesNotCheckIsLeftAlone(t *testing.T) {
-	compiler := _With(new(_Quiet), new(_Spelling))
-	_, err := compiler.Compile("uses.star", []byte("def main():\n    return 1\n"))
-	if !errors.Is(err, ErrSpelling) {
+	plugins := runtime.WithPlugins(new(_Quiet), new(_Spelling))
+	_, err := runtime.Compile(
+		&runtime.Source{Entry: "uses.star", Text: []byte("def main():\n    return 1\n")},
+		plugins,
+	)
+	if !errors.Is(err, ERR_SPELLING) {
 		t.Fatalf("got %v, want the checking plugin asked", err)
 	}
 }
@@ -399,13 +404,16 @@ func TestCheck_APluginThatDoesNotCheckIsLeftAlone(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func TestCheck_TheFirstRefusalStopsTheWalk(t *testing.T) {
-	compiler := _With(new(_First), new(_Second))
-	_, err := compiler.Compile("uses.star", []byte("def main():\n    return 1\n"))
-	if !errors.Is(err, ErrFirst) {
+	plugins := runtime.WithPlugins(new(_First), new(_Second))
+	_, err := runtime.Compile(
+		&runtime.Source{Entry: "uses.star", Text: []byte("def main():\n    return 1\n")},
+		plugins,
+	)
+	if !errors.Is(err, ERR_FIRST) {
 		t.Fatalf("got %v, want the first checker", err)
 	}
 
-	if errors.Is(err, ErrSecond) {
+	if errors.Is(err, ERR_SECOND) {
 		t.Fatal("the second checker was asked after the first refused")
 	}
 }
@@ -414,6 +422,8 @@ func TestCheck_TheFirstRefusalStopsTheWalk(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
+//   - 2026-10-02 13:12: hands the compiler the plugin, there being no registry
+//     to build
 func TestCheck_ALoadAliasTakesTheLocalName(t *testing.T) {
 	loader := &_Files{files: map[string]string{
 		// The loaded file must bind the name too, or a Check that
@@ -421,18 +431,20 @@ func TestCheck_ALoadAliasTakesTheLocalName(t *testing.T) {
 		// even considered.
 		"lib.star": "exported = 1\nspelling = 1\n",
 	}}
-	registry := plugin.New()
-	registry.Register(new(_Spelling))
-	compiler := runtime.NewCompiler(
-		runtime.WithPlugins(registry),
-		runtime.WithLoader(loader),
-	)
-	_, err := compiler.Compile("app.star", []byte(`
+	plugins := runtime.WithPlugins(new(_Spelling))
+	_, err := runtime.Compile(
+		&runtime.Source{
+			Entry: "app.star",
+			Text: []byte(`
 load("lib.star", spelling="exported")
 
 def main():
     return spelling
-`))
+`),
+			Loader: loader,
+		},
+		plugins,
+	)
 	if err != nil {
 		t.Fatalf("a load alias of the name was refused: %v", err)
 	}
@@ -443,13 +455,16 @@ def main():
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func TestCheck_ANestedDestructureTakesTheName(t *testing.T) {
-	compiler := _With(new(_Spelling))
-	_, err := compiler.Compile("taken.star", []byte(`
+	plugins := runtime.WithPlugins(new(_Spelling))
+	_, err := runtime.Compile(
+		&runtime.Source{Entry: "taken.star", Text: []byte(`
 (spelling, (a, b)) = (1, (2, 3))
 
 def main():
     return spelling
-`))
+`)},
+		plugins,
+	)
 	if err != nil {
 		t.Fatalf("a nested destructure of the name was refused: %v", err)
 	}
@@ -460,14 +475,17 @@ def main():
 // Revisions:
 //   - 2026-09-24 21:06: initial creation
 func TestCheck_ALoopDestructureTakesTheName(t *testing.T) {
-	compiler := _With(new(_Spelling))
-	_, err := compiler.Compile("taken.star", []byte(`
+	plugins := runtime.WithPlugins(new(_Spelling))
+	_, err := runtime.Compile(
+		&runtime.Source{Entry: "taken.star", Text: []byte(`
 for spelling, x in [(1, 2)]:
     pass
 
 def main():
     return 1
-`))
+`)},
+		plugins,
+	)
 	if err != nil {
 		t.Fatalf("a loop destructure of the name was refused: %v", err)
 	}
@@ -497,11 +515,11 @@ def main():
 	t.Logf("compile: %v", err)
 	if err == nil {
 		t.Logf("run: %v", _Ran(t, src))
-		t.Fatal("parenthesized helper compiled; want ErrNotData at compile")
+		t.Fatal("parenthesized helper compiled; want ERR_NOT_DATA at compile")
 	}
 
-	if !errors.Is(err, state.ErrNotData) {
-		t.Fatalf("compile: %v, want ErrNotData", err)
+	if !errors.Is(err, state.ERR_NOT_DATA) {
+		t.Fatalf("compile: %v, want ERR_NOT_DATA", err)
 	}
 }
 
@@ -546,25 +564,28 @@ def main():
 	}
 
 	err := _Ran(t, src)
-	if !errors.Is(err, state.ErrNotData) {
-		t.Fatalf("run: %v, want ErrNotData", err)
+	if !errors.Is(err, state.ERR_NOT_DATA) {
+		t.Fatalf("run: %v, want ERR_NOT_DATA", err)
 	}
 }
 
 func TestCheck_AComprehensionDoesNotTakeTheName(t *testing.T) {
-	compiler := _With(new(_Spelling))
-	_, err := compiler.Compile("comp.star", []byte(`
+	plugins := runtime.WithPlugins(new(_Spelling))
+	_, err := runtime.Compile(
+		&runtime.Source{Entry: "comp.star", Text: []byte(`
 xs = [spelling for spelling in [1]]
 
 def main():
     return xs
-`))
+`)},
+		plugins,
+	)
 	t.Logf("comprehension compile: %v", err)
 	if err == nil {
 		t.Fatal("a comprehension variable skipped the check; want it asked")
 	}
 
-	if !errors.Is(err, ErrSpelling) {
+	if !errors.Is(err, ERR_SPELLING) {
 		t.Fatalf("got %v, want the plugin asked", err)
 	}
 }

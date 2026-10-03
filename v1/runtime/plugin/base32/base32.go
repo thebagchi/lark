@@ -22,8 +22,8 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
-// ErrEncoded is returned for text that is not base32.
-var ErrEncoded = errors.New("not the encoding this reads")
+// ERR_ENCODED is returned for text that is not base32.
+var ERR_ENCODED = errors.New("not the encoding this reads")
 
 const (
 	// NAME is the module, and the two names it holds.
@@ -115,7 +115,7 @@ func _Decode(
 
 	data, err := bare.DecodeString(strings.TrimRight(text, PADDING))
 	if err != nil {
-		return nil, fmt.Errorf("%s got %q: %w", fn.Name(), text, ErrEncoded)
+		return nil, fmt.Errorf("%s got %q: %w", fn.Name(), text, ERR_ENCODED)
 	}
 
 	return starlark.Bytes(data), nil

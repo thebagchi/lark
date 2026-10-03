@@ -16,16 +16,16 @@ const (
 	ONEFAILS    = "testdata/onefails.star"
 	RETRYING    = "testdata/retrying.star"
 	REPEATING   = "testdata/repeating.star"
-	BOUNDED     = "testdata/bounded.star"
 	RETRYSLOW   = "testdata/retryslow.star"
 	SLOWSIBLING = "testdata/slowsibling.star"
+	RAISING     = "testdata/raising.star"
 
-	// BREAKS is the text the failing sample asserts with.
+	// BREAKS is the text the failing sample asserts with, and RAISES the text
+	// the raising one fails with.
 	BREAKS = "this one breaks"
+	RAISES = "this one raises"
 
-	// SPINE is the entry point's thread, and UNREACHED a function the
-	// branching script declares and never calls.
-	SPINE     = "thread_0"
+	// UNREACHED is a function the branching script declares and never calls.
 	UNREACHED = "unreached"
 
 	// ENTRY is the function a run starts at.
@@ -45,10 +45,12 @@ const (
 //   - 2026-09-20 01:42: initial creation
 //   - 2026-09-21 08:09: logs how the run ended rather than discarding it
 //   - 2026-09-23 23:28: asks the run it started, there being no store
-func _Ran(t *testing.T, path string, opts ...observe.Option) *workflowpb.Workflow {
+//   - 2026-10-02 01:35: returns a Graph
+//   - 2026-10-02 13:12: takes no options, Start having none
+func _Ran(t *testing.T, path string) *workflowpb.Graph {
 	t.Helper()
 
-	run := observe.Start(t.Context(), _Compile(t, path), opts...)
+	run := observe.Start(t.Context(), _Compile(t, path))
 
 	_, err := run.Wait()
 	if err != nil {
@@ -60,60 +62,59 @@ func _Ran(t *testing.T, path string, opts ...observe.Option) *workflowpb.Workflo
 	return run.Status()
 }
 
-// _Node finds one function's node, wherever it is, and says which thread it was
-// on.
+// _Node is the node of the function name in the graph, or nil when the run
+// never called it.
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
-func _Node(snap *workflowpb.Workflow, name string) (*workflowpb.Node, string) {
-	for _, lane := range snap.GetThreads() {
-		for _, node := range lane.GetLive().GetNodes() {
-			if node.GetFunction() == name {
-				return node, lane.GetId()
-			}
+//   - 2026-10-02 01:35: reads a thread's own node before its lines
+//   - 2026-10-02 15:34: one node per function, so there is no thread to say
+func _Node(snap *workflowpb.Graph, name string) *workflowpb.Node {
+	for _, node := range snap.GetFunctions() {
+		if node.GetName() == name {
+			return node
 		}
 	}
 
-	return nil, ""
+	return nil
 }
 
-// TestReport_NamesEveryFunctionThatRan is §7.2: a spawned function appears, on
-// a thread of its own, and the entry point is on the spine.
+// _Called is whether the graph has an edge from caller to callee.
+//
+// Revisions:
+//   - 2026-10-02 15:34: initial creation
+func _Called(snap *workflowpb.Graph, caller string, callee string) bool {
+	for _, edge := range snap.GetCalls() {
+		if edge.GetCaller() == caller && edge.GetCallee() == callee {
+			return true
+		}
+	}
+
+	return false
+}
+
+// TestReport_NamesEveryFunctionThatRan is §7.2: every function the run called
+// is a node, and a spawn is an edge from the function that spawned it.
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
+//   - 2026-10-02 15:34: an edge from main to each spawned function, there
+//     being no threads
 func TestReport_NamesEveryFunctionThatRan(t *testing.T) {
 	snap := _Ran(t, BRANCHING)
 
-	entry, lane := _Node(snap, "main")
-	if entry == nil {
+	if _Node(snap, ENTRY) == nil {
 		t.Fatal("want the entry point reported")
 	}
 
-	if lane != SPINE {
-		t.Fatalf("want main on the spine, got thread %s", lane)
-	}
-
-	lanes := make(map[string]bool)
-
 	for _, name := range []string{"alpha", "beta"} {
-		node, on := _Node(snap, name)
-		if node == nil {
-			t.Fatalf("want %s reported", name)
-		}
-
-		if on == SPINE {
-			t.Fatalf("want %s on its own thread, got the spine", name)
-		}
-
-		if lanes[on] {
-			t.Fatalf("want alpha and beta on different threads, both got %s", on)
-		}
-
-		lanes[on] = true
-
+		node := _Node(snap, name)
 		if node.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-			t.Fatalf("want %s succeeded, got %v", name, node.GetStatus())
+			t.Fatalf("want %s succeeded, got %v", name, node)
+		}
+
+		if !_Called(snap, ENTRY, name) {
+			t.Fatalf("want an edge from main to %s, got %v", name, snap.GetCalls())
 		}
 	}
 }
@@ -124,7 +125,7 @@ func TestReport_NamesEveryFunctionThatRan(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
 func TestReport_LeavesOutWhatNothingCalled(t *testing.T) {
-	node, _ := _Node(_Ran(t, BRANCHING), UNREACHED)
+	node := _Node(_Ran(t, BRANCHING), UNREACHED)
 
 	if node != nil {
 		t.Fatalf("want a function nothing called left out, got %v", node.GetStatus())
@@ -143,82 +144,35 @@ func TestReport_FailsOnlyWhatFailed(t *testing.T) {
 		t.Fatalf("want the run failed, got %v", snap.GetStatus())
 	}
 
-	bad, _ := _Node(snap, "bad")
-	if bad == nil || bad.GetStatus() != workflowpb.Status_STATUS_FAILED {
+	bad := _Node(snap, "bad")
+	if bad.GetStatus() != workflowpb.Status_STATUS_FAILED {
 		t.Fatalf("want bad failed, got %v", bad)
 	}
 
-	good, _ := _Node(snap, "good")
+	good := _Node(snap, "good")
 	if good == nil || good.GetStatus() == workflowpb.Status_STATUS_FAILED {
 		t.Fatalf("want good not failed, got %v", good)
 	}
 }
 
-// TestReport_CarriesTheAttemptARetryReached is §7.3 through a retry: one node,
-// carrying the attempt that succeeded.
+// TestReport_ARetryIsOneSucceededNode is §7.3 through a retry: three attempts
+// of one function are one node, which reads as the retry ended.
 //
 // Revisions:
-//   - 2026-09-20 01:42: initial creation
-func TestReport_CarriesTheAttemptARetryReached(t *testing.T) {
+//   - 2026-09-20 01:42: initial creation, as
+//     TestReport_CarriesTheAttemptARetryReached
+//   - 2026-10-02 15:34: one node that succeeded, a node carrying no attempt
+func TestReport_ARetryIsOneSucceededNode(t *testing.T) {
 	snap := _Ran(t, RETRYING)
 
-	node, _ := _Node(snap, "flaky")
-	if node == nil {
-		t.Fatal("want the retried function reported")
-	}
-
-	if node.GetAttempt() != TRIES {
-		t.Fatalf("want attempt %d, got %d", TRIES, node.GetAttempt())
-	}
-
+	node := _Node(snap, "flaky")
 	if node.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want it succeeded in the end, got %v", node.GetStatus())
+		t.Fatalf("want the retried function succeeded in the end, got %v", node)
 	}
 
-	if _Count(snap, "flaky") != 1 {
-		t.Fatalf("want one node for three attempts, got %d", _Count(snap, "flaky"))
+	if !_Called(snap, ENTRY, "flaky") {
+		t.Fatalf("want an edge from main to flaky, got %v", snap.GetCalls())
 	}
-}
-
-// TestReport_GivesAPlainCallNoAttempt records that zero means not inside a
-// repeat or a retry, including for a timeout, which makes one call rather than
-// attempts.
-//
-// Revisions:
-//   - 2026-09-20 01:42: initial creation
-func TestReport_GivesAPlainCallNoAttempt(t *testing.T) {
-	spawned, _ := _Node(_Ran(t, BRANCHING), "alpha")
-	if spawned.GetAttempt() != 0 {
-		t.Fatalf("want a spawned function to carry no attempt, got %d",
-			spawned.GetAttempt())
-	}
-
-	bounded, _ := _Node(_Ran(t, BOUNDED), "swift")
-	if bounded == nil {
-		t.Fatal("want the timed function reported")
-	}
-
-	if bounded.GetAttempt() != 0 {
-		t.Fatalf("want a timeout to carry no attempt, got %d", bounded.GetAttempt())
-	}
-}
-
-// _Count is how many nodes name this function, across every thread.
-//
-// Revisions:
-//   - 2026-09-20 01:42: initial creation
-func _Count(snap *workflowpb.Workflow, name string) int {
-	found := 0
-
-	for _, lane := range snap.GetThreads() {
-		for _, node := range lane.GetLive().GetNodes() {
-			if node.GetFunction() == name {
-				found++
-			}
-		}
-	}
-
-	return found
 }
 
 // TestReport_NeverShowsACaughtFailure is the row phase 6 exists for, and the
@@ -234,24 +188,21 @@ func _Count(snap *workflowpb.Workflow, name string) int {
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
+//   - 2026-10-02 15:34: polls the function's node, which carries no attempt
 func TestReport_NeverShowsACaughtFailure(t *testing.T) {
 	run := observe.Start(t.Context(), _Compile(t, RETRYSLOW))
 
 	seen := 0
-	attempts := make(map[int32]bool)
 
 	for {
 		snap := run.Status()
 
-		node, _ := _Node(snap, "flaky")
+		node := _Node(snap, "flaky")
 		if node != nil {
 			seen++
-			attempts[node.GetAttempt()] = true
 
 			if node.GetStatus() == workflowpb.Status_STATUS_FAILED {
-				t.Fatalf("attempt %d was reported failed while the retry "+
-					"was still going",
-					node.GetAttempt())
+				t.Fatal("a caught attempt was reported failed while retrying")
 			}
 		}
 
@@ -265,31 +216,24 @@ func TestReport_NeverShowsACaughtFailure(t *testing.T) {
 	if seen < TRIES {
 		t.Fatalf("want the retry polled while it ran, only saw it %d times", seen)
 	}
-
-	if len(attempts) < TRIES {
-		t.Fatalf("want every attempt observed, saw %d distinct", len(attempts))
-	}
 }
 
-// TestReport_CountsEveryRepeat records that repeat advances one node rather
-// than adding one per call.
+// TestReport_CountsEveryRepeat records that three calls of a repeat are one
+// node, succeeded once the repeat is.
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
+//   - 2026-10-02 15:34: one node, which carries no attempt
 func TestReport_CountsEveryRepeat(t *testing.T) {
 	snap := _Ran(t, REPEATING)
 
-	node, _ := _Node(snap, "step")
-	if node == nil {
-		t.Fatal("want the repeated function reported")
+	node := _Node(snap, "step")
+	if node.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
+		t.Fatalf("want the repeated function succeeded, got %v", node)
 	}
 
-	if node.GetAttempt() != TRIES {
-		t.Fatalf("want attempt %d, got %d", TRIES, node.GetAttempt())
-	}
-
-	if _Count(snap, "step") != 1 {
-		t.Fatalf("want one node for three calls, got %d", _Count(snap, "step"))
+	if len(snap.GetFunctions()) != 2 {
+		t.Fatalf("want main and step alone, got %v", snap.GetFunctions())
 	}
 }
 
@@ -298,10 +242,12 @@ func TestReport_CountsEveryRepeat(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-20 11:34: initial creation
+//   - 2026-10-03 00:22: stops the run by cancelling its context, the one way to stop one
 func TestReport_CancelledIsNotFailed(t *testing.T) {
-	run := observe.Start(t.Context(), _Compile(t, SLOW))
+	ctx, stop := context.WithCancel(t.Context())
+	run := observe.Start(ctx, _Compile(t, SLOW))
 
-	run.Stop()
+	stop()
 
 	_, err := run.Wait()
 	if !errors.Is(err, context.Canceled) {
@@ -340,161 +286,152 @@ func TestReport_AFailureIsStillAFailure(t *testing.T) {
 func TestReport_ASiblingStoppedByFailFastIsCancelled(t *testing.T) {
 	snap := _Ran(t, SLOWSIBLING)
 
-	bad, _ := _Node(snap, "bad")
-	if bad == nil || bad.GetStatus() != workflowpb.Status_STATUS_FAILED {
+	bad := _Node(snap, "bad")
+	if bad.GetStatus() != workflowpb.Status_STATUS_FAILED {
 		t.Fatalf("want the function that asserted to be failed, got %v", bad)
 	}
 
-	slow, _ := _Node(snap, "patient")
-	if slow == nil {
-		t.Fatal("want the cancelled sibling reported")
-	}
-
+	slow := _Node(snap, "patient")
 	if slow.GetStatus() != workflowpb.Status_STATUS_CANCELLED {
-		t.Fatalf("want the sibling cancelled rather than failed, got %v", slow.GetStatus())
+		t.Fatalf("want the sibling cancelled rather than failed, got %v", slow)
 	}
 }
 
 // TestReport_AFailureCarriesItsMessage is sub-phase 3.2: a status says a run
-// failed, and this says what went wrong.
+// failed, and the cause says what went wrong.
 //
 // Revisions:
 //   - 2026-09-20 11:36: initial creation
+//   - 2026-10-02 15:34: the message is the cause's, a node carrying none
 func TestReport_AFailureCarriesItsMessage(t *testing.T) {
 	snap := _Ran(t, ONEFAILS)
 
-	if snap.GetCause() == nil {
-		t.Fatal("want the run to say what ended it")
-	}
-
 	if !strings.Contains(snap.GetCause().GetFailure(), BREAKS) {
-		t.Fatalf("want the assertion's own words, got %q", snap.GetCause().GetFailure())
-	}
-
-	bad, _ := _Node(snap, "bad")
-	if !strings.Contains(bad.GetFailure(), BREAKS) {
-		t.Fatalf("want the failing node to carry its message, got %q", bad.GetFailure())
-	}
-
-	good, _ := _Node(snap, "good")
-	if good.GetFailure() != "" {
-		t.Fatalf("want a node that did not fail to carry nothing, got %q",
-			good.GetFailure())
+		t.Fatalf("want the assertion's own words, got %v", snap.GetCause())
 	}
 }
 
-// TestReport_ACancellationCarriesNoMessage is the other half of the rule, and
-// the reason the field is called failure rather than message.
-//
-// A cancellation's text says it was cancelled, which the status says. Filling
-// it in would undo sub-phase 3.1, whose whole point is that a reader does not
-// have to read prose to learn a thread was stopped.
+// TestReport_ACancellationCarriesNoMessage is the other half of the rule: a
+// cancelled run has no cause, since nothing went wrong in it.
 //
 // Revisions:
 //   - 2026-09-20 11:36: initial creation
+//   - 2026-10-02 15:34: reads the cause alone, a node carrying no message
+//   - 2026-10-03 00:22: stops the run by cancelling its context, the one way to stop one
 func TestReport_ACancellationCarriesNoMessage(t *testing.T) {
-	run := observe.Start(t.Context(), _Compile(t, SLOW))
+	ctx, stop := context.WithCancel(t.Context())
+	run := observe.Start(ctx, _Compile(t, SLOW))
 
-	run.Stop()
+	stop()
 
 	_, err := run.Wait()
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want the cancellation, got %v", err)
 	}
 
-	snap := run.Status()
-
-	if snap.GetCause() != nil {
-		t.Fatalf("want a cancelled run to have no cause, got %v", snap.GetCause())
-	}
-
-	// And the sibling stopped by a failure, which is the common case.
-	stopped := _Ran(t, SLOWSIBLING)
-
-	patient, _ := _Node(stopped, "patient")
-	if patient.GetFailure() != "" {
-		t.Fatalf("want a stopped sibling to carry nothing, got %q", patient.GetFailure())
+	if run.Status().GetCause() != nil {
+		t.Fatalf("want a cancelled run to have no cause, got %v", run.Status().GetCause())
 	}
 }
 
-// TestReport_SuccessCarriesNoMessage records that the field is empty unless
-// something went wrong, so a host can read it without checking the status.
+// TestReport_SuccessCarriesNoMessage records that a run that succeeded has no
+// cause, so a host can read the pointer without checking the status.
 //
 // Revisions:
 //   - 2026-09-20 11:36: initial creation
+//   - 2026-10-02 01:35: reads every node of a Graph, lines included
+//   - 2026-10-02 15:34: reads the cause alone, a node carrying no message
 func TestReport_SuccessCarriesNoMessage(t *testing.T) {
 	snap := _Ran(t, BRANCHING)
 
 	if snap.GetCause() != nil {
 		t.Fatalf("want a succeeded run to have no cause, got %v", snap.GetCause())
 	}
-
-	for _, lane := range snap.GetThreads() {
-		for _, node := range lane.GetLive().GetNodes() {
-			if node.GetFailure() != "" {
-				t.Fatalf("want %s to carry nothing, got %q",
-					node.GetFunction(), node.GetFailure())
-			}
-		}
-	}
 }
 
-// TestReport_TheCauseNamesItsFunctionAndThread is sub-phase 3.3, and the reason
-// a pointer beats a sentence: a host follows it to a node rather than searching
-// every thread for one.
+// TestReport_TheCauseNamesItsFunction is sub-phase 3.3, and the reason a
+// pointer beats a sentence: a host follows it to a node rather than searching
+// for one.
 //
 // Revisions:
-//   - 2026-09-20 11:39: initial creation
-func TestReport_TheCauseNamesItsFunctionAndThread(t *testing.T) {
+//   - 2026-09-20 11:39: initial creation, as
+//     TestReport_TheCauseNamesItsFunctionAndThread
+//   - 2026-10-02 15:34: names the function, a graph having no threads
+func TestReport_TheCauseNamesItsFunction(t *testing.T) {
 	snap := _Ran(t, ONEFAILS)
 
 	cause := snap.GetCause()
-	if cause == nil {
-		t.Fatal("want a cause")
-	}
-
 	if cause.GetFunction() != "bad" {
-		t.Fatalf("want the function that failed, got %q", cause.GetFunction())
-	}
-
-	if cause.GetThread() == SPINE {
-		t.Fatal("want the lane bad ran on, not the spine")
+		t.Fatalf("want the function that failed, got %v", cause)
 	}
 
 	// Following the cause has to reach a node, which is the whole point.
-	node, lane := _Node(snap, cause.GetFunction())
-	if node == nil {
-		t.Fatal("want the cause to name a node in the report")
-	}
-
-	if lane != cause.GetThread() {
-		t.Fatalf("want the cause's thread to be the node's, got %s and %s",
-			cause.GetThread(), lane)
-	}
-
+	node := _Node(snap, cause.GetFunction())
 	if node.GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want the node it names to be the failed one, got %v", node.GetStatus())
+		t.Fatalf("want the node it names to be the failed one, got %v", node)
 	}
 }
 
-// TestReport_AFailureOnTheSpineNamesTheSpine records the simplest case, which
+// TestReport_AFailureOfTheEntryNamesTheEntry records the simplest case, which
 // the fail-fast machinery could easily get wrong: main itself raising.
 //
 // Revisions:
-//   - 2026-09-20 11:39: initial creation
-func TestReport_AFailureOnTheSpineNamesTheSpine(t *testing.T) {
+//   - 2026-09-20 11:39: initial creation, as
+//     TestReport_AFailureOnTheSpineNamesTheSpine
+//   - 2026-10-02 15:34: names main, a graph having no spine
+func TestReport_AFailureOfTheEntryNamesTheEntry(t *testing.T) {
 	snap := _Ran(t, FAILING)
 
+	if snap.GetCause().GetFunction() != ENTRY {
+		t.Fatalf("want %s, got %v", ENTRY, snap.GetCause())
+	}
+}
+
+// TestReport_AnEntryPointThatRaisesFails records main raising with nothing
+// recording it as the run's outcome - Starlark's own fail rather than assert -
+// which once left main succeeded beside a failed run, and the cause pointing
+// nowhere.
+//
+// Revisions:
+//   - 2026-10-02 12:19: initial creation, as
+//     TestReport_AnEntryPointThatRaisesFailsTheSpine
+//   - 2026-10-02 15:34: reads main's node, and the cause for what it raised
+func TestReport_AnEntryPointThatRaisesFails(t *testing.T) {
+	snap := _Ran(t, RAISING)
+
+	if _Node(snap, ENTRY).GetStatus() != workflowpb.Status_STATUS_FAILED {
+		t.Fatalf("want main failed, got %v", _Node(snap, ENTRY))
+	}
+
 	cause := snap.GetCause()
-	if cause == nil {
-		t.Fatal("want a cause")
+
+	blamed := cause.GetFunction() == ENTRY && strings.Contains(cause.GetFailure(), RAISES)
+	if !blamed {
+		t.Fatalf("want main blamed, with what it raised, got %v", cause)
+	}
+}
+
+// TestReport_AStoppedRunCancelsTheEntry records main's node ending as the run
+// did when a host stopped it: cancelled, rather than succeeded beside a
+// cancelled run.
+//
+// Revisions:
+//   - 2026-10-02 12:19: initial creation, as TestReport_AStoppedRunCancelsTheSpine
+//   - 2026-10-02 15:34: reads main's node
+//   - 2026-10-03 00:22: stops the run by cancelling its context, the one way to stop one
+func TestReport_AStoppedRunCancelsTheEntry(t *testing.T) {
+	ctx, stop := context.WithCancel(t.Context())
+	run := observe.Start(ctx, _Compile(t, SLOW))
+
+	stop()
+
+	_, err := run.Wait()
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want the cancellation, got %v", err)
 	}
 
-	if cause.GetThread() != SPINE {
-		t.Fatalf("want the spine, got thread %s", cause.GetThread())
-	}
-
-	if cause.GetFunction() != ENTRY {
-		t.Fatalf("want %s, got %q", ENTRY, cause.GetFunction())
+	entry := _Node(run.Status(), ENTRY)
+	if entry.GetStatus() != workflowpb.Status_STATUS_CANCELLED {
+		t.Fatalf("want main cancelled, got %v", entry)
 	}
 }

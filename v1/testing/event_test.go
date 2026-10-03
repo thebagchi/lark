@@ -7,7 +7,6 @@ import (
 
 	"github.com/thebagchi/lark/v1/runtime"
 	"github.com/thebagchi/lark/v1/runtime/plugin/event"
-	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
 // TestEvent_APostedEventIsSeenWithNoTimeToWait is a wait of zero on an event
@@ -50,22 +49,24 @@ def main():
 // Revisions:
 //   - 2026-09-30 22:24: initial creation
 func TestEvent_ABudgetRefusalDoesNotStopTheRun(t *testing.T) {
-	built, err := runtime.NewCompiler().Compile("budget.star", []byte(`
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: "budget.star", Text: []byte(`
 def poster():
     event.post("huge", "x" * (128 * 1024))
 
 def main():
     spawn(poster)
 
-    sleep(0.2)
+    sleep(200)
 
     return "survived"
-`))
+`)},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := built.Run(scheduler.Allowing(t.Context(), 64<<10))
+	got, err := runtime.Start(t.Context(), built, runtime.WithMemory(64<<10)).Wait()
 	if err != nil {
 		t.Fatalf("an unjoined post the budget refused ended the run: %v", err)
 	}
@@ -91,8 +92,8 @@ def poster():
 def main():
     return retry(3, poster)
 `)
-	if !errors.Is(err, event.ErrPosted) {
-		t.Fatalf("got %v, want ErrPosted", err)
+	if !errors.Is(err, event.ERR_POSTED) {
+		t.Fatalf("got %v, want ERR_POSTED", err)
 	}
 
 	if !strings.Contains(err.Error(), "attempt 1") {

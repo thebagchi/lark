@@ -1,128 +1,30 @@
 package artifact
 
 import (
-	"context"
+	"bytes"
 	"fmt"
-	"os"
-	"path"
 	"slices"
 	"strings"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	artifactpb "github.com/thebagchi/lark/proto/gen/artifact"
 	"github.com/thebagchi/lark/v1/runtime/dialect"
-	"github.com/thebagchi/lark/v1/runtime/guard"
 	"github.com/thebagchi/lark/v1/runtime/plugin"
+	"github.com/thebagchi/lark/v1/runtime/script"
 )
-
-// Loader fetches the source of a module a script asked to load, and says what
-// that module is actually called.
-//
-// The interface is declared here rather than borrowed so that what this package
-// depends on is the single method it calls. A host serving scripts from a
-// directory, an archive, a database or a test map implements this without
-// having to be, or to own, a file system.
-//
-// Resolving is separate from fetching, and the split is what keeps two
-// properties the one-method shape gave up: a module reached by two routes is
-// fetched once, and a cycle is refused without fetching anything. Both need the
-// graph to know what a spelling means before it decides whether to ask for it.
-//
-// Resolve is given the module doing the loading and the spelling it used, and
-// returns the identity the artifact files that module under. Two spellings that
-// reach one module must resolve to one name, or it is built twice; one spelling
-// that reaches two modules must resolve to two, or the wrong one is reused. It
-// is expected to be cheap - a path join, a key normalisation - because it runs
-// for every load whether or not a fetch follows.
-type Loader interface {
-	Resolve(from string, path string) (string, error)
-	Load(name string) ([]byte, error)
-}
-
-// _Dir is the loader a Compiler uses when the host set none: a module is a file
-// beside the one that loaded it.
-//
-// Empty: it needs no state, because the file doing the loading is an argument.
-type _Dir struct{}
 
 // _Graph collects the compiled units of one artifact, in an order that puts a
 // dependency before whatever loads it.
-//
-// source is what each unit was compiled from, kept so that describing the
-// artifact afterwards reads no file twice. Every module is fetched once per
-// compile, and deriving a graph through the loader again would have broken
-// that - measured, by the test that counts what the loader was asked for.
 type _Graph struct {
-	loader   Loader
-	registry *plugin.Registry
-	env      starlark.StringDict
-	units    map[string]*_Unit
-	order    []string
-	chain    []string
-	source   map[string][]byte
-}
-
-// _Held serves the sources a compile already read.
-//
-// It is a graph.Source, which asks exactly what a Loader does, so describing
-// an artifact costs no fetch and cannot read a file that has changed since the
-// compile. Resolving still goes through the loader, which is a path join
-// rather than a read.
-type _Held struct {
-	loader Loader
-	source map[string][]byte
-}
-
-// Resolve asks the loader what a spelling means, or reads it as a file beside
-// the one that loaded it when there is no loader.
-//
-// Revisions:
-//   - 2026-09-21 17:19: initial creation
-func (h *_Held) Resolve(from string, target string) (string, error) {
-	if h.loader == nil {
-		return (&_Dir{}).Resolve(from, target)
-	}
-
-	return h.loader.Resolve(from, target)
-}
-
-// Load returns what the compile read for this module.
-//
-// Revisions:
-//   - 2026-09-21 17:19: initial creation
-func (h *_Held) Load(name string) ([]byte, error) {
-	src, held := h.source[name]
-	if !held {
-		return nil, fmt.Errorf("%s: %w", name, ErrNoUnit)
-	}
-
-	return src, nil
-}
-
-// Resolve reads target as a file beside from.
-//
-// A relative spelling resolves against the directory of the file that wrote it,
-// so a module that moves takes its neighbours' references with it. The cleaned
-// join is the name, which is what stops two spellings of one file from becoming
-// two units, and one spelling in two directories from becoming one.
-//
-// Revisions:
-//   - 2026-09-19 20:14: initial creation
-//   - 2026-09-19 20:28: resolves only; fetching moved to Load
-func (d *_Dir) Resolve(from string, target string) (string, error) {
-	return path.Join(path.Dir(from), target), nil
-}
-
-// Load reads the file at name.
-//
-// Revisions:
-//   - 2026-09-19 20:28: initial creation
-func (d *_Dir) Load(name string) ([]byte, error) {
-	// Not wrapped: os.ReadFile's error already names the file it could not
-	// open, and the caller adds the spelling a script used.
-	return os.ReadFile(name)
+	loader  script.Loader
+	plugins []plugin.Plugin
+	env     starlark.StringDict
+	units   map[string]*_Unit
+	order   []string
+	chain   []string
 }
 
 // _Add compiles src as path, then walks whatever it loads, depth first.
@@ -138,6 +40,10 @@ func (d *_Dir) Load(name string) ([]byte, error) {
 //     twice
 //   - 2026-09-29 23:30: compiles through the dialect, so a lambda written as
 //     spawn's argument takes the variables it reads at the spawn
+//   - 2026-10-02 01:26: keeps no source, since nothing describes the artifact
+//     afterwards
+//   - 2026-10-03 21:00: encodes into the bytes it keeps, rather than into text it
+//     then copied into bytes
 func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 	tree, code, err := dialect.Compile(path, src, g.env.Has)
 	if err != nil {
@@ -147,7 +53,7 @@ func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 		return nil, err
 	}
 
-	var encoded strings.Builder
+	var encoded bytes.Buffer
 
 	err = code.Write(&encoded)
 	if err != nil {
@@ -157,17 +63,15 @@ func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 	// Not wrapped with the path: a refusal carries the position it was
 	// written at, which opens with the file, and repeating it makes a reader
 	// scan past the same name twice.
-	err = _Checked(g.registry, tree)
+	err = _Checked(g.plugins, tree)
 	if err != nil {
 		return nil, err
 	}
 
-	g.source[path] = src
-
 	unit := &_Unit{
 		saved: &artifactpb.Unit{
 			Name:  path,
-			Code:  []byte(encoded.String()),
+			Code:  encoded.Bytes(),
 			Loads: map[string]string{},
 		},
 		tree: tree,
@@ -216,11 +120,9 @@ func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 //     module is identified by what it is rather than by how it was spelled
 //   - 2026-09-19 20:28: fetches only after both checks, restoring one fetch per
 //     module and none at all for a cycle
+//   - 2026-10-03 00:10: always has a loader, a source naming none reading
+//     files beside the script
 func (g *_Graph) _Reach(from string, target string) (string, error) {
-	if g.loader == nil {
-		return "", fmt.Errorf("load %s: %w", target, ErrNoLoader)
-	}
-
 	name, err := g.loader.Resolve(from, target)
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve %q from %s: %w", target, from, err)
@@ -230,7 +132,7 @@ func (g *_Graph) _Reach(from string, target string) (string, error) {
 	if start >= 0 {
 		ring := append(slices.Clone(g.chain[start:]), name)
 
-		return "", fmt.Errorf("%w: %s", ErrCycle, strings.Join(ring, CHAIN_ARROW))
+		return "", fmt.Errorf("%w: %s", ERR_CYCLE, strings.Join(ring, CHAIN_ARROW))
 	}
 
 	_, done := g.units[name]
@@ -296,57 +198,61 @@ func _Link(
 	}
 }
 
-// _Initialise runs every unit's module-level statements in order, with this
-// run's arguments bound on each thread, and freezes what each produced.
+// _Initialise runs every unit's module-level statements in order on thread,
+// with this run's arguments bound on it, and freezes what each produced.
 //
-// Once per run. Dependencies come first, so the load hook only ever has to
-// hand back globals that are already built and frozen - there is nothing left
-// to fetch by the time anything runs.
+// Once per run, on the run's own spine, so a module's top level is part of the
+// run it belongs to. Dependencies come first, so the load hook only ever has
+// to hand back globals that are already built and frozen - there is nothing
+// left to fetch by the time anything runs. The hook is the unit's own while it
+// initialises, and none afterwards, since only a top level can load. The
+// arguments are bound for as long, since only a top level can declare one.
 //
-// Initialising is guarded, because a module's top level runs arbitrary script
-// and a script must not be able to take the host down with it.
+// Unguarded here because the run is: a module's top level runs arbitrary
+// script, and the evaluation this runs inside already recovers a panic as the
+// run's failure.
 //
 // Returns what the entry unit produced, and a wrapped error if any unit fails
-// to initialise. Never panics.
+// to initialise.
 //
 // Revisions:
 //   - 2026-09-22 22:24: initial creation, holding what _Link used to do
-func (a *Artifact) _Initialise(ctx context.Context) (starlark.StringDict, error) {
+//   - 2026-10-02 01:26: initialises every unit on the run's thread rather than
+//     on a thread of its own, inside the run's guard
+//   - 2026-10-02 01:41: takes the arguments off the thread once the units are
+//     initialised, so the entry point is a body
+//   - 2026-10-02 16:08: takes the arguments, rather than a context carrying
+//     them
+func (a *Artifact) _Initialise(
+	supplied map[string]*structpb.Value,
+	thread *starlark.Thread,
+) (starlark.StringDict, error) {
 	built := map[string]starlark.StringDict{}
 
-	var err error
+	_Bind(thread, supplied)
+
+	defer func() {
+		_Unbind(thread)
+
+		thread.Load = nil
+	}()
 
 	for _, path := range a.order {
 		unit := a.units[path]
 
-		load := func(
-			thread *starlark.Thread,
+		thread.Load = func(
+			_ *starlark.Thread,
 			spelling string,
 		) (starlark.StringDict, error) {
 			globals, found := built[unit.saved.GetLoads()[spelling]]
 			if !found {
-				return nil, fmt.Errorf("%s: %w", spelling, ErrNoUnit)
+				return nil, fmt.Errorf("%s: %w", spelling, ERR_NO_UNIT)
 			}
 
 			return globals, nil
 		}
 
-		thread := &starlark.Thread{
-			Name: path,
-			Load: load,
-		}
-
-		_Bind(thread, ctx)
-
-		var globals starlark.StringDict
-
-		guard.WithRecover(
-			&globals,
-			&err,
-			func() (starlark.StringDict, error) {
-				return unit.code.Init(thread, a.env)
-			},
-		)
+		globals, err := unit.code.Init(thread, a.env)
 		if err != nil {
 			return nil, fmt.Errorf("initialise %s: %w", path, err)
 		}
@@ -368,14 +274,11 @@ func (a *Artifact) _Initialise(ctx context.Context) (starlark.StringDict, error)
 //
 // Revisions:
 //   - 2026-09-24 17:40: initial creation
-func _Checked(registry *plugin.Registry, tree *syntax.File) error {
-	if registry == nil {
-		return nil
-	}
-
+//   - 2026-10-03 08:27: takes the plugins, a list
+func _Checked(plugins []plugin.Plugin, tree *syntax.File) error {
 	bound := _Bound(tree)
 
-	for _, installed := range registry.Registered() {
+	for _, installed := range plugins {
 		checker, ok := installed.(plugin.Checking)
 		if !ok {
 			continue
@@ -418,67 +321,9 @@ func _Checked(registry *plugin.Registry, tree *syntax.File) error {
 func _Bound(tree *syntax.File) map[string]bool {
 	bound := map[string]bool{}
 
-	_Binds(tree.Stmts, bound)
+	dialect.Bound(tree.Stmts, bound)
 
 	return bound
-}
-
-// _Binds collects the names these statements bind, descending into control
-// flow and not into a def.
-//
-// Revisions:
-//   - 2026-09-24 21:00: initial creation
-func _Binds(stmts []syntax.Stmt, bound map[string]bool) {
-	for _, stmt := range stmts {
-		switch held := stmt.(type) {
-		case *syntax.DefStmt:
-			bound[held.Name.Name] = true
-
-		case *syntax.AssignStmt:
-			_Targets(held.LHS, bound)
-
-		case *syntax.LoadStmt:
-			for _, named := range held.To {
-				bound[named.Name] = true
-			}
-
-		case *syntax.ForStmt:
-			_Targets(held.Vars, bound)
-			_Binds(held.Body, bound)
-
-		case *syntax.WhileStmt:
-			_Binds(held.Body, bound)
-
-		case *syntax.IfStmt:
-			_Binds(held.True, bound)
-			_Binds(held.False, bound)
-		}
-	}
-}
-
-// _Targets collects the names an assignment or a loop binds, which may be one
-// name or a shape of them.
-//
-// Revisions:
-//   - 2026-09-24 21:00: initial creation
-func _Targets(expr syntax.Expr, bound map[string]bool) {
-	switch held := expr.(type) {
-	case *syntax.Ident:
-		bound[held.Name] = true
-
-	case *syntax.TupleExpr:
-		for _, part := range held.List {
-			_Targets(part, bound)
-		}
-
-	case *syntax.ListExpr:
-		for _, part := range held.List {
-			_Targets(part, bound)
-		}
-
-	case *syntax.ParenExpr:
-		_Targets(held.X, bound)
-	}
 }
 
 // _Shadowed reports whether this file has taken any name the plugin supplies.

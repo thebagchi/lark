@@ -5,7 +5,7 @@
 # update's store lands second and the set is silently overwritten.
 
 def slow(current):
-    sleep(0.05)
+    sleep(50)
 
     return "from-update"
 
@@ -13,7 +13,7 @@ def updater():
     state.update("k", slow)
 
 def writer():
-    sleep(0.01)
+    sleep(10)
     state.set("k", "from-set")
 
 def main():

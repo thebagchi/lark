@@ -29,8 +29,8 @@ func TestBudget_RefusesWithoutReserving(t *testing.T) {
 	budget := scheduler.NewBudget(_CEILING)
 
 	err := budget.Charge(_CEILING + 1)
-	if !errors.Is(err, scheduler.ErrMemory) {
-		t.Fatalf("got %v, want ErrMemory", err)
+	if !errors.Is(err, scheduler.ERR_MEMORY) {
+		t.Fatalf("got %v, want ERR_MEMORY", err)
 	}
 
 	if budget.Held() != 0 {

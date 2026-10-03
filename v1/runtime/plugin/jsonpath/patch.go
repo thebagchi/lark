@@ -3,6 +3,7 @@ package jsonpath
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"go.starlark.net/starlark"
 
@@ -10,17 +11,17 @@ import (
 )
 
 var (
-	// ErrOperation is returned for an op this does not implement.
-	ErrOperation = errors.New("unknown patch operation")
+	// ERR_OPERATION is returned for an op this does not implement.
+	ERR_OPERATION = errors.New("unknown patch operation")
 
-	// ErrField is returned when an op is missing something it requires.
-	ErrField = errors.New("patch operation is missing a field")
+	// ERR_FIELD is returned when an op is missing something it requires.
+	ERR_FIELD = errors.New("patch operation is missing a field")
 
-	// ErrTest is returned when a test op does not match.
-	ErrTest = errors.New("test failed")
+	// ERR_TEST is returned when a test op does not match.
+	ERR_TEST = errors.New("test failed")
 
-	// ErrInto is returned for a move whose destination is inside its source.
-	ErrInto = errors.New("cannot move a value into itself")
+	// ERR_INTO is returned for a move whose destination is inside its source.
+	ERR_INTO = errors.New("cannot move a value into itself")
 )
 
 const (
@@ -38,15 +39,18 @@ const (
 
 // _Patch applies one RFC 6902 operation to doc and returns the result.
 //
-// The document is never mutated: each operation copies the containers along the
-// path it touches and leaves everything else shared. That is what Python's
-// jsonpatch does with in_place=False, and it is the only safe shape here, since
-// a document may already be frozen or reachable from another thread.
+// The document handed to the patch is never mutated: an operation copies a
+// container of it along the path it touches, the first time any operation does,
+// and leaves everything else shared. That is what Python's jsonpatch does with
+// in_place=False, and it is the only safe shape here, since a document may
+// already be frozen or reachable from another thread.
 //
 // Revisions:
 //   - 2026-09-20 00:53: initial creation
 //   - 2026-09-21 08:09: one keyword per case
-func _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
+//   - 2026-10-03 16:53: a method of _Edit, so a later operation changes in place what
+//     an earlier one copied
+func (e *_Edit) _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 	kind, err := _Field(op, OP)
 	if err != nil {
 		return nil, err
@@ -56,7 +60,7 @@ func _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 	case ADD:
 		fallthrough
 	case REPLACE:
-		return _Write(doc, op, kind)
+		return e._Write(doc, op, kind)
 
 	case REMOVE:
 		path, err := _Field(op, PATH)
@@ -64,18 +68,18 @@ func _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 			return nil, err
 		}
 
-		return _Remove(doc, path)
+		return e._Remove(doc, path)
 
 	case MOVE:
 		fallthrough
 	case COPY:
-		return _Relocate(doc, op, kind)
+		return e._Relocate(doc, op, kind)
 
 	case TEST:
 		return _Test(doc, op)
 
 	default:
-		return nil, fmt.Errorf("%q: %w", kind, ErrOperation)
+		return nil, fmt.Errorf("%q: %w", kind, ERR_OPERATION)
 	}
 }
 
@@ -88,12 +92,12 @@ func _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 func _Field(op *starlark.Dict, name string) (string, error) {
 	value, found, err := op.Get(starlark.String(name))
 	if err != nil || !found {
-		return "", fmt.Errorf("%q: %w", name, ErrField)
+		return "", fmt.Errorf("%q: %w", name, ERR_FIELD)
 	}
 
 	text, ok := value.(starlark.String)
 	if !ok {
-		return "", fmt.Errorf("%q is %s: %w", name, value.Type(), ErrField)
+		return "", fmt.Errorf("%q is %s: %w", name, value.Type(), ERR_FIELD)
 	}
 
 	return string(text), nil
@@ -107,7 +111,7 @@ func _Field(op *starlark.Dict, name string) (string, error) {
 func _Value(op *starlark.Dict) (starlark.Value, error) {
 	value, found, err := op.Get(starlark.String(VALUE))
 	if err != nil || !found {
-		return nil, fmt.Errorf("%q: %w", VALUE, ErrField)
+		return nil, fmt.Errorf("%q: %w", VALUE, ERR_FIELD)
 	}
 
 	return value, nil
@@ -122,7 +126,12 @@ func _Value(op *starlark.Dict) (starlark.Value, error) {
 //   - 2026-09-20 00:56: initial creation
 //   - 2026-09-21 08:09: inserts or replaces through two functions rather than
 //     one with a flag
-func _Write(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Value, error) {
+//   - 2026-10-03 16:53: a method of _Edit, which copies a container once per patch
+func (e *_Edit) _Write(
+	doc starlark.Value,
+	op *starlark.Dict,
+	kind string,
+) (starlark.Value, error) {
 	path, err := _Field(op, PATH)
 	if err != nil {
 		return nil, err
@@ -139,17 +148,17 @@ func _Write(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Value,
 	}
 
 	// The written value gets its own containers. _Insert already copies every
-	// container along the path, so the document's structure is never shared -
-	// this finishes that job at the leaf. Without it a caller who passed a
-	// value they still hold, part of the document included, could change what
-	// came back and change the input with it.
+	// container of the caller's along the path, so the document's structure is
+	// never shared - this finishes that job at the leaf. Without it a caller
+	// who passed a value they still hold, part of the document included, could
+	// change what came back and change the input with it.
 	own, err := deep.Copy(value)
 	if err != nil {
 		return nil, err
 	}
 
 	if kind == ADD {
-		return _Insert(doc, steps, own)
+		return e._Insert(doc, steps, own)
 	}
 
 	_, err = _Walk(doc, steps)
@@ -157,21 +166,22 @@ func _Write(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Value,
 		return nil, err
 	}
 
-	return _Replace(doc, steps, own)
+	return e._Replace(doc, steps, own)
 }
 
 // _Remove deletes what path names.
 //
 // Revisions:
 //   - 2026-09-20 00:57: initial creation
-func _Remove(doc starlark.Value, path string) (starlark.Value, error) {
+//   - 2026-10-03 16:53: a method of _Edit, which copies a container once per patch
+func (e *_Edit) _Remove(doc starlark.Value, path string) (starlark.Value, error) {
 	steps, err := _Steps(path)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(steps) == 0 {
-		return nil, fmt.Errorf("the whole document: %w", ErrPointer)
+		return nil, fmt.Errorf("the whole document: %w", ERR_POINTER)
 	}
 
 	_, err = _Walk(doc, steps)
@@ -179,7 +189,7 @@ func _Remove(doc starlark.Value, path string) (starlark.Value, error) {
 		return nil, err
 	}
 
-	return _Delete(doc, steps)
+	return e._Delete(doc, steps)
 }
 
 // _Relocate applies move or copy.
@@ -193,7 +203,14 @@ func _Remove(doc starlark.Value, path string) (starlark.Value, error) {
 //   - 2026-09-20 00:58: initial creation
 //   - 2026-09-21 08:09: inserts through _Insert; a move onto itself is a no-op
 //     rather than a refusal
-func _Relocate(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Value, error) {
+//   - 2026-10-03 16:53: a method of _Edit, which copies a container once per patch
+//   - 2026-10-03 19:28: a move onto itself returns the document as it was, the whole
+//     document included, rather than deleting the value and putting it back
+func (e *_Edit) _Relocate(
+	doc starlark.Value,
+	op *starlark.Dict,
+	kind string,
+) (starlark.Value, error) {
 	from, err := _Field(op, FROM)
 	if err != nil {
 		return nil, err
@@ -215,7 +232,7 @@ func _Relocate(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Val
 	}
 
 	if kind == MOVE && _Inside(source, target) {
-		return nil, fmt.Errorf("%q into %q: %w", from, path, ErrInto)
+		return nil, fmt.Errorf("%q into %q: %w", from, path, ERR_INTO)
 	}
 
 	value, err := _Walk(doc, source)
@@ -223,13 +240,21 @@ func _Relocate(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Val
 		return nil, err
 	}
 
+	// Once the walk has found the value, a move onto itself has nothing left to
+	// do. Deleting the value and putting it back would move a member to the end
+	// of its dict, and the whole document has nothing to be deleted from.
+	stays := kind == MOVE && slices.Equal(source, target)
+	if stays {
+		return doc, nil
+	}
+
 	if kind == MOVE {
-		doc, err = _Delete(doc, source)
+		doc, err = e._Delete(doc, source)
 		if err != nil {
 			return nil, err
 		}
 
-		return _Insert(doc, target, value)
+		return e._Insert(doc, target, value)
 	}
 
 	// The copy gets its own. Inserting the value itself puts one list in two
@@ -241,7 +266,7 @@ func _Relocate(doc starlark.Value, op *starlark.Dict, kind string) (starlark.Val
 		return nil, err
 	}
 
-	return _Insert(doc, target, own)
+	return e._Insert(doc, target, own)
 }
 
 // _Inside reports whether target is strictly below source.
@@ -303,7 +328,7 @@ func _Test(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 			path,
 			got.String(),
 			want.String(),
-			ErrTest,
+			ERR_TEST,
 		)
 	}
 

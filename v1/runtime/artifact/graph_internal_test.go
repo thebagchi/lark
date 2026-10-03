@@ -13,6 +13,8 @@ import (
 	"path"
 	"path/filepath"
 	"testing"
+
+	"github.com/thebagchi/lark/v1/runtime/script"
 )
 
 const (
@@ -71,7 +73,11 @@ func _Build(t *testing.T, name string) *Artifact {
 		t.Fatalf("read fixture %s: %v", name, err)
 	}
 
-	built, err := NewCompiler(WithLoader(&_Disk{})).Compile(name, src)
+	built, err := Compile(&script.Source{
+		Entry:  name,
+		Text:   src,
+		Loader: &_Disk{},
+	})
 	if err != nil {
 		t.Fatalf("compile %s: %v", name, err)
 	}

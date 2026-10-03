@@ -46,7 +46,7 @@ func TestExecution_HoldsNoContext(t *testing.T) {
 //
 // A nil artifact panics where it is dereferenced, on a goroutine of this
 // package's own - and a panic there cannot be recovered from outside it, so
-// without a guard this takes the host down. Invoke guards the script's own
+// without a guard this takes the host down. The run guards the script's own
 // evaluation, and everything before it was unguarded, which is the failure
 // mode arriving through a door starting a run opened.
 //

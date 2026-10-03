@@ -8,9 +8,10 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/thebagchi/lark/v1/runtime/guard"
+	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
-// ErrCancelled separates "something stopped you" from "your code was wrong",
+// ERR_CANCELLED separates "something stopped you" from "your code was wrong",
 // because a caller acts on them differently.
 //
 // It covers both stops a caller can meet: a joined handle that was cancelled,
@@ -18,7 +19,7 @@ import (
 // which is the caller's own doing. One sentinel rather than two, decided
 // 2026-09-23 06:58 - a host asking "did this finish on its own" wants one
 // answer, and the two are told apart by what else the error carries.
-var ErrCancelled = errors.New("cancelled")
+var ERR_CANCELLED = errors.New("cancelled")
 
 // Option sets one thing on the evaluation Beside starts, given the evaluation
 // that is starting it.
@@ -42,12 +43,14 @@ type Option func(parent *_Locals, child *_Locals)
 // on a goroutine cannot be recovered from outside it, so an unguarded call
 // here would not fail the run - it would take the process down, host and all.
 //
-// Returns ErrNoRun when thread carries no run.
+// Returns ERR_NO_RUN when thread carries no run.
 //
 // Revisions:
 //   - 2026-09-19 20:38: initial creation, as _Spawn's body
 //   - 2026-09-21 08:09: one primitive for spawn and every wrapper, inheriting
 //     the caller's evaluation and deriving from its context
+//   - 2026-10-02 00:38: reports a spawn on the thread that wrote it, with the
+//     child's id, its binding and the function it runs
 func Beside(thread *starlark.Thread, target starlark.Callable, opts ...Option) (*Handle, error) {
 	parent, err := _Of(thread)
 	if err != nil {
@@ -73,18 +76,28 @@ func Beside(thread *starlark.Thread, target starlark.Callable, opts ...Option) (
 	}
 
 	handle := &Handle{
-		name:   target.Name(),
+		name:   Named(target, child.label),
 		thread: child.thread,
 		done:   make(chan struct{}),
 		stop:   stop,
 	}
 
-	made := &starlark.Thread{Name: handle.name, Print: thread.Print}
+	made := &starlark.Thread{Name: target.Name(), Print: thread.Print}
 	made.SetLocal(LOCALS_KEY, child)
 
+	// A spawn is a line of the thread that wrote it, and the thread it starts
+	// shares that line's status, so it is reported on the parent with the
+	// child's id. The child does not report its own entry again.
 	if owns {
+		line := &Line{
+			Name:    handle.name,
+			Builtin: spelling.SPAWN,
+			Child:   handle.thread,
+			Binding: child.binding,
+		}
+
 		parent.run._Tell(func() {
-			parent.run.into.Started(handle.thread, handle.name, NO_ATTEMPT)
+			parent.run.into.Started(parent.thread, line)
 		})
 	}
 
@@ -130,6 +143,43 @@ func _Inherited(parent *_Locals, ctx context.Context, opts []Option) *_Locals {
 	}
 
 	return child
+}
+
+// Labelled tells Beside what the thread a spawn starts runs, and the name the
+// script bound the spawn to, for the line it reports.
+//
+// The function is the one a lambda calls, which the dialect read off the
+// source: a lambda is only how a spawn passes arguments, and its own name says
+// nothing. Empty when the lambda calls no function the script defines.
+//
+// Revisions:
+//   - 2026-10-02 00:38: initial creation
+func Labelled(name string, binding string) Option {
+	return func(parent *_Locals, child *_Locals) {
+		child.label = name
+		child.binding = binding
+	}
+}
+
+// Named is the name a line reports for a call of target: the callee the
+// dialect read off the source, or target's own name, except that a lambda with
+// no callee reports none, since "lambda" would read like a function of that
+// name.
+//
+// One rule for every builtin that runs a function it was handed. A lambda is
+// only how a spawn or a wrapper passes arguments, so the function it calls is
+// what its line names.
+//
+// Revisions:
+//   - 2026-10-02 00:38: initial creation, as _Named
+//   - 2026-10-02 00:59: exported, taking the callee rather than the locals, so
+//     a wrapper names its line the way a spawn does
+func Named(target starlark.Callable, callee string) string {
+	if callee != "" || target.Name() == LAMBDA {
+		return callee
+	}
+
+	return target.Name()
 }
 
 // Attempt marks the evaluation as attempt n of a repeat or a retry, on the
@@ -188,6 +238,8 @@ func Catching() Option {
 //     instead of killing the process
 //   - 2026-09-21 08:09: takes the evaluation it runs as, and keeps the raw
 //     error for the report
+//   - 2026-10-03 23:52: ends with a failure Fail kept on the evaluation, when what it
+//     returned does not already carry it
 func (h *Handle) _Work(thread *starlark.Thread, locals *_Locals, target starlark.Callable) {
 	watching := _CancelOn(locals.ctx, thread)
 	defer watching()
@@ -200,10 +252,20 @@ func (h *Handle) _Work(thread *starlark.Thread, locals *_Locals, target starlark
 		},
 	)
 
+	// A failure Fail kept is what this evaluation ended with, whether it went
+	// on to return nothing - a loop over a file cut short - or to raise the
+	// cancellation the run's stop then sent it. One the evaluation raised
+	// itself, as assert does, is already what it returned.
+	kept := locals.failed != nil && !errors.Is(h.err, locals.failed)
+	if kept {
+		h.value = nil
+		h.err = locals.failed
+	}
+
 	h.raw = h.err
 
 	if h.err != nil && locals.ctx.Err() != nil {
-		h.err = fmt.Errorf("%w: %w", ErrCancelled, locals.ctx.Err())
+		h.err = fmt.Errorf("%w: %w", ERR_CANCELLED, locals.ctx.Err())
 	}
 }
 
@@ -241,7 +303,7 @@ func (h *Handle) _Report(run *_Run) {
 // evaluation open for as long as that handle ran, which is how a timeout
 // around a join used to wait the join out.
 //
-// Returns ErrCancelled wrapping the context's error when the caller is
+// Returns ERR_CANCELLED wrapping the context's error when the caller is
 // cancelled first.
 //
 // Revisions:
@@ -257,7 +319,7 @@ func Wait(thread *starlark.Thread, handle *Handle) (starlark.Value, error) {
 		return handle.value, handle.err
 
 	case <-locals.ctx.Done():
-		return nil, fmt.Errorf("%w: %w", ErrCancelled, locals.ctx.Err())
+		return nil, fmt.Errorf("%w: %w", ERR_CANCELLED, locals.ctx.Err())
 	}
 }
 

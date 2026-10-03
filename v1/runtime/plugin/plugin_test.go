@@ -2,6 +2,7 @@ package plugin_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -44,12 +45,12 @@ func (f *_Fixed) Values() starlark.StringDict {
 
 // TestEnvironment_ImportingAPluginEnablesIt proves a blank import is the whole
 // of installing one: nothing in this test names a type from that package, and
-// what it installed into is the default registry.
+// what it installed into is DEFAULT.
 //
 // Revisions:
 //   - 2026-09-19 22:35: initial creation
 func TestEnvironment_ImportingAPluginEnablesIt(t *testing.T) {
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestEnvironment_ImportingAPluginEnablesIt(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:36: initial creation
 func TestEnvironment_APluginsNamesReachAScript(t *testing.T) {
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -96,31 +97,25 @@ func TestEnvironment_APluginsNamesReachAScript(t *testing.T) {
 // TestEnvironment_RefusesAConflictNamingBoth proves a clash is refused before
 // anything runs, and that the refusal says who supplied what.
 //
-// A registry of its own, so nothing here touches what every other test sees.
-// That is what a registry being a type buys, and this test used to capture
-// and restore the package's state by hand.
+// A list of its own, copied from DEFAULT, so nothing here touches what every
+// other test sees.
 //
 // Revisions:
 //   - 2026-09-19 22:37: initial creation
 //   - 2026-09-21 09:46: builds its own registry rather than restoring the
 //     package's
+//   - 2026-10-03 08:29: builds its own list, there being no registry
 func TestEnvironment_RefusesAConflictNamingBoth(t *testing.T) {
-	registry := plugin.New()
-
-	for _, installed := range plugin.DEFAULT.Registered() {
-		registry.Register(installed)
-	}
-
-	registry.Register(&_Fixed{
+	clashing := &_Fixed{
 		name: CLASH_SOURCE,
 		values: starlark.StringDict{
 			JSON_NAME: starlark.None,
 		},
-	})
+	}
 
-	_, err := registry.Environment()
-	if !errors.Is(err, plugin.ErrConflict) {
-		t.Fatalf("got %v, want ErrConflict", err)
+	_, err := plugin.Environment(slices.Concat(plugin.DEFAULT, []plugin.Plugin{clashing}))
+	if !errors.Is(err, plugin.ERR_CONFLICT) {
+		t.Fatalf("got %v, want ERR_CONFLICT", err)
 	}
 
 	for _, want := range []string{CLASH_SOURCE, JSON_NAME} {
@@ -137,31 +132,31 @@ func TestEnvironment_RefusesAConflictNamingBoth(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:38: initial creation
 //   - 2026-09-21 09:46: builds its own registry
+//   - 2026-10-03 08:29: builds its own list, there being no registry
 func TestEnvironment_ReportsOneConflictTheSameWayEveryRun(t *testing.T) {
-	registry := plugin.New()
-
-	registry.Register(&_Fixed{
-		name: JSON_NAME,
-		values: starlark.StringDict{
-			"alpha": starlark.None,
-			"omega": starlark.None,
+	plugins := []plugin.Plugin{
+		&_Fixed{
+			name: JSON_NAME,
+			values: starlark.StringDict{
+				"alpha": starlark.None,
+				"omega": starlark.None,
+			},
 		},
-	})
-
-	registry.Register(&_Fixed{
-		name: CLASH_SOURCE,
-		values: starlark.StringDict{
-			"alpha": starlark.None,
-			"omega": starlark.None,
+		&_Fixed{
+			name: CLASH_SOURCE,
+			values: starlark.StringDict{
+				"alpha": starlark.None,
+				"omega": starlark.None,
+			},
 		},
-	})
+	}
 
 	first := ""
 
 	for attempt := range 20 {
-		_, err := registry.Environment()
-		if !errors.Is(err, plugin.ErrConflict) {
-			t.Fatalf("attempt %d gave %v, want ErrConflict", attempt, err)
+		_, err := plugin.Environment(plugins)
+		if !errors.Is(err, plugin.ERR_CONFLICT) {
+			t.Fatalf("attempt %d gave %v, want ERR_CONFLICT", attempt, err)
 		}
 
 		if attempt == 0 {
@@ -177,24 +172,25 @@ func TestEnvironment_ReportsOneConflictTheSameWayEveryRun(t *testing.T) {
 	}
 }
 
-// TestRegistry_TwoRegistriesSeeDifferentPlugins is what a registry being a
-// type buys: two compilers in one process can be given different names.
+// TestEnvironment_OfNoPluginsSuppliesNothing proves an environment is the
+// plugins it is given and nothing else, so two compiles in one process can be
+// given different names.
 //
 // Revisions:
-//   - 2026-09-21 09:46: initial creation
-func TestRegistry_TwoRegistriesSeeDifferentPlugins(t *testing.T) {
-	bare := plugin.New()
-
-	env, err := bare.Environment()
+//   - 2026-09-21 09:46: initial creation, as
+//     TestRegistry_TwoRegistriesSeeDifferentPlugins
+//   - 2026-10-03 08:29: merges no plugins, there being no registry to make empty
+func TestEnvironment_OfNoPluginsSuppliesNothing(t *testing.T) {
+	env, err := plugin.Environment(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if len(env) != 0 {
-		t.Fatalf("want an empty registry to supply nothing, got %v", env.Keys())
+		t.Fatalf("want no plugins to supply nothing, got %v", env.Keys())
 	}
 
-	if len(plugin.DEFAULT.Registered()) == 0 {
-		t.Fatal("want the default registry untouched by a second one")
+	if len(plugin.DEFAULT) == 0 {
+		t.Fatal("want DEFAULT to hold the plugins this test imports")
 	}
 }

@@ -18,35 +18,46 @@ const STOPPED = "the run was stopped"
 // _CancelOn cancels thread when ctx is done, and returns the function that
 // stops watching.
 //
-// Stopping is synchronous: it returns only once the watcher has exited, so a
-// context cancelled after the release cannot cancel the thread. Without that,
-// a watcher woken by the release and the cancellation at once may take either,
-// which a test that asserted the thread survived was the first to see.
+// Stopping is synchronous: it returns only once a cancel already under way has
+// finished, so a context cancelled after the release cannot cancel the thread.
+// Without that, a watcher woken by the release and the cancellation at once may
+// take either, which a test that asserted the thread survived was the first to
+// see. context.AfterFunc's own stop does not wait, so the release waits on the
+// cancel when the stop reports it has already started.
+//
+// AfterFunc rather than a goroutine of its own: nothing runs until ctx is done,
+// where a watcher was a goroutine and two channels for every thread.
+//
+// A release that stops the cancel before it starts closes the channel itself,
+// since the cancel never will: a second release then finds it closed and
+// returns at once, where it would have waited on a cancel that never came.
 //
 // Revisions:
 //   - 2026-09-19 18:42: initial creation
 //   - 2026-09-21 08:09: the release waits for the watcher to exit
 //   - 2026-09-23 06:58: tells the interpreter a fixed reason, so the context's
 //     own text is not repeated by whoever wraps it
+//   - 2026-10-03 20:53: through context.AfterFunc, which starts nothing until ctx is
+//     done, the release still waiting for a cancel already under way
+//   - 2026-10-03 23:38: a second release returns at once, the first closing the channel
+//     when it stopped the cancel
 func _CancelOn(ctx context.Context, thread *starlark.Thread) func() {
-	var (
-		done   = make(chan struct{})
-		exited = make(chan struct{})
-	)
+	cancelled := make(chan struct{})
 
-	go func() {
-		defer close(exited)
+	stop := context.AfterFunc(ctx, func() {
+		defer close(cancelled)
 
-		select {
-		case <-ctx.Done():
-			thread.Cancel(STOPPED)
-		case <-done:
-		}
-	}()
+		thread.Cancel(STOPPED)
+	})
 
 	return func() {
-		close(done)
+		stopped := stop()
+		if stopped {
+			close(cancelled)
 
-		<-exited
+			return
+		}
+
+		<-cancelled
 	}
 }

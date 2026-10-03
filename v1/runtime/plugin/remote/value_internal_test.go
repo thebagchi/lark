@@ -105,8 +105,8 @@ func TestValue_ADictCrossesByItsStringKeys(t *testing.T) {
 	}
 
 	_, err = _Value(numbered)
-	if !errors.Is(err, ErrValue) {
-		t.Fatalf("a dictionary keyed by a number gave %v, want ErrValue", err)
+	if !errors.Is(err, ERR_VALUE) {
+		t.Fatalf("a dictionary keyed by a number gave %v, want ERR_VALUE", err)
 	}
 }
 
@@ -133,8 +133,8 @@ func TestValue_RefusesWhatItCannotName(t *testing.T) {
 	for name, given := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, err := _Value(given)
-			if !errors.Is(err, ErrValue) {
-				t.Fatalf("got %v, want ErrValue", err)
+			if !errors.Is(err, ERR_VALUE) {
+				t.Fatalf("got %v, want ERR_VALUE", err)
 			}
 
 			t.Logf("refused with: %v", err)

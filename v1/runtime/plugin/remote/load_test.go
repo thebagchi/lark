@@ -181,7 +181,7 @@ func TestLoad_NothingToLoadIsNotAFailure(t *testing.T) {
 		t.Fatal("clock resolved with no plugin loaded")
 	}
 
-	if errors.Is(err, remote.ErrGone) {
+	if errors.Is(err, remote.ERR_GONE) {
 		t.Fatalf("a name nothing supplied reported as a plugin that left: %v", err)
 	}
 }

@@ -27,7 +27,7 @@ const SCRIPT = "hash_test.star"
 func _Eval(t *testing.T, expression string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -134,9 +134,9 @@ func TestHash_RefusesWhatItCannotDo(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"a digest of a number", `hash.sha256(1)`, unpack.ErrData},
-		{"an algorithm nobody has", `hash.hmac("sha3", "k", "d")`, hash.ErrAlgorithm},
-		{"a key that is a number", `hash.hmac("sha256", 1, "d")`, unpack.ErrData},
+		{"a digest of a number", `hash.sha256(1)`, unpack.ERR_DATA},
+		{"an algorithm nobody has", `hash.hmac("sha3", "k", "d")`, hash.ERR_ALGORITHM},
+		{"a key that is a number", `hash.hmac("sha256", 1, "d")`, unpack.ERR_DATA},
 	}
 
 	for _, item := range cases {

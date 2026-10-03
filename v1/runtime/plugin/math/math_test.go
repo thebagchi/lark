@@ -24,7 +24,7 @@ const SCRIPT = "math_test.star"
 func _Eval(t *testing.T, expression string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -126,9 +126,9 @@ func TestMath_RefusesWhatIsNotANumber(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"a word", `math.sqrt("nine")`, larkmath.ErrNumber},
-		{"a word to ceil", `math.ceil("nine")`, larkmath.ErrNumber},
-		{"base one", `math.log(8, 1)`, larkmath.ErrBase},
+		{"a word", `math.sqrt("nine")`, larkmath.ERR_NUMBER},
+		{"a word to ceil", `math.ceil("nine")`, larkmath.ERR_NUMBER},
+		{"base one", `math.log(8, 1)`, larkmath.ERR_BASE},
 	}
 
 	for _, item := range cases {

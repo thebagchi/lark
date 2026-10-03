@@ -1,49 +1,61 @@
+// Package observe starts runs that outlive the call starting them, and keeps
+// the graph of what each one is doing while it does it.
+//
+// A host starts a script and is handed the run itself, which it stops, waits
+// for and asks about for as long as it holds it. Nothing here blocks the
+// caller and nothing here keeps a run alive - a run is a goroutine evaluating
+// an artifact.
+//
+// Nothing here keeps a finished run either. What is worth remembering about
+// one, and for how long, is the host's decision and not this runtime's, so
+// there is no store, no identifier to look a run up by, and nothing that
+// forgets on a schedule of its own. A host that wants a run after it has let
+// go of it keeps its last Status.
 package observe
 
 import (
 	"context"
 	"errors"
-	"sync"
+	"slices"
 
 	"go.starlark.net/starlark"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/v1/runtime/artifact"
 	"github.com/thebagchi/lark/v1/runtime/guard"
-	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// Execution is one run: how to stop it, how to wait for it, and how it is
-// doing.
+// Execution is one run: how to wait for it, and how it is doing. Stopping it is
+// cancelling the context it was started with.
 //
 // A caller holds this rather than an id, and nothing holds it for them. What
 // is worth keeping about a finished run, and for how long, is the host's
 // decision - so there is no store here, no identifier to look one up by, and
 // nothing that forgets on a schedule of its own.
 //
-// It holds no context and no run. That is the point of it rather than an
-// accident of what it happens to need: a cancel function is not a context - it
-// cannot be read, derived from, or passed into an evaluation - so keeping one
-// here says nothing about where a run's own context lives.
+// It holds no context and no run: the context is the caller's, and the run is
+// a goroutine.
 //
 // value and err are written by the run's goroutine before it closes done, so
 // done is the happens-before edge that makes both safe to read. Nothing reads
 // either without having seen done closed.
 type Execution struct {
-	stop  context.CancelFunc
 	done  chan struct{}
 	value starlark.Value
 	err   error
 	into  *_Recorder
-	once  sync.Once
 }
 
 // Start evaluates art's entry point on a goroutine of its own and returns at
 // once with the run itself.
 //
-// The context passed in is the parent of the run's, so a caller that already
-// has one keeps the ability to stop everything without this package needing to
-// hold a context. Stop is the same stop by another route.
+// The context passed in is the parent of the run's, and cancelling it is the
+// one way to stop the run. The interpreter is told between instructions, so a
+// script with no sleep in it stops as readily as one that blocks, and Wait
+// then returns ERR_CANCELLED.
+//
+// Its graph is this package's own, kept for Status and changed step by step,
+// each change going where WithChanges says.
 //
 // Revisions:
 //   - 2026-09-20 01:36: initial creation, as Store.Start, returning an id
@@ -55,17 +67,27 @@ type Execution struct {
 //     file around the evaluation
 //   - 2026-09-23 23:20: returns the run rather than an id, and no store holds
 //     it - what a finished run is worth keeping is the host's to decide
-func Start(ctx context.Context, art *artifact.Artifact, opts ...Option) *Execution {
+//   - 2026-10-02 13:12: takes no options, since what a run prints is its
+//     context's transcript and nothing else is chosen here
+//   - 2026-10-02 16:08: takes the run's options, which it hands to the run
+//   - 2026-10-02 16:33: sends the graph's changes where the options say, from
+//     the first, which makes an empty graph running
+//   - 2026-10-03 00:20: keeps no cancel function, the caller's context being the one
+//     way to stop a run
+//   - 2026-10-03 08:31: hands the run its recorder as an option, rather than on a
+//     context
+func Start(ctx context.Context, art *artifact.Artifact, opts ...artifact.RunOption) *Execution {
 	into := _NewRecorder()
+	into.watch = artifact.Changes(opts)
+	into._Began()
 
-	for _, opt := range opts {
-		opt(into)
-	}
+	inner, stop := context.WithCancel(ctx)
 
-	inner, stop := context.WithCancel(scheduler.WithReporter(ctx, into))
+	// Last, so nothing in opts replaces the recorder Status reads, and copied,
+	// so the caller's slice is not written into.
+	given := slices.Concat(opts, []artifact.RunOption{artifact.Reporting(into)})
 
 	run := &Execution{
-		stop: stop,
 		done: make(chan struct{}),
 		into: into,
 	}
@@ -74,24 +96,10 @@ func Start(ctx context.Context, art *artifact.Artifact, opts ...Option) *Executi
 		defer close(run.done)
 		defer stop()
 
-		run._Perform(inner, art)
+		run._Perform(inner, art, given)
 	}()
 
 	return run
-}
-
-// Stop ends the run. It does not wait, and calling it twice is calling it
-// once.
-//
-// The interpreter is told between instructions, so a script with no sleep in
-// it stops as readily as one that blocks. What Wait then returns is
-// ErrCancelled, which is the same answer a run stopped through its context
-// gives, because it is the same stop.
-//
-// Revisions:
-//   - 2026-09-23 23:20: initial creation, replacing Store.Cancel
-func (e *Execution) Stop() {
-	e.once.Do(e.stop)
 }
 
 // Wait blocks until the run is over and returns what it produced.
@@ -119,13 +127,17 @@ func (e *Execution) Done() <-chan struct{} {
 	return e.done
 }
 
-// Status is how this run is doing, or how it ended.
+// Status is how this run is doing, or how it ended: every function it has
+// called, with its status, the calls between them, and what ended the run when
+// it failed.
 //
 // The run's status is the run's own, never folded from its functions': a run
-// that succeeded without reaching everything its graph declared is succeeded,
-// and the functions it did not reach stay pending. Folding would make such a
-// run report itself pending for ever, since a pending node has nothing further
-// to happen to it.
+// whose main returned succeeded, even while a thread nothing joined was still
+// running when it ended and was cancelled.
+//
+// It is the graph the run's changes make, step for step, so it turns finished
+// with the last change rather than when Done closes, a moment later. A caller
+// told the run ended, and waiting for it then, is not kept waiting.
 //
 // Asking does not consume. A run answers for as long as the caller holds it,
 // which is now as long as the caller wants rather than as long as a sweep
@@ -137,70 +149,46 @@ func (e *Execution) Done() <-chan struct{} {
 //     watching one run are both answered
 //   - 2026-09-23 23:20: a method on the run, which the caller holds, so there
 //     is no id and nothing to have forgotten
-func (e *Execution) Status() *workflowpb.Workflow {
-	if !e._Over() {
-		return &workflowpb.Workflow{
-			Status:  workflowpb.Status_STATUS_RUNNING,
-			Threads: e.into._Threads(),
-		}
-	}
-
-	status, failure := _Became(e.err), _Why(e.err)
-
-	return &workflowpb.Workflow{
-		Status:  status,
-		Threads: e.into._Threads(),
-		Cause:   e.into._Because(status, failure),
-	}
+//   - 2026-10-02 01:32: a Graph
+//   - 2026-10-02 15:34: a call graph, of functions and the calls between them
+//   - 2026-10-02 16:45: the graph the run's changes make, its status and cause
+//     included, rather than one finished when Done closes
+func (e *Execution) Status() *workflowpb.Graph {
+	return e.into._Drawn()
 }
 
-// _Over reports whether this run has finished.
-//
-// Revisions:
-//   - 2026-09-20 01:36: initial creation
-func (e *Execution) _Over() bool {
-	select {
-	case <-e.done:
-		return true
-	default:
-		return false
-	}
-}
-
-// _Perform evaluates art with the run's own file open around it, and records
-// how it ended.
+// _Perform evaluates art with the options opts, and records how it ended, in
+// the run and in its graph.
 //
 // Guarded, because this is a goroutine of ours and a panic on it cannot be
 // recovered from outside - it would take the host down rather than fail the
-// run. Invoke guards the script's own evaluation; this guards everything
+// run. The run guards the script's own evaluation; this guards everything
 // before it gets there, which is where an artifact that is not one lands.
 //
 // Revisions:
 //   - 2026-09-21 16:42: initial creation, lifting the goroutine's body so the
 //     run's file has somewhere to be opened and closed
 //   - 2026-09-23 23:20: a method on the run it performs
-func (e *Execution) _Perform(ctx context.Context, art *artifact.Artifact) {
-	err := e.into._Open()
-	if err != nil {
-		e.err = err
-
-		return
-	}
-
+//   - 2026-10-02 13:12: opens no file, a run's transcript being its context's
+//   - 2026-10-02 16:08: runs art with the run's options
+//   - 2026-10-02 16:33: tells the graph how the run ended, which is its last
+//     change
+func (e *Execution) _Perform(
+	ctx context.Context,
+	art *artifact.Artifact,
+	opts []artifact.RunOption,
+) {
 	guard.WithRecover(
 		&e.value,
 		&e.err,
 		func() (starlark.Value, error) {
-			return art.Run(ctx)
+			return artifact.Run(ctx, art, opts...)
 		},
 	)
 
-	// After the evaluation, which waited for every thread it started, so
-	// nothing is still printing.
-	closing := e.into._Close()
-	if e.err == nil {
-		e.err = closing
-	}
+	status := _Became(e.err)
+
+	e.into._Finished(status, e.into._Because(status, _Why(e.err)))
 }
 
 // _Became is the status an error ends something with.
@@ -209,7 +197,7 @@ func (e *Execution) _Perform(ctx context.Context, art *artifact.Artifact) {
 // thread stopped because something else failed did not itself fail - reporting
 // either as failed says something went wrong where nothing did.
 //
-// The run's own outcome still wins, and that is what makes this safe: Invoke
+// The run's own outcome still wins, and that is what makes this safe: a run
 // returns a recorded outcome before it looks at the context, so a script that
 // asserted and was then torn down reports the assertion. Only a failure with no
 // outcome behind it reaches here carrying a context error.

@@ -3,21 +3,22 @@ package graph
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"go.starlark.net/syntax"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 )
 
-// ErrNotCarried is returned for an arg() call a graph cannot carry: a name
+// ERR_NOT_CARRIED is returned for an arg() call a graph cannot carry: a name
 // that is not a string literal, a default no value describes, or a count of
 // arguments the builtin does not take.
 //
-// An error rather than a fallthrough to ErrConstant. Once arg is the name a
+// An error rather than a fallthrough to ERR_CONSTANT. Once arg is the name a
 // declaration is written with, a malformed one is a broken declaration and not
 // an ordinary constant that happens to fail - and a reader told "constant
 // cannot be carried" would go looking for the wrong thing.
-var ErrNotCarried = errors.New("argument declaration cannot be carried")
+var ERR_NOT_CARRIED = errors.New("argument declaration cannot be carried")
 
 const (
 	// ARG is the builtin a declaration is written with.
@@ -44,7 +45,7 @@ const (
 // and arg("host", "x") declare the same argument, and a graph that refused the
 // first would refuse a script that runs.
 //
-// Returns ErrNotCarried for the second outcome.
+// Returns ERR_NOT_CARRIED for the second outcome.
 //
 // Revisions:
 //   - 2026-09-22 22:31: initial creation
@@ -56,17 +57,17 @@ func (r *_Reading) _Declared(expr syntax.Expr) (*workflowpb.Arg, error) {
 		return nil, nil
 	}
 
-	if _Bare(call) != ARG || r.defs[ARG] != nil {
+	if _Callee(call) != ARG || r.defs[ARG] != nil {
 		return nil, nil
 	}
 
 	if len(call.Args) == 0 || len(call.Args) > TAKES {
-		return nil, fmt.Errorf("%s takes one or two arguments: %w", ARG, ErrNotCarried)
+		return nil, fmt.Errorf("%s takes one or two arguments: %w", ARG, ERR_NOT_CARRIED)
 	}
 
 	name, ok := _Spelled(call.Args[0])
 	if !ok {
-		return nil, fmt.Errorf("%s names a string: %w", ARG, ErrNotCarried)
+		return nil, fmt.Errorf("%s names a string: %w", ARG, ERR_NOT_CARRIED)
 	}
 
 	if len(call.Args) == 1 {
@@ -78,7 +79,7 @@ func (r *_Reading) _Declared(expr syntax.Expr) (*workflowpb.Arg, error) {
 	// word printed twice.
 	value, ok := _Arg(_Passed(call.Args[1]))
 	if !ok {
-		return nil, fmt.Errorf("default is not a value: %w", ErrNotCarried)
+		return nil, fmt.Errorf("default is not a value: %w", ERR_NOT_CARRIED)
 	}
 
 	return &workflowpb.Arg{Name: name, Default: value}, nil
@@ -114,4 +115,35 @@ func _Spelled(expr syntax.Expr) (string, bool) {
 	word, ok := literal.Value.(string)
 
 	return word, ok
+}
+
+// _Declaration is the call a script declares an argument with.
+//
+// An argument with no default is written with none. Writing None there would
+// turn an argument a run must supply into one that defaults to nothing.
+//
+// Revisions:
+//   - 2026-10-01 11:57: initial creation, as _Declared
+//   - 2026-10-01 13:08: returns the call node
+//   - 2026-10-02 00:04: lifted into graph, taking the generated Arg, and named
+//     apart from the reading's _Declared
+func _Declaration(arg *workflowpb.Arg) (syntax.Expr, error) {
+	if arg == nil || arg.GetName() == "" {
+		return nil, fmt.Errorf("arg: %w", ERR_FORM)
+	}
+
+	args := []syntax.Expr{_Text(strconv.Quote(arg.GetName()))}
+
+	if arg.GetDefault() == nil {
+		return _Bare(ARG, args), nil
+	}
+
+	value, err := _Value(arg.GetDefault())
+	if err != nil {
+		return nil, err
+	}
+
+	args = append(args, value)
+
+	return _Bare(ARG, args), nil
 }

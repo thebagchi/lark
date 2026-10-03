@@ -10,9 +10,7 @@ import (
 	"time"
 
 	"github.com/thebagchi/lark/v1/runtime"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/core"
 	"github.com/thebagchi/lark/v1/runtime/plugin/event"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/flow"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
@@ -40,7 +38,7 @@ const (
 func _Ran(t *testing.T, src string) (string, error) {
 	t.Helper()
 
-	built, err := runtime.NewCompiler().Compile(SCRIPT, []byte(src))
+	built, err := runtime.Compile(&runtime.Source{Entry: SCRIPT, Text: []byte(src)})
 	if err != nil {
 		return "", err
 	}
@@ -53,7 +51,7 @@ func _Ran(t *testing.T, src string) (string, error) {
 	answered := make(chan outcome, 1)
 
 	go func() {
-		value, err := built.Run(context.Background())
+		value, err := runtime.Start(context.Background(), built).Wait()
 		if err != nil {
 			answered <- outcome{err: err}
 
@@ -82,14 +80,14 @@ func _Ran(t *testing.T, src string) (string, error) {
 func TestEvent_OneThreadWaitsForAnother(t *testing.T) {
 	got, err := _Ran(t, `
 def waiter():
-    value, err = event.wait("loaded", 10)
+    value, err = event.wait("loaded", 10000)
 
     return [value, err]
 
 def main():
     held = spawn(waiter)
 
-    sleep(0.05)
+    sleep(50)
     event.post("loaded", {"rows": 12})
 
     return join(held)[0]
@@ -118,9 +116,9 @@ func TestEvent_APostBeforeAnyoneWaitsIsStillSeen(t *testing.T) {
 def main():
     event.post("ready", "done")
 
-    sleep(0.05)
+    sleep(50)
 
-    value, err = event.wait("ready", 10)
+    value, err = event.wait("ready", 10000)
 
     return [value, err]
 `)
@@ -141,7 +139,7 @@ def main():
 func TestEvent_EveryWaiterSeesIt(t *testing.T) {
 	got, err := _Ran(t, `
 def waiter():
-    value, err = event.wait("go", 10)
+    value, err = event.wait("go", 10000)
 
     return value
 
@@ -150,7 +148,7 @@ def main():
     second = spawn(waiter)
     third = spawn(waiter)
 
-    sleep(0.05)
+    sleep(50)
     event.post("go", 7)
 
     return [join(first)[0], join(second)[0], join(third)[0]]
@@ -175,7 +173,7 @@ def main():
 func TestEvent_ARunOutWaitSaysSo(t *testing.T) {
 	got, err := _Ran(t, `
 def main():
-    value, err = event.wait("never", 0.05)
+    value, err = event.wait("never", 50)
 
     return [value, err]
 `)
@@ -192,7 +190,7 @@ def main():
 def main():
     event.post("empty", None)
 
-    value, err = event.wait("empty", 10)
+    value, err = event.wait("empty", 10000)
 
     return [value, err]
 `)
@@ -213,10 +211,10 @@ def main():
 func TestEvent_ATimeoutAroundAWaitCutsIt(t *testing.T) {
 	_, err := _Ran(t, `
 def patient():
-    return event.wait("never", 300)
+    return event.wait("never", 300000)
 
 def main():
-    return timeout(0.2, patient)
+    return timeout(200, patient)
 `)
 	if err == nil {
 		t.Fatal("a timeout around a three-hundred-second wait returned nothing")
@@ -239,8 +237,8 @@ def main():
 
     return "reached"
 `)
-	if !errors.Is(err, event.ErrPosted) {
-		t.Fatalf("got %v, want ErrPosted", err)
+	if !errors.Is(err, event.ERR_POSTED) {
+		t.Fatalf("got %v, want ERR_POSTED", err)
 	}
 }
 
@@ -268,8 +266,8 @@ def main():
 
     return "reached"
 `)
-	if !errors.Is(err, event.ErrNotData) {
-		t.Fatalf("got %v, want ErrNotData", err)
+	if !errors.Is(err, event.ERR_NOT_DATA) {
+		t.Fatalf("got %v, want ERR_NOT_DATA", err)
 	}
 }
 
@@ -296,9 +294,11 @@ func TestEvent_AVisibleFunctionIsRefusedBeforeItRuns(t *testing.T) {
 
 	for name, script := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := runtime.NewCompiler().Compile(name+".star", []byte(script))
-			if !errors.Is(err, event.ErrNotData) {
-				t.Fatalf("compiling gave %v, want ErrNotData before it ran", err)
+			_, err := runtime.Compile(
+				&runtime.Source{Entry: name + ".star", Text: []byte(script)},
+			)
+			if !errors.Is(err, event.ERR_NOT_DATA) {
+				t.Fatalf("compiling gave %v, want ERR_NOT_DATA before it ran", err)
 			}
 		})
 	}
@@ -327,12 +327,12 @@ def poster():
 def main():
     unjoined = spawn(poster)
 
-    sleep(5)
+    sleep(5000)
 
     return "run survived"
 `)
-	if !errors.Is(err, event.ErrPosted) {
-		t.Fatalf("a second post nobody joins: got %s, %v; want ErrPosted", got, err)
+	if !errors.Is(err, event.ERR_POSTED) {
+		t.Fatalf("a second post nobody joins: got %s, %v; want ERR_POSTED", got, err)
 	}
 
 	got, err = _Ran(t, `
@@ -348,12 +348,12 @@ def poster():
 def main():
     unjoined = spawn(poster)
 
-    sleep(5)
+    sleep(5000)
 
     return "run survived"
 `)
-	if !errors.Is(err, event.ErrNotData) {
-		t.Fatalf("a function posted nobody joins: got %s, %v; want ErrNotData", got, err)
+	if !errors.Is(err, event.ERR_NOT_DATA) {
+		t.Fatalf("a function posted nobody joins: got %s, %v; want ERR_NOT_DATA", got, err)
 	}
 }
 
@@ -363,12 +363,14 @@ def main():
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_WaitingIsCancelledWithTheRun(t *testing.T) {
-	built, err := runtime.NewCompiler().Compile(SCRIPT, []byte(`
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: SCRIPT, Text: []byte(`
 def main():
-    value, err = event.wait("never", 300)
+    value, err = event.wait("never", 300000)
 
     return err
-`))
+`)},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,14 +385,14 @@ def main():
 	answered := make(chan error, 1)
 
 	go func() {
-		_, err := built.Run(ctx)
+		_, err := runtime.Start(ctx, built).Wait()
 		answered <- err
 	}()
 
 	select {
 	case err := <-answered:
-		if !errors.Is(err, scheduler.ErrCancelled) {
-			t.Fatalf("got %v, want ErrCancelled", err)
+		if !errors.Is(err, scheduler.ERR_CANCELLED) {
+			t.Fatalf("got %v, want ERR_CANCELLED", err)
 		}
 
 	case <-time.After(_DEADLINE):
@@ -412,7 +414,7 @@ def main():
 func TestEvent_ManyWaitersBothSidesOfThePost(t *testing.T) {
 	got, err := _Ran(t, `
 def waiter():
-    value, err = event.wait("go", 10)
+    value, err = event.wait("go", 10000)
 
     if err:
         return -1
@@ -426,7 +428,7 @@ def main():
         held = spawn(waiter)
         before.append(held)
 
-    sleep(0.05)
+    sleep(50)
     event.post("go", 5)
 
     after = []
@@ -483,8 +485,8 @@ def main():
 
     return "posted"
 `)
-	if !errors.Is(err, scheduler.ErrMemory) {
-		t.Fatalf("one event of 128KB under %d bytes: %v, want ErrMemory", _NARROW, err)
+	if !errors.Is(err, scheduler.ERR_MEMORY) {
+		t.Fatalf("one event of 128KB under %d bytes: %v, want ERR_MEMORY", _NARROW, err)
 	}
 }
 
@@ -506,9 +508,9 @@ def main():
 
     return "waited"
 `)
-	if !errors.Is(err, scheduler.ErrMemory) {
+	if !errors.Is(err, scheduler.ERR_MEMORY) {
 		t.Fatalf(
-			"twenty thousand named events under %d bytes: %v, want ErrMemory",
+			"twenty thousand named events under %d bytes: %v, want ERR_MEMORY",
 			_NARROW,
 			err,
 		)
@@ -522,12 +524,16 @@ def main():
 func _Under(t *testing.T, ceiling int64, src string) (string, error) {
 	t.Helper()
 
-	built, err := runtime.NewCompiler().Compile(SCRIPT, []byte(src))
+	built, err := runtime.Compile(&runtime.Source{Entry: SCRIPT, Text: []byte(src)})
 	if err != nil {
 		return "", err
 	}
 
-	value, err := built.Run(scheduler.Allowing(context.Background(), ceiling))
+	value, err := runtime.Start(
+		context.Background(),
+		built,
+		runtime.WithMemory(ceiling),
+	).Wait()
 	if err != nil {
 		return "", err
 	}

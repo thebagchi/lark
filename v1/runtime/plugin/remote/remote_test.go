@@ -25,7 +25,6 @@ import (
 	pluginpb "github.com/thebagchi/lark/proto/gen/plugin"
 	"github.com/thebagchi/lark/v1/runtime"
 	"github.com/thebagchi/lark/v1/runtime/plugin"
-	_ "github.com/thebagchi/lark/v1/runtime/plugin/core"
 	"github.com/thebagchi/lark/v1/runtime/plugin/flow"
 	"github.com/thebagchi/lark/v1/runtime/plugin/remote"
 )
@@ -56,14 +55,15 @@ const (
 	_STALLED = 15 * time.Second
 )
 
-// _Listening is a listener with a registry of its own, holding everything the
-// default one holds.
-//
-// Its own registry rather than DEFAULT, because a plugin that comes and goes
-// has no business in the one every compiler in the process shares.
+// _Listening is a listener, holding only what attaches: a compiler adds that
+// to every plugin registered by import.
 //
 // Revisions:
 //   - 2026-09-25 06:40: initial creation
+//   - 2026-10-02 15:56: holds only what attaches, a compiler adding it to the
+//     runtime's own plugins
+//   - 2026-10-02 17:12: hands the listener no registry, since it keeps what
+//     attaches itself
 func _Listening(t *testing.T) (*remote.Listener, string) {
 	t.Helper()
 
@@ -79,13 +79,8 @@ func _Listening(t *testing.T) (*remote.Listener, string) {
 	})
 
 	socket := filepath.Join(dir, "s")
-	registry := plugin.New()
 
-	for _, held := range plugin.DEFAULT.Registered() {
-		registry.Register(held)
-	}
-
-	listener, err := remote.Listen(socket, TOKEN, registry)
+	listener, err := remote.Listen(socket, TOKEN)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,20 +212,22 @@ func _Installed(t *testing.T, listener *remote.Listener, count int) {
 	t.Fatalf("only %d names were installed, want %d", len(listener.Names()), count)
 }
 
-// _Ran compiles and runs src against the listener's registry.
+// _Ran compiles and runs src with the listener's plugins.
 //
 // Revisions:
 //   - 2026-09-25 06:40: initial creation
 func _Ran(t *testing.T, listener *remote.Listener, src string) (string, error) {
 	t.Helper()
 
-	built, err := runtime.NewCompiler(runtime.WithPlugins(listener.Registry())).
-		Compile(SCRIPT, []byte(src))
+	built, err := runtime.Compile(
+		&runtime.Source{Entry: SCRIPT, Text: []byte(src)},
+		runtime.WithPlugins(listener.Plugins()...),
+	)
 	if err != nil {
 		return "", err
 	}
 
-	value, err := built.Run(context.Background())
+	value, err := runtime.Start(context.Background(), built).Wait()
 	if err != nil {
 		return "", err
 	}
@@ -279,8 +276,8 @@ func TestRemote_AConflictIsStillTheRegistrysToRefuse(t *testing.T) {
 	_Installed(t, listener, 2)
 
 	_, err := _Ran(t, listener, "def main():\n    return clock.now()\n")
-	if !errors.Is(err, plugin.ErrConflict) {
-		t.Fatalf("got %v, want ErrConflict", err)
+	if !errors.Is(err, plugin.ERR_CONFLICT) {
+		t.Fatalf("got %v, want ERR_CONFLICT", err)
 	}
 }
 
@@ -315,8 +312,8 @@ func TestRemote_AFunctionNeverCrosses(t *testing.T) {
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, err := _Ran(t, listener, src)
-			if !errors.Is(err, remote.ErrArgument) {
-				t.Fatalf("got %v, want ErrArgument", err)
+			if !errors.Is(err, remote.ERR_ARGUMENT) {
+				t.Fatalf("got %v, want ERR_ARGUMENT", err)
 			}
 		})
 	}
@@ -396,8 +393,8 @@ func TestRemote_APluginThatLeavesFailsItsNames(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if !errors.Is(err, remote.ErrGone) {
-		t.Fatalf("after leaving: %v, want ErrGone", err)
+	if !errors.Is(err, remote.ERR_GONE) {
+		t.Fatalf("after leaving: %v, want ERR_GONE", err)
 	}
 }
 
@@ -417,8 +414,8 @@ func TestRemote_WhatThePluginRefusedReachesTheScript(t *testing.T) {
 	_Installed(t, listener, 1)
 
 	_, err := _Ran(t, listener, "def main():\n    return clock.now()\n")
-	if !errors.Is(err, remote.ErrRemote) {
-		t.Fatalf("got %v, want ErrRemote", err)
+	if !errors.Is(err, remote.ERR_REMOTE) {
+		t.Fatalf("got %v, want ERR_REMOTE", err)
 	}
 
 	if !strings.Contains(err.Error(), "the clock is broken") {
@@ -520,7 +517,7 @@ def ask():
     return clock.now()
 
 def main():
-    return timeout(1, ask)
+    return timeout(1000, ask)
 `)
 
 		answered <- outcome{got: got, err: err}
@@ -528,8 +525,8 @@ def main():
 
 	select {
 	case held := <-answered:
-		if !errors.Is(held.err, flow.ErrTimeout) {
-			t.Fatalf("got %v, want ErrTimeout", held.err)
+		if !errors.Is(held.err, flow.ERR_TIMEOUT) {
+			t.Fatalf("got %v, want ERR_TIMEOUT", held.err)
 		}
 
 	case <-time.After(_STALLED):
@@ -580,7 +577,7 @@ func TestRemote_OneNameIsAnsweredByOneProcess(t *testing.T) {
 //
 // Its old names are already in environments that were built from them, and the
 // registry has no removal. A plugin that came back supplying something else
-// would leave the first set answering ErrGone forever with nothing able to take
+// would leave the first set answering ERR_GONE forever with nothing able to take
 // them away.
 //
 // Revisions:

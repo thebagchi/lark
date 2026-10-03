@@ -69,7 +69,7 @@ func _Of(thread *starlark.Thread) (*_Events, error) {
 // waiter arrive before the poster does - and is why making one is charged here
 // rather than where it is posted.
 //
-// Returns ErrMemory when the run cannot afford another, having made nothing.
+// Returns ERR_MEMORY when the run cannot afford another, having made nothing.
 //
 // Revisions:
 //   - 2026-09-30 21:01: initial creation
@@ -112,7 +112,7 @@ func (e *_Events) _Post(budget *scheduler.Budget, name string, value starlark.Va
 // once and nothing deletes it - so what it holds is held for the life of the
 // run, which is the reason the store charges too.
 //
-// Returns ErrPosted when it has already been posted.
+// Returns ERR_POSTED when it has already been posted.
 //
 // Revisions:
 //   - 2026-09-30 21:01: initial creation
@@ -121,7 +121,7 @@ func (l *_Latch) _Post(budget *scheduler.Budget, value starlark.Value) error {
 	defer l.guard.Unlock()
 
 	if l.posted {
-		return fmt.Errorf("%w", ErrPosted)
+		return fmt.Errorf("%w", ERR_POSTED)
 	}
 
 	err := budget.Charge(deep.Size(value))
@@ -140,7 +140,7 @@ func (l *_Latch) _Post(budget *scheduler.Budget, value starlark.Value) error {
 // _Await waits for this latch, for the time given, or for the caller to be
 // cancelled - whichever comes first. A latch already posted is not waited for.
 //
-// Answers with the value and whether the wait ran out. Returns ErrCancelled
+// Answers with the value and whether the wait ran out. Returns ERR_CANCELLED
 // wrapping the context's error when the caller went first, because then there is
 // nothing left to hand an answer to.
 //
@@ -171,7 +171,7 @@ func (l *_Latch) _Await(ctx context.Context, bound time.Duration) (starlark.Valu
 		return starlark.None, true, nil
 
 	case <-ctx.Done():
-		return nil, false, fmt.Errorf("%w: %w", scheduler.ErrCancelled, ctx.Err())
+		return nil, false, fmt.Errorf("%w: %w", scheduler.ERR_CANCELLED, ctx.Err())
 	}
 }
 

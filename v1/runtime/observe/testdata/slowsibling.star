@@ -1,5 +1,5 @@
 def patient():
-    sleep(30)
+    sleep(30000)
 
 def bad():
     assert(False, "this one breaks")

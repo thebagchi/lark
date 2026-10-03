@@ -1,5 +1,5 @@
 def slow():
-    sleep(30)
+    sleep(30000)
 
 def main():
     h = spawn(slow)

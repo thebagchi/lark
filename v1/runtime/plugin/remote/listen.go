@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"sync"
 
@@ -19,11 +20,11 @@ import (
 const (
 	// UNIX is the only network a listener is offered.
 	//
-	// A registered plugin's names go into every script compiled with the
-	// registry, and file is in that environment by import - it reaches
-	// whatever this process reaches. A TCP port would therefore put the
-	// filesystem behind whoever can dial it, so there is no TCP option to
-	// reach for and no default to get wrong.
+	// An attached plugin's names go into every script compiled with the
+	// listener's plugins, beside whatever else its host hands that compiler -
+	// file among them, which reaches whatever this process reaches. A TCP port
+	// would therefore put the filesystem behind whoever can dial it, so there
+	// is no TCP option to reach for and no default to get wrong.
 	UNIX = "unix"
 
 	// SOCKET is the mode a socket is created with: this user and nobody else.
@@ -35,31 +36,36 @@ const (
 	_PENDING = 16
 )
 
-// ErrToken is returned for a stream that did not present the token.
-var ErrToken = errors.New("a plugin presented the wrong token")
+// ERR_TOKEN is returned for a stream that did not present the token.
+var ERR_TOKEN = errors.New("a plugin presented the wrong token")
 
-// ErrFirst is returned for a stream whose first message was not a Register.
-var ErrFirst = errors.New("a plugin spoke before it announced itself")
+// ERR_FIRST is returned for a stream whose first message was not a Register.
+var ERR_FIRST = errors.New("a plugin spoke before it announced itself")
 
 // Listener is the host's socket, and the plugins attached to it.
 //
 // Made by Listen, which returns an error - this is what replaces init for a
 // remote plugin. A blank import cannot fail, cannot wait, and cannot close a
 // socket when the host exits; a call from main can do all three.
+//
+// attached is each plugin's adapter by name, and installed the same adapters
+// in the order their plugins first attached, which is the order Plugins hands
+// a compile; both are held under guard, with what this listener started.
 type Listener struct {
 	pluginpb.UnimplementedServiceServer
 
-	token    string
-	registry *plugin.Registry
-	server   *grpc.Server
-	socket   string
+	token  string
+	server *grpc.Server
+	socket string
 
-	guard    sync.Mutex
-	attached map[string]*_Remote
-	started  []*exec.Cmd
+	guard     sync.Mutex
+	attached  map[string]*_Remote
+	installed []plugin.Plugin
+	started   []*exec.Cmd
 }
 
-// Listen serves on socket, installing whatever attaches into registry.
+// Listen serves on socket, keeping whatever attaches for Plugins to hand a
+// compiler.
 //
 // The socket is a path, not an address. It is removed first if something stale
 // is there, and created for this user alone.
@@ -68,7 +74,9 @@ type Listener struct {
 //
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
-func Listen(socket string, token string, registry *plugin.Registry) (*Listener, error) {
+//   - 2026-10-02 17:12: keeps what attaches itself, a host handing a compiler
+//     its plugins with WithPlugins and nothing else
+func Listen(socket string, token string) (*Listener, error) {
 	err := os.Remove(socket)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("clearing %s: %w", socket, err)
@@ -86,7 +94,6 @@ func Listen(socket string, token string, registry *plugin.Registry) (*Listener, 
 
 	listener := &Listener{
 		token:    token,
-		registry: registry,
 		server:   grpc.NewServer(),
 		socket:   socket,
 		attached: map[string]*_Remote{},
@@ -149,6 +156,8 @@ func (l *Listener) Close() error {
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
 //   - 2026-09-25 06:34: named for the rpc, which is Register
+//   - 2026-10-03 08:28: installs nothing itself, _Adapter installing a new plugin as it
+//     makes its adapter
 func (l *Listener) Register(stream pluginpb.Service_RegisterServer) error {
 	first, err := stream.Recv()
 	if err != nil {
@@ -157,22 +166,14 @@ func (l *Listener) Register(stream pluginpb.Service_RegisterServer) error {
 
 	announced := first.GetRegister()
 	if announced == nil {
-		return ErrFirst
+		return ERR_FIRST
 	}
 
 	if announced.GetToken() != l.token {
-		return ErrToken
+		return ERR_TOKEN
 	}
 
-	remote, fresh := l._Adapter(announced.GetName())
-
-	// Into the registry the host was given, never DEFAULT, and only the first
-	// time this name is seen. A plugin that restarts reuses the adapter that is
-	// already registered, because the registry has no removal and a second one
-	// would clash with the first for as long as the host lived.
-	if fresh {
-		l.registry.Register(remote)
-	}
+	remote := l._Adapter(announced.GetName())
 
 	asks, gone, err := remote._Attach(announced.GetNames())
 	if err != nil {
@@ -276,18 +277,24 @@ func (l *Listener) Names() []string {
 	return held
 }
 
-// _Adapter is the adapter for this plugin name, made if this is the first time
-// the name has been seen, and whether it was.
+// _Adapter is the adapter for this plugin name, made and installed if this is
+// the first time the name has been seen.
+//
+// Installed into this listener's own list, never DEFAULT, and only the first
+// time. A plugin that restarts reuses the adapter already installed, because a
+// second one would clash with the first for as long as the host lived.
 //
 // Revisions:
 //   - 2026-09-26 01:48: initial creation
-func (l *Listener) _Adapter(name string) (*_Remote, bool) {
+//   - 2026-10-03 08:28: installs a new adapter itself, there being no registry for
+//     the caller to install it in
+func (l *Listener) _Adapter(name string) *_Remote {
 	l.guard.Lock()
 	defer l.guard.Unlock()
 
 	held, found := l.attached[name]
 	if found {
-		return held, false
+		return held
 	}
 
 	held = &_Remote{
@@ -296,16 +303,25 @@ func (l *Listener) _Adapter(name string) (*_Remote, bool) {
 	}
 
 	l.attached[name] = held
+	l.installed = append(l.installed, held)
 
-	return held, true
+	return held
 }
 
-// Registry is where this listener installs what attaches.
+// Plugins is every plugin this listener has installed, for a compiler to be
+// given.
 //
 // Revisions:
-//   - 2026-09-25 00:20: initial creation
-func (l *Listener) Registry() *plugin.Registry {
-	return l.registry
+//   - 2026-09-25 00:20: initial creation, as Registry, returning the registry
+//     itself
+//   - 2026-10-02 13:12: the plugins, since a compiler takes those rather than a
+//     registry
+//   - 2026-10-03 08:28: a copy of the list it installs into, under its lock
+func (l *Listener) Plugins() []plugin.Plugin {
+	l.guard.Lock()
+	defer l.guard.Unlock()
+
+	return slices.Clone(l.installed)
 }
 
 // Live is the name of every plugin with a stream open now.

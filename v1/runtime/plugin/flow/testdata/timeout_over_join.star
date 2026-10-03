@@ -1,9 +1,9 @@
 def slow():
-    sleep(3)
+    sleep(3000)
     return "done"
 
 def waits():
     return join(spawn(slow))
 
 def main():
-    return timeout(0.2, waits)
+    return timeout(200, waits)

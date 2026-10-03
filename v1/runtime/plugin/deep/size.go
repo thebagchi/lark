@@ -126,8 +126,12 @@ func _Inside(held starlark.Iterable, length int, seen map[starlark.Value]bool) i
 
 // _Keyed is a dictionary, its keys and its values.
 //
+// Through Entries rather than Items, which builds a slice of every pair first,
+// and on a dict of 4096 members that slice was all the count allocated.
+//
 // Revisions:
 //   - 2026-09-27 01:20: initial creation
+//   - 2026-10-03 17:08: counts the pairs without first building a slice of them
 func _Keyed(held *starlark.Dict, seen map[starlark.Value]bool) int64 {
 	if seen[held] {
 		return 0
@@ -137,9 +141,9 @@ func _Keyed(held *starlark.Dict, seen map[starlark.Value]bool) int64 {
 
 	total := WORD + int64(held.Len())*ENTRY
 
-	for _, pair := range held.Items() {
-		total += _Weigh(pair[0], seen)
-		total += _Weigh(pair[1], seen)
+	for key, value := range held.Entries() {
+		total += _Weigh(key, seen)
+		total += _Weigh(value, seen)
 	}
 
 	return total

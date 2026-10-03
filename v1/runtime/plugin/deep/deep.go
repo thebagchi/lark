@@ -40,10 +40,10 @@ import (
 //   - 2026-09-20 00:42: initial creation, as state's own _Copy
 //   - 2026-09-24 16:08: moved here, where jsonpath reaches it too
 func Copy(value starlark.Value) (starlark.Value, error) {
-	return Into(value, map[starlark.Value]starlark.Value{})
+	return _Into(value, map[starlark.Value]starlark.Value{})
 }
 
-// Into copies value, reusing whatever has already been copied.
+// _Into copies value, reusing whatever has already been copied.
 //
 // The seen map is what makes a self-referential value safe. Starlark allows
 // one - x = [1]; x.append(x) is legal - and a copy that did not remember what
@@ -63,7 +63,8 @@ func Copy(value starlark.Value) (starlark.Value, error) {
 //   - 2026-09-24 16:08: moved here
 //   - 2026-09-21 08:09: consults seen only for a container, so a tuple never
 //     reaches a map that cannot hash it
-func Into(
+//   - 2026-10-03 08:26: unexported, Copy being how anything outside copies
+func _Into(
 	value starlark.Value,
 	seen map[starlark.Value]starlark.Value,
 ) (starlark.Value, error) {
@@ -105,7 +106,7 @@ func _List(
 	seen[original] = made
 
 	for index := range original.Len() {
-		element, err := Into(original.Index(index), seen)
+		element, err := _Into(original.Index(index), seen)
 		if err != nil {
 			return nil, err
 		}
@@ -121,11 +122,14 @@ func _List(
 
 // _CopyDict copies a dict, registering the copy before filling it.
 //
-// Keys are copied too, because a tuple key may hold a mutable value.
+// Keys are copied too, because a tuple key may hold a mutable value. The pairs
+// are walked through Entries rather than Items, which builds a slice of every
+// pair first: on a dict of 4096 members, a third of what the copy allocated.
 //
 // Revisions:
 //   - 2026-09-20 00:45: initial creation
 //   - 2026-09-21 08:09: reuses a copy already made
+//   - 2026-10-03 17:08: walks the pairs without first building a slice of them
 func _Dict(
 	original *starlark.Dict,
 	seen map[starlark.Value]starlark.Value,
@@ -139,20 +143,20 @@ func _Dict(
 
 	seen[original] = made
 
-	for _, item := range original.Items() {
-		key, err := Into(item[0], seen)
+	for name, value := range original.Entries() {
+		key, err := _Into(name, seen)
 		if err != nil {
 			return nil, err
 		}
 
-		held, err := Into(item[1], seen)
+		held, err := _Into(value, seen)
 		if err != nil {
 			return nil, err
 		}
 
 		err = made.SetKey(key, held)
 		if err != nil {
-			return nil, fmt.Errorf("copy key %s: %w", item[0].String(), err)
+			return nil, fmt.Errorf("copy key %s: %w", name.String(), err)
 		}
 	}
 
@@ -174,7 +178,7 @@ func _Tuple(
 	made := make(starlark.Tuple, 0, len(original))
 
 	for _, element := range original {
-		copied, err := Into(element, seen)
+		copied, err := _Into(element, seen)
 		if err != nil {
 			return nil, err
 		}
@@ -303,8 +307,12 @@ func _Every(held starlark.Iterable, seen map[starlark.Value]bool) (starlark.Valu
 
 // _Pairs walks a dict, keys as well as values.
 //
+// Through Entries rather than Items, which builds a slice of every pair first,
+// and on a dict of 4096 members that slice was all the walk allocated.
+//
 // Revisions:
 //   - 2026-09-24 20:10: initial creation
+//   - 2026-10-03 17:08: walks the pairs without first building a slice of them
 func _Pairs(held *starlark.Dict, seen map[starlark.Value]bool) (starlark.Value, bool) {
 	if seen[held] {
 		return nil, true
@@ -312,12 +320,15 @@ func _Pairs(held *starlark.Dict, seen map[starlark.Value]bool) (starlark.Value, 
 
 	seen[held] = true
 
-	for _, pair := range held.Items() {
-		for _, value := range pair {
-			bad, ok := _Walk(value, seen)
-			if !ok {
-				return bad, false
-			}
+	for key, value := range held.Entries() {
+		bad, ok := _Walk(key, seen)
+		if !ok {
+			return bad, false
+		}
+
+		bad, ok = _Walk(value, seen)
+		if !ok {
+			return bad, false
 		}
 	}
 

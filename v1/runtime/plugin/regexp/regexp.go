@@ -29,9 +29,9 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 )
 
-// ErrPattern is returned for a pattern this engine cannot read, which
+// ERR_PATTERN is returned for a pattern this engine cannot read, which
 // includes every one that asks for lookahead or a backreference.
-var ErrPattern = errors.New("not a pattern this reads")
+var ERR_PATTERN = errors.New("not a pattern this reads")
 
 const (
 	// NAME is the module, and the names it holds.
@@ -118,7 +118,7 @@ func (r *_Regexp) Values() starlark.StringDict {
 
 // _Compiled is the pattern, compiled once however often it is asked for.
 //
-// Returns ErrPattern for one this engine cannot read.
+// Returns ERR_PATTERN for one this engine cannot read.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
@@ -133,7 +133,7 @@ func (r *_Regexp) _Compiled(who string, pattern string) (*regexp.Regexp, error) 
 
 	made, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("%s got %q: %w: %w", who, pattern, ErrPattern, err)
+		return nil, fmt.Errorf("%s got %q: %w: %w", who, pattern, ERR_PATTERN, err)
 	}
 
 	if r.held == nil || len(r.held) >= KEPT {

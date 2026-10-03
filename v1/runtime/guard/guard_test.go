@@ -8,7 +8,7 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/guard"
 )
 
-var ErrBoom = errors.New("guard: boom")
+var ERR_BOOM = errors.New("guard: boom")
 
 // WHY is the text a contained panic carries, so a test can look for it.
 const WHY = "a host's callback blew up"
@@ -56,12 +56,12 @@ func TestWithRecover_PassesAnErrorThrough(t *testing.T) {
 		&got,
 		&err,
 		func() (int, error) {
-			return 0, ErrBoom
+			return 0, ERR_BOOM
 		},
 	)
 
-	if !errors.Is(err, ErrBoom) {
-		t.Fatalf("got %v, want ErrBoom", err)
+	if !errors.Is(err, ERR_BOOM) {
+		t.Fatalf("got %v, want ERR_BOOM", err)
 	}
 }
 
@@ -81,12 +81,12 @@ func TestWithRecover_KeepsAPanickedErrorReachable(t *testing.T) {
 		&got,
 		&err,
 		func() (int, error) {
-			panic(ErrBoom)
+			panic(ERR_BOOM)
 		},
 	)
 
-	if !errors.Is(err, ErrBoom) {
-		t.Fatalf("got %v, want ErrBoom reachable through the recovery", err)
+	if !errors.Is(err, ERR_BOOM) {
+		t.Fatalf("got %v, want ERR_BOOM reachable through the recovery", err)
 	}
 
 	if got != 0 {

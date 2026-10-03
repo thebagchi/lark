@@ -11,10 +11,6 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/observe"
 )
 
-// UNCALLED is a function the host fixture does not define, so nothing can run
-// it and a graph declaring it is the only way it appears.
-const UNCALLED = "never-run"
-
 // TestFacade_StartsWaitsAndAsksThroughOneImport is what the facade exists for:
 // a host writes no registration, holds nothing of this package's, and starts a
 // script.
@@ -75,44 +71,4 @@ func TestFacade_StartIsObservesOwn(t *testing.T) {
 			t.Fatalf("want %s, got %s", EXPECTED_TOTAL, got)
 		}
 	}
-}
-
-// TestFacade_SuppliesAGraphWithoutLeavingIt checks that a graph reaches a run
-// through the facade, since everything it buys was otherwise reachable only by
-// naming another package.
-//
-// It names no option type, which is deliberate: runtime.Option is already
-// artifact.Option, so a host has to be able to pass this inline without naming
-// it.
-//
-// Revisions:
-//   - 2026-09-20 19:55: initial creation
-//   - 2026-09-23 23:35: asks the run it started
-func TestFacade_SuppliesAGraphWithoutLeavingIt(t *testing.T) {
-	declared := &runtime.Graph{
-		Functions: []*workflowpb.Function{{Name: UNCALLED}},
-	}
-
-	run := runtime.Start(t.Context(), _Compiled(t, HOST_FIXTURE), runtime.WithGraph(declared))
-
-	_, err := run.Wait()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, lane := range run.Status().GetThreads() {
-		for _, node := range lane.GetLive().GetNodes() {
-			if node.GetFunction() != UNCALLED {
-				continue
-			}
-
-			if node.GetStatus() != workflowpb.Status_STATUS_PENDING {
-				t.Fatalf("want %s pending, got %v", UNCALLED, node.GetStatus())
-			}
-
-			return
-		}
-	}
-
-	t.Fatalf("want %s reported, which is what supplying a graph buys", UNCALLED)
 }

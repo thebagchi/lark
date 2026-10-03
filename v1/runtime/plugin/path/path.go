@@ -28,8 +28,8 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 )
 
-// ErrNotAPath is returned for an argument that is not text.
-var ErrNotAPath = errors.New("wants a path as text")
+// ERR_NOT_A_PATH is returned for an argument that is not text.
+var ERR_NOT_A_PATH = errors.New("wants a path as text")
 
 const (
 	// NAME is the module, and the names it holds.
@@ -242,5 +242,11 @@ func _Stem(given string) string {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func _NotAPath(who string, index int, given starlark.Value) error {
-	return fmt.Errorf("%s: argument %d is a %s: %w", who, index+1, given.Type(), ErrNotAPath)
+	return fmt.Errorf(
+		"%s: argument %d is a %s: %w",
+		who,
+		index+1,
+		given.Type(),
+		ERR_NOT_A_PATH,
+	)
 }

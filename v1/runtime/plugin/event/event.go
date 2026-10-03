@@ -45,17 +45,17 @@ const (
 )
 
 var (
-	// ErrPosted is returned for posting an event that has already been posted.
+	// ERR_POSTED is returned for posting an event that has already been posted.
 	//
 	// A latch says a thing happened, and a thing happens once. Posting twice is
 	// either two different things sharing a name or the same thing reported
 	// twice, and both are mistakes a script author would rather hear about.
-	ErrPosted = errors.New("this event has already been posted")
+	ERR_POSTED = errors.New("this event has already been posted")
 
-	// ErrNotData is returned for a value an event cannot carry, for the reason
+	// ERR_NOT_DATA is returned for a value an event cannot carry, for the reason
 	// a store cannot hold one: another thread reads it, and code means nothing
 	// to whoever did not write it.
-	ErrNotData = errors.New("not data an event can carry")
+	ERR_NOT_DATA = errors.New("not data an event can carry")
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -114,7 +114,7 @@ func (e *_Event) Check(tree *syntax.File) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s.%s at %s posts %s: %w", NAME, POST, call.Lparen, named, ErrNotData)
+	return fmt.Errorf("%s.%s at %s posts %s: %w", NAME, POST, call.Lparen, named, ERR_NOT_DATA)
 }
 
 // _Post says the event named has happened, and hands every waiter the value.
@@ -122,8 +122,8 @@ func (e *_Event) Check(tree *syntax.File) error {
 // Takes a value rather than defaulting one, because state.set does and an event
 // carrying nothing is a thing a script can say with None.
 //
-// Returns ErrPosted for a second post of one name, ErrNotData for a value
-// another thread could not read, and ErrMemory when the run cannot afford to
+// Returns ERR_POSTED for a second post of one name, ERR_NOT_DATA for a value
+// another thread could not read, and ERR_MEMORY when the run cannot afford to
 // hold it. Answers with None, as state.set does. Never panics.
 //
 // The first two stop the whole run, the way a failed assertion does, rather
@@ -156,7 +156,7 @@ func _Post(
 	bad, ok := deep.IsData(value)
 	if !ok {
 		return nil, scheduler.Fail(thread, fmt.Errorf(
-			"%s %q: %s: %w", fn.Name(), name, bad.Type(), ErrNotData))
+			"%s %q: %s: %w", fn.Name(), name, bad.Type(), ERR_NOT_DATA))
 	}
 
 	events, err := _Of(thread)
@@ -171,7 +171,7 @@ func _Post(
 	// A second post is a mistake in the script rather than a limit it reached,
 	// so it stops the run as a value that is not data does. The budget refusing
 	// fails only the thread, as it does for the store.
-	if errors.Is(err, ErrPosted) {
+	if errors.Is(err, ERR_POSTED) {
 		return nil, scheduler.Fail(thread, fmt.Errorf("%s %q: %w", fn.Name(), name, err))
 	}
 
@@ -182,10 +182,13 @@ func _Post(
 	return starlark.None, nil
 }
 
-// _Wait waits until the event named has been posted, and answers with the pair
-// (value, err).
+// _Wait waits until the event named has been posted, for at most the number of
+// milliseconds given, and answers with the pair (value, err).
 //
-//	value, err = event.wait("loaded", 5)
+//	value, err = event.wait("loaded", 5000)
+//
+// Milliseconds because every duration a script states is, read by the one
+// reader sleep and timeout use.
 //
 // err is None when the event was posted and a message when the wait ran out. A
 // pair rather than a raise, because running out of time is an answer a script
@@ -200,6 +203,7 @@ func _Post(
 //
 // Revisions:
 //   - 2026-09-30 21:00: initial creation
+//   - 2026-10-02 01:41: reads its bound in milliseconds, as every duration is
 func _Wait(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -207,16 +211,16 @@ func _Wait(
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
 	var (
-		name    string
-		seconds starlark.Value
+		name  string
+		given starlark.Value
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &name, &seconds)
+	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &name, &given)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
 	}
 
-	bound, err := scheduler.Duration(seconds)
+	bound, err := scheduler.Duration(given)
 	if err != nil {
 		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
 	}

@@ -5,6 +5,7 @@ package testing_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -25,6 +26,9 @@ const (
 	CAPTURE = "testdata/capture.star"
 	FROZEN  = "frozen"
 	BEFORE  = "referenced before assignment"
+
+	// CALLED is the fixture with a main that calls one case's function.
+	CALLED = "%s\n\ndef main():\n    return %s()\n"
 )
 
 // CASES is every case in the fixture, in the order it declares them.
@@ -44,30 +48,39 @@ var CASES = []*_Case{
 	{fn: "shared_write", text: FROZEN},
 	{fn: "main_writes", text: FROZEN},
 	{fn: "too_early", text: BEFORE},
-	{fn: "by_name", err: runtime.ErrCaptures},
-	{fn: "made_earlier", err: runtime.ErrCaptures},
-	{fn: "closure_taken", err: runtime.ErrCaptures},
+	{fn: "by_name", err: runtime.ERR_CAPTURES},
+	{fn: "made_earlier", err: runtime.ERR_CAPTURES},
+	{fn: "closure_taken", err: runtime.ERR_CAPTURES},
 }
 
 // TestCapture_EveryCase runs each case in the fixture through the compiler and
 // the runtime a host uses, under -race like the rest of the suite.
 //
+// Each case is run as the fixture with a main that calls its function, a run
+// calling main and nothing else.
+//
 // Revisions:
 //   - 2026-09-29 23:33: initial creation
+//   - 2026-10-03 00:21: runs each case through a main of its own, there being no
+//     Invoke of any other function
 func TestCapture_EveryCase(t *testing.T) {
 	src, err := os.ReadFile(CAPTURE)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	built, err := runtime.NewCompiler().Compile(CAPTURE, src)
-	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
-
 	for _, tc := range CASES {
 		t.Run(tc.fn, func(t *testing.T) {
-			value, err := built.Invoke(t.Context(), tc.fn)
+			called := fmt.Appendf(nil, CALLED, src, tc.fn)
+
+			source := &runtime.Source{Entry: CAPTURE, Text: called}
+
+			built, err := runtime.Compile(source)
+			if err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+
+			value, err := runtime.Start(t.Context(), built).Wait()
 
 			got := ""
 			if err == nil {

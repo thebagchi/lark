@@ -21,8 +21,8 @@ type _At [2]int32
 // Compile parses, resolves and compiles src as this dialect reads it, and
 // returns the tree as it was written, resolved, beside the program.
 //
-// One rule reaches past OPTIONS: a lambda written as spawn's argument takes,
-// at the spawn, every variable it reads. spawn(lambda: f(x)) is compiled as
+// Two rules reach past OPTIONS. The first: a lambda written as spawn's
+// argument takes, at the spawn, every variable it reads. spawn(lambda: f(x)) is compiled as
 // spawn(lambda x=x: f(x)), and a default is evaluated where the lambda is
 // written - so a thread spawned in a loop gets the x of its own iteration.
 // Without this, every thread read the one x the loop went on writing, which
@@ -34,6 +34,20 @@ type _At [2]int32
 // the builtin. A script that binds spawn itself means its own function, and a
 // lambda anywhere else means what a lambda always means.
 //
+// The second: the compiled tree carries what a run needs to report the lines
+// a script's statements are, because the interpreter has no hook on a call. A
+// statement call of a function the script defines at its top level or loads -
+// once(), or got = once() - is compiled as a call of CALL with once first,
+// which reports it, and passes BUILTIN as well when it is the whole of an if's
+// branch or a match's arm. A spawn bound to a name passes that name as
+// BINDING, and a spawn, repeat, retry or timeout handed a lambda that calls
+// such a function passes the function as CALLEE. No script can write one of
+// those keywords, and the builtin reading one takes it out before reading its
+// own arguments. Which calls those are is read off the source here rather
+// than asked when the call runs: asking whether a callee is one of its
+// module's functions copies the module's globals on every call. The
+// environment must predeclare CALL, as the artifact compiler does.
+//
 // Two parses, because resolving a tree mutates it and go.starlark.net will not
 // resolve one twice: the first is resolved to learn what each lambda reads, the
 // second is rewritten and compiled. The first is what is returned, because
@@ -44,6 +58,8 @@ type _At [2]int32
 //
 // Revisions:
 //   - 2026-09-29 23:30: initial creation
+//   - 2026-10-02 01:17: compiles a statement call of a script function through
+//     CALL, and passes the hidden keywords a branch, a spawn and a wrapper read
 func Compile(
 	path string,
 	src []byte,
@@ -67,6 +83,7 @@ func Compile(
 	}
 
 	_Take(compiled, _Taken(written))
+	_Apply(compiled, _Marks(written))
 
 	program, err := starlark.FileProgram(compiled, predeclared)
 	if err != nil {

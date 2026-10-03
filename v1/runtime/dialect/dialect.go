@@ -20,8 +20,8 @@ import "go.starlark.net/syntax"
 // FileOptions covers these five fields and nothing else, and the resolver
 // accepts a lambda under all of them. A lambda is legal everywhere. Written as
 // spawn's argument it compiles differently, taking the variables it reads at
-// the spawn, and Compile says how: that is the one rule of this dialect that
-// is not an option here.
+// the spawn. That, and the calls compiled so a run can report its lines, are
+// the rules of this dialect that are not options here, and Compile says how.
 var OPTIONS = &syntax.FileOptions{
 	Set:             true,
 	While:           true,

@@ -1,14 +1,15 @@
-// Package args gives a script the arguments its run was handed. Importing it
-// is what enables it.
+// Package args gives a script the arguments its run was handed. It is one of
+// the runtime's own plugins, so every script has it.
 //
 // A script declares one at module level and binds it to a name of its own
 // choosing:
 //
 //	host = arg("host", "localhost")
 //
-// The two names need not agree, so a graph carries both. What a run supplies
-// travels on the context and is bound by whoever initialises the module, which
-// is why this reads the thread rather than holding anything itself.
+// The two names need not agree, so a flow carries both. What a run is handed -
+// by WithArgs, an option of the run - is bound by whoever initialises the
+// module, which is why this reads the thread rather than holding anything
+// itself.
 package args
 
 import (
@@ -24,11 +25,11 @@ import (
 )
 
 var (
-	// ErrNotSupplied is returned for an argument a script declared with no
+	// ERR_NOT_SUPPLIED is returned for an argument a script declared with no
 	// default and the run did not supply.
-	ErrNotSupplied = errors.New("argument not supplied and has no default")
+	ERR_NOT_SUPPLIED = errors.New("argument not supplied and has no default")
 
-	// ErrNotDeclaring is returned for an arg() call somewhere a declaration
+	// ERR_NOT_DECLARING is returned for an arg() call somewhere a declaration
 	// cannot be: inside a function body rather than at module level.
 	//
 	// Without it such a call is the worst of the outcomes available. It takes
@@ -36,11 +37,11 @@ var (
 	// thread a run bound its arguments on, and deriving a graph does not carry
 	// it either - so a script that looks like it reads an argument reads
 	// nothing, twice over, invisibly.
-	ErrNotDeclaring = errors.New("arg declares a module-level name")
+	ERR_NOT_DECLARING = errors.New("arg declares a module-level name")
 
-	// ErrNotValue is returned for a supplied value this cannot hand a script,
+	// ERR_NOT_VALUE is returned for a supplied value this cannot hand a script,
 	// which is a google.protobuf.Value nobody filled in.
-	ErrNotValue = errors.New("argument is not a value")
+	ERR_NOT_VALUE = errors.New("argument is not a value")
 )
 
 const (
@@ -94,9 +95,9 @@ func (a *_Args) Values() starlark.StringDict {
 // _Declare is the builtin: the value the run supplied under name, or the
 // default the script stated.
 //
-// Returns ErrNotSupplied when neither exists, so a script declaring an
+// Returns ERR_NOT_SUPPLIED when neither exists, so a script declaring an
 // argument it cannot do without fails at the line that declares it rather than
-// somewhere later with None in its hands. Returns ErrNotDeclaring when it is
+// somewhere later with None in its hands. Returns ERR_NOT_DECLARING when it is
 // called anywhere but a module's top level.
 //
 // Revisions:
@@ -127,7 +128,7 @@ func _Declare(
 
 	supplied, declaring := artifact.Supplied(thread)
 	if !declaring {
-		return nil, fmt.Errorf("%s: %w", name, ErrNotDeclaring)
+		return nil, fmt.Errorf("%s: %w", name, ERR_NOT_DECLARING)
 	}
 
 	value, found := supplied[name]
@@ -136,7 +137,7 @@ func _Declare(
 	}
 
 	if fallback == nil {
-		return nil, fmt.Errorf("%s: %w", name, ErrNotSupplied)
+		return nil, fmt.Errorf("%s: %w", name, ERR_NOT_SUPPLIED)
 	}
 
 	return fallback, nil
@@ -167,7 +168,7 @@ func _Starlark(value *structpb.Value) (starlark.Value, error) {
 		return _Dict(held.StructValue)
 	}
 
-	return nil, fmt.Errorf("%T: %w", value.GetKind(), ErrNotValue)
+	return nil, fmt.Errorf("%T: %w", value.GetKind(), ERR_NOT_VALUE)
 }
 
 // _Number is a supplied number as a script sees it.

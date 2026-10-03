@@ -1,14 +1,35 @@
 package graph_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
+	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 	"github.com/thebagchi/lark/v1/runtime"
 	"github.com/thebagchi/lark/v1/runtime/graph"
+	"github.com/thebagchi/lark/v1/runtime/script"
+)
+
+const (
+	// SAMPLES is where the scripts these tests derive live.
+	SAMPLES = "../../../samples/"
+
+	// LIBRARY is the one sample that defines no entry point.
+	LIBRARY = "strings.star"
+
+	// MODELLED is the fewest samples whose main a flow models as statements,
+	// measured 2026-10-02 at four: cancel, failfast, failkinds and graph. It
+	// was five while the graph modelled threads; concurrent.star nests its
+	// spawns inside a join and prints, and neither is a statement a flow can
+	// state.
+	MODELLED = 4
 )
 
 // _Said is what running a script said: everything it printed, and how it ended.
@@ -20,44 +41,65 @@ type _Said struct {
 	failure string
 }
 
-// _Run compiles a script and runs it, capturing what it printed through the
-// printer the runtime carries on its context.
+// _Run compiles a script and runs it, capturing what it printed from the
+// transcript the runtime writes.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-09-21 08:09: collects print through WithPrinter rather than by
 //     swapping the process's standard error
+//   - 2026-10-02 13:12: reads the transcript, keeping what each line said
+//   - 2026-10-02 16:21: reads the records the run's logger writes
 func _Run(t *testing.T, path string, src []byte) *_Said {
 	t.Helper()
 
-	var (
-		guard   sync.Mutex
-		printed []string
-	)
+	var out bytes.Buffer
 
-	ctx := runtime.WithPrinter(t.Context(), func(msg string) {
-		guard.Lock()
-		defer guard.Unlock()
+	logger := slog.New(slog.NewJSONHandler(&out, nil))
 
-		printed = append(printed, msg)
-	})
-
-	art, err := runtime.NewCompiler().Compile(path, src)
+	art, err := runtime.Compile(&runtime.Source{Entry: path, Text: src})
 
 	var failure string
 
 	if err == nil {
-		_, err = art.Run(ctx)
+		_, err = runtime.Start(t.Context(), art, runtime.WithLogger(logger)).Wait()
 	}
 
 	if err != nil {
 		failure = _Unplaced(err.Error())
 	}
 
-	guard.Lock()
-	defer guard.Unlock()
+	return &_Said{printed: strings.Join(_Printed(t, out.String()), "\n"), failure: failure}
+}
 
-	return &_Said{printed: strings.Join(printed, "\n"), failure: failure}
+// _Printed is what each record a JSON handler wrote said, without when, the
+// thread or the function.
+//
+// Those are dropped because the two runs compared are one program, not one
+// layout: the clock moves between them, and a generated script need not print
+// from the functions its source printed from.
+//
+// Revisions:
+//   - 2026-10-02 13:12: initial creation
+//   - 2026-10-02 16:21: reads JSON records, a logger's rather than a
+//     transcript's lines
+func _Printed(t *testing.T, logged string) []string {
+	t.Helper()
+
+	var said []string
+
+	for line := range strings.Lines(logged) {
+		record := map[string]any{}
+
+		err := json.Unmarshal([]byte(line), &record)
+		if err != nil {
+			t.Fatalf("record %q: %v", line, err)
+		}
+
+		said = append(said, fmt.Sprint(record[slog.MessageKey]))
+	}
+
+	return said
 }
 
 // _Unplaced is a failure without the position it happened at.
@@ -94,6 +136,7 @@ func _Unplaced(failure string) string {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-10-02 01:51: derives a flow through a Source
 func TestRoundTrip_EverySampleDerivesRegeneratesAndBehaves(t *testing.T) {
 	refused := make(map[string]bool)
 
@@ -104,11 +147,11 @@ func TestRoundTrip_EverySampleDerivesRegeneratesAndBehaves(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			report, err := graph.Of(src, SAMPLES+name, nil)
+			flow, err := graph.Of(&script.Source{Entry: SAMPLES + name, Text: src})
 			if err != nil {
 				// A refusal is an answer, not a skip: it is asserted against
 				// the known set below, and here for its sentinel.
-				if !errors.Is(err, graph.ErrConstant) {
+				if !errors.Is(err, graph.ERR_CONSTANT) {
 					t.Fatalf("refused for an unexpected reason: %v", err)
 				}
 
@@ -117,11 +160,11 @@ func TestRoundTrip_EverySampleDerivesRegeneratesAndBehaves(t *testing.T) {
 				return
 			}
 
-			if err := graph.Check(report.Graph); err != nil {
+			if err := graph.Check(flow); err != nil {
 				t.Fatalf("check: %v", err)
 			}
 
-			out, err := graph.Emit(report.Graph)
+			out, err := graph.Emit(flow)
 			if err != nil {
 				t.Fatalf("emit: %v", err)
 			}
@@ -219,19 +262,20 @@ func TestRoundTrip_ASecondPassChangesNothing(t *testing.T) {
 	}
 }
 
-// _Emitted is the script a script's graph generates.
+// _Emitted is the script a script's flow generates.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-10-02 01:51: derives a flow through a Source
 func _Emitted(t *testing.T, src []byte, path string) []byte {
 	t.Helper()
 
-	report, err := graph.Of(src, path, nil)
+	flow, err := graph.Of(&script.Source{Entry: path, Text: src})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := graph.Emit(report.Graph)
+	out, err := graph.Emit(flow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,33 +286,43 @@ func _Emitted(t *testing.T, src []byte, path string) []byte {
 // TestRoundTrip_DepthIsReportedNotAssumed is the second number.
 //
 // Behaviour is the gate and this is the report: how much of each workflow the
-// graph actually models, rather than carries as a body it cannot see into.
-// The two are never one, because the POC counted "derivation did not complain"
-// as fidelity twice and got a high number that meant nothing.
+// flow actually models, rather than carries as text it cannot see into. The
+// two are never one, because the POC counted "derivation did not complain" as
+// fidelity twice and got a high number that meant nothing. A workflow is
+// modelled when its main is statements.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-10-02 01:51: counts a main of statements, and functions modelled
+//     as statements against those kept as text
 func TestRoundTrip_DepthIsReportedNotAssumed(t *testing.T) {
 	modelled := 0
 
 	for _, name := range _Carried(t) {
-		report := _Sample(t, name)
+		flow := _Sample(t, name)
 
-		steps := len(report.Graph.GetThreads()[0].GetStatic().GetSteps())
-		if steps > 0 {
+		spine := len(flow.GetMain().GetStatement())
+		if spine > 0 {
 			modelled++
 		}
 
-		t.Logf("%-18s threads=%2d steps=%2d functions=%2d unknown=%v",
-			name, len(report.Graph.GetThreads()), steps,
-			len(report.Graph.GetFunctions()), report.Unknown)
+		stated := 0
+
+		for _, fn := range flow.GetFunctions() {
+			if fn.GetStatements() != nil {
+				stated++
+			}
+		}
+
+		t.Logf("%-18s main=%2d functions=%2d stated=%2d",
+			name, spine, len(flow.GetFunctions()), stated)
 	}
 
 	t.Logf("modelled: %d of %d carried, %d entries in all",
 		modelled, len(_Carried(t)), len(_Entries(t)))
 
-	if modelled < 5 {
-		t.Fatalf("want at least the five workflows modelled, got %d", modelled)
+	if modelled < MODELLED {
+		t.Fatalf("want at least %d workflows modelled, got %d", MODELLED, modelled)
 	}
 }
 
@@ -277,13 +331,14 @@ func TestRoundTrip_DepthIsReportedNotAssumed(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
+//   - 2026-10-02 01:51: derives through a Source
 func TestRoundTrip_ALibraryIsNotAnEntry(t *testing.T) {
 	src, err := os.ReadFile(SAMPLES + LIBRARY)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = graph.Of(src, SAMPLES+LIBRARY, nil)
+	_, err = graph.Of(&script.Source{Entry: SAMPLES + LIBRARY, Text: src})
 	if err == nil {
 		t.Fatal("want a library refused")
 	}
@@ -300,4 +355,74 @@ func TestRoundTrip_ALibraryIsNotAnEntry(t *testing.T) {
 //   - 2026-09-21 01:32: initial creation
 func _Uncarried(name string) bool {
 	return name == "patch.star" || name == "pointers.star"
+}
+
+// _Sample is the flow one of the shipped samples yields.
+//
+// Revisions:
+//   - 2026-09-21 01:17: initial creation
+//   - 2026-10-02 01:51: derives through a Source
+//   - 2026-10-03 00:16: the flow itself, which Of returns with nothing beside it
+func _Sample(t *testing.T, name string) *workflowpb.Flow {
+	t.Helper()
+
+	src, err := os.ReadFile(SAMPLES + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flow, err := graph.Of(&script.Source{Entry: SAMPLES + name, Text: src})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return flow
+}
+
+// _Entries is every sample that defines an entry point, which is every one but
+// the library.
+//
+// Revisions:
+//   - 2026-09-21 01:32: initial creation
+func _Entries(t *testing.T) []string {
+	t.Helper()
+
+	found, err := filepath.Glob(SAMPLES + "*.star")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var names []string
+
+	for _, path := range found {
+		name := filepath.Base(path)
+		if name == LIBRARY {
+			continue
+		}
+
+		names = append(names, name)
+	}
+
+	return names
+}
+
+// _Carried is every sample derivation will carry, which is every entry but the
+// two whose module-level dict the schema cannot order.
+//
+// Revisions:
+//   - 2026-09-21 01:32: initial creation
+func _Carried(t *testing.T) []string {
+	t.Helper()
+
+	var names []string
+
+	for _, name := range _Entries(t) {
+		if _Uncarried(name) {
+			continue
+		}
+
+		names = append(names, name)
+	}
+
+	return names
 }

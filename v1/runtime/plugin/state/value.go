@@ -9,14 +9,14 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin/deep"
 )
 
-// ErrNotData is returned for something a store cannot usefully hold.
+// ERR_NOT_DATA is returned for something a store cannot usefully hold.
 //
 // A store exists so that threads pass data to each other. A function is code,
 // and a frozen one read back by another thread is the same object the script
 // already had; a handle names a thread, and a thread means nothing to whoever
 // did not start it. Storing either is a mistake that reads as if it worked -
 // the value goes in, comes back out, and does nothing.
-var ErrNotData = errors.New("not data a store can hold")
+var ERR_NOT_DATA = errors.New("not data a store can hold")
 
 // Check refuses a set of something the source already shows is not data.
 //
@@ -41,5 +41,5 @@ func (s *_State) Check(tree *syntax.File) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s.%s at %s stores %s: %w", NAME, SET, call.Lparen, named, ErrNotData)
+	return fmt.Errorf("%s.%s at %s stores %s: %w", NAME, SET, call.Lparen, named, ERR_NOT_DATA)
 }

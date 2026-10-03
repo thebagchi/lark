@@ -63,8 +63,13 @@ func (p *_Plugin) Values() starlark.StringDict {
 // stops the patch - a half-applied document is not a document anybody asked
 // for.
 //
+// Every operation goes through one edit, so a container of the input is copied
+// once however many operations write under it; thirty-two replaces in a dict
+// of 4096 members used to copy the dict thirty-two times.
+//
 // Revisions:
 //   - 2026-09-20 01:14: initial creation
+//   - 2026-10-03 16:53: applies every operation through one edit
 func _PatchJSON(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -81,6 +86,8 @@ func _PatchJSON(
 		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
 	}
 
+	edit := _NewEdit()
+
 	for index := range patch.Len() {
 		op, ok := patch.Index(index).(*starlark.Dict)
 		if !ok {
@@ -89,11 +96,11 @@ func _PatchJSON(
 				fn.Name(),
 				index,
 				patch.Index(index).Type(),
-				ErrOperation,
+				ERR_OPERATION,
 			)
 		}
 
-		doc, err = _Patch(doc, op)
+		doc, err = edit._Patch(doc, op)
 		if err != nil {
 			return nil, fmt.Errorf("%s: operation %d: %w", fn.Name(), index, err)
 		}
@@ -214,7 +221,7 @@ func _LenJSON(
 			"%s: %s has no length: %w",
 			fn.Name(),
 			value.Type(),
-			ErrKind,
+			ERR_KIND,
 		)
 	}
 }
@@ -258,24 +265,11 @@ func _FindKey(
 //
 // Revisions:
 //   - 2026-09-20 01:19: initial creation
+//   - 2026-10-03 16:55: searches a dict through _SearchDict
 func _Search(doc starlark.Value, key string) (starlark.Value, error) {
 	switch container := doc.(type) {
 	case *starlark.Dict:
-		value, present, err := container.Get(starlark.String(key))
-		if err != nil {
-			return nil, err
-		}
-
-		if present {
-			return value, nil
-		}
-
-		for _, item := range container.Items() {
-			found, err := _Search(item[1], key)
-			if err != nil || found != nil {
-				return found, err
-			}
-		}
+		return _SearchDict(container, key)
 
 	case *starlark.List:
 		for index := range container.Len() {
@@ -283,6 +277,39 @@ func _Search(doc starlark.Value, key string) (starlark.Value, error) {
 			if err != nil || found != nil {
 				return found, err
 			}
+		}
+	}
+
+	return nil, nil
+}
+
+// _SearchDict looks for a member named key in holder, and then below each of
+// its members in turn.
+//
+// The members are walked through Entries rather than Items, which builds a
+// slice of every pair before the first is looked at: on a miss in a dict of
+// 4096 members that slice was all the search allocated. And in a function of
+// its own, apart from the recursion over every value: Go moves the key to the
+// heap on entry to whatever function loops over Entries, and inside the
+// recursion that is every value searched, scalars included - two allocations a
+// member rather than none.
+//
+// Revisions:
+//   - 2026-10-03 16:55: initial creation, from _Search
+func _SearchDict(holder *starlark.Dict, key string) (starlark.Value, error) {
+	value, present, err := holder.Get(starlark.String(key))
+	if err != nil {
+		return nil, err
+	}
+
+	if present {
+		return value, nil
+	}
+
+	for _, member := range holder.Entries() {
+		value, err = _Search(member, key)
+		if err != nil || value != nil {
+			return value, err
 		}
 	}
 
@@ -300,7 +327,7 @@ func _Search(doc starlark.Value, key string) (starlark.Value, error) {
 // Revisions:
 //   - 2026-09-20 01:35: initial creation
 func _Absent(fn *starlark.Builtin, err error, answer starlark.Value) (starlark.Value, error) {
-	if errors.Is(err, ErrMissing) || errors.Is(err, ErrKind) {
+	if errors.Is(err, ERR_MISSING) || errors.Is(err, ERR_KIND) {
 		return answer, nil
 	}
 

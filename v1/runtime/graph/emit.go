@@ -1,283 +1,178 @@
 package graph
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
-	"sort"
-	"strconv"
-	"strings"
-	"text/template"
+
+	"go.starlark.net/syntax"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 )
 
 const (
-	// INDENT is one level, as a script writes it.
-	INDENT = "    "
+	// INDENT is one level, as a script writes it, and NEWLINE what ends a line.
+	INDENT  = "    "
+	NEWLINE = "\n"
 
-	// END closes every generated function.
-	//
-	// A block in this language ends where its indentation does, and nothing
-	// marks that. In a file of generated defs a reader has to find the end of
-	// one by looking for the start of the next; a last line at the body's own
-	// indentation says it here.
-	//
-	// It is unreachable after a return and that is fine - it is punctuation,
-	// not code. It also means a def with nothing in it needs no special case,
-	// because this is already a statement.
+	// END closes a suite that does not return. It is punctuation: the flow
+	// does not store it, and a suite that already ends with it is left as it
+	// is.
 	END = "pass"
 
-	// SEPARATOR joins a function's parameters between the brackets.
-	SEPARATOR = ", "
+	// ELIF is the word an if that continues another is read by.
+	ELIF = "elif"
+
+	// FIRST is the line and column a parser counts from.
+	FIRST = 1
+
+	// MISSING is a position that is not in the file.
+	MISSING = -1
 )
 
-// SOURCE is the whole of the rendering.
-//
-// Constants come after the defs. A constant may be a call of a function this
-// graph declares, so the functions have to exist by then; and a def resolves
-// the names in its body when it runs rather than when it is written, so a body
-// reading a constant declared below it is fine.
-//
-// Arguments come after the constants. Nothing forces the order - a constant
-// cannot read an argument, because a constant is a literal or a call of a
-// declared function and neither reads a name - so it is a reader's decision,
-// taken 2026-09-22 22:26.
-//
-// One unnamed template with its bindings at the top, per
-// .guidelines/styles.md. It lays out lines and never indentation: everything
-// indented arrives already indented, from a method that got it right in Go
-// where it can be tested. Starlark has no formatter to correct a template's
-// own whitespace, and its whitespace is syntax.
-//
-// The output opens with a blank line. The newline before a def separates one
-// function from the next, so the first carries it at the front; Starlark
-// ignores it, and trimming it in Go would be the generator compensating for
-// the template, which is the coupling Body exists to avoid.
-const SOURCE = `
-{{- $GEN := .}}
-{{- $FUNCTIONS := $GEN.Functions}}
-{{- range $FUNCTIONS}}
-{{- $NAME := .Name}}
-{{- $PARAMS := $GEN.Params .}}
-{{- $BODY := $GEN.Body .}}
-def {{$NAME}}({{$PARAMS}}):
-{{- if $BODY}}
-{{$BODY}}
-{{- end}}
-{{$GEN.Close}}
-{{end}}
-{{- range $NAME := $GEN.Constants}}
-{{$NAME}} = {{$GEN.Bound $NAME}}
-{{end}}
-{{- range $NAME := $GEN.Arguments}}
-{{$NAME}} = {{$GEN.Declared $NAME}}
-{{end}}`
+var (
+	// ERR_NO_BODY is a function or main with nothing to write: code unset, text
+	// that is empty or only comments, or a statement list with no statements.
+	ERR_NO_BODY = errors.New("function has no body")
 
-// _Gen is what the template calls. Its methods are exported because a template
-// reaches nothing else; the type is not, because nothing outside this package
-// builds one.
-type _Gen struct {
-	graph *workflowpb.Graph
-}
+	// ERR_FORM is a statement this generator does not write.
+	ERR_FORM = errors.New("no form")
+)
 
-// Emit is the Starlark a graph's functions define, ready for a compiler.
+// Emit is the Starlark a flow describes, ready for a compiler.
+//
+// The flow is built as a Starlark syntax tree. Body text is parsed into that
+// tree. A suite whose last statement is not a return gains a pass: a
+// function, and the body of an if, an elif, an else, a for and a while. A
+// suite that is only pass stays one pass. A suite that returns has no pass
+// after the return. One template renders the file. A suite's body is on the
+// following lines, so one written on its header's line is rewritten there.
+//
+// A generated script has only line comments. A comment at the end of a line
+// is trimmed. A comment on a line of its own stays where it was written: above
+// the statement, the elif or the else it preceded, or at the end of the block
+// it was written in, where it stands above that block's pass, or above the
+// block's final return. The only blank line is the one before a function,
+// above any comment on that function. The flow does not store that pass.
 //
 // It does not compile. A caller wanting an artifact passes this to a compiler,
 // so a body that is not Starlark is a compile error with a line number rather
 // than something this package invents a message for.
 //
+// A statement with no form this writes is ERR_FORM. A function or main with no
+// body, an empty statement list, and body text that is only comments, are
+// ERR_NO_BODY.
+//
 // Revisions:
 //   - 2026-09-20 20:56: initial creation
-func Emit(graph *workflowpb.Graph) ([]byte, error) {
-	rendered, err := template.New("starlark").Parse(SOURCE)
+//   - 2026-10-02 00:04: the emit POC's printer, lifted: builds a syntax tree
+//     from a Flow and prints it, closes every suite with pass, trims every
+//     trailing comment, and keeps each line comment where it was written
+func Emit(flow *workflowpb.Flow) ([]byte, error) {
+	prog, err := _Build(flow)
 	if err != nil {
-		return nil, fmt.Errorf("template: %w", err)
+		return nil, err
 	}
 
-	var out bytes.Buffer
+	_Close(prog)
 
-	err = rendered.Execute(&out, &_Gen{graph: graph})
+	return _Print(prog)
+}
+
+// _Build is the file as a syntax tree, before suite closers are written.
+//
+// Revisions:
+//   - 2026-10-01 13:08: initial creation
+//   - 2026-10-02 00:04: lifted into graph, taking the generated Flow, and
+//     keeping where each body's comments go
+func _Build(flow *workflowpb.Flow) (*_Program, error) {
+	prog := &_Program{
+		elif:    map[*syntax.IfStmt]struct{}{},
+		sources: map[string]*_Lines{},
+		cuts:    map[string][]syntax.Comment{},
+		notes:   map[syntax.Node][]syntax.Comment{},
+		elses:   map[*syntax.IfStmt][]syntax.Comment{},
+		tails:   map[syntax.Stmt][]syntax.Comment{},
+	}
+
+	functions, err := _Functions(prog, flow)
 	if err != nil {
-		return nil, fmt.Errorf("emit: %w", err)
+		return nil, err
 	}
 
-	return out.Bytes(), nil
-}
-
-// Constants is every module-level name a generated script binds, sorted.
-//
-// Sorted because a map has no order and a generator that emits a different
-// file each run is one nobody can diff.
-//
-// Revisions:
-//   - 2026-09-21 01:32: initial creation
-func (g *_Gen) Constants() []string {
-	var names []string
-
-	for name := range g.graph.GetConstants() {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	return names
-}
-
-// Bound is what a constant is bound to, as a script writes it.
-//
-// Revisions:
-//   - 2026-09-21 01:32: initial creation
-func (g *_Gen) Bound(name string) (string, error) {
-	held := g.graph.GetConstants()[name]
-
-	if held.GetCall() != nil {
-		return g._Invocation(held.GetCall())
-	}
-
-	return _Value(held.GetValue())
-}
-
-// Arguments is every argument a generated script declares, sorted by the name
-// it binds.
-//
-// Sorted for the reason Constants is: a map has no order, and a generator that
-// emits a different file each run is one nobody can diff.
-//
-// Revisions:
-//   - 2026-09-22 22:44: initial creation
-func (g *_Gen) Arguments() []string {
-	var names []string
-
-	for name := range g.graph.GetArgs() {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	return names
-}
-
-// Declared is the call a script declares an argument with.
-//
-// An argument with no default is written with none. Writing None there would
-// turn an argument a run must supply into one that defaults to nothing, which
-// is a different script - and deriving what was emitted would no longer give
-// back the graph that was emitted.
-//
-// Revisions:
-//   - 2026-09-22 22:44: initial creation
-func (g *_Gen) Declared(name string) (string, error) {
-	declared := g.graph.GetArgs()[name]
-
-	supplied := strconv.Quote(declared.GetName())
-
-	if declared.GetDefault() == nil {
-		return fmt.Sprintf("%s(%s)", ARG, supplied), nil
-	}
-
-	value, err := _Value(declared.GetDefault())
+	constants, err := _Constants(flow)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", declared.GetName(), err)
+		return nil, err
 	}
 
-	return fmt.Sprintf("%s(%s%s%s)", ARG, supplied, SEPARATOR, value), nil
+	arguments, err := _Arguments(flow)
+	if err != nil {
+		return nil, err
+	}
+
+	main, err := _Main(prog, flow)
+	if err != nil {
+		return nil, err
+	}
+
+	prog.functions = functions
+	prog.constants = constants
+	prog.arguments = arguments
+	prog.main = main
+
+	return prog, nil
 }
 
-// Functions is every function the graph declares, in the order it declared
-// them.
+// _Functions is every function, in the order the flow declares them.
 //
 // Revisions:
-//   - 2026-09-20 20:56: initial creation
-func (g *_Gen) Functions() []*workflowpb.Function {
-	return g.graph.GetFunctions()
-}
+//   - 2026-10-01 11:57: initial creation
+//   - 2026-10-01 13:08: returns the defs, which the printer places
+//   - 2026-10-02 00:04: lifted into graph, taking the generated Flow
+func _Functions(prog *_Program, flow *workflowpb.Flow) ([]*syntax.DefStmt, error) {
+	var defs []*syntax.DefStmt
 
-// Params is a function's parameter list as it is written between the brackets.
-//
-// Revisions:
-//   - 2026-09-20 20:56: initial creation
-func (g *_Gen) Params(fn *workflowpb.Function) string {
-	return strings.Join(fn.GetParams(), SEPARATOR)
-}
-
-// Body is a function's statements, indented one level, ready to sit under a
-// def. Empty for a function with none, so the template can leave the line out.
-//
-// Generated from a thread's steps where a thread runs this function, and the
-// authored body otherwise. That is open question 4's answer written as one
-// branch: the steps on a thread past its own Call are the calls inside the
-// function that Call names, and a function no thread runs is a leaf.
-//
-// A body on a function a thread does run is **dropped**. The steps describe a
-// thread and a body describes a leaf, and a graph sending both has said one
-// thing twice in two languages.
-//
-// A body is statements and not a def, so the indentation is this package's to
-// add. A body that already carries its own is indented as given, so a nested if
-// keeps its shape - and a body indented inconsistently becomes a Starlark error
-// at a position, which is where a syntax question belongs.
-//
-// A blank line is left blank rather than filled with spaces. Trailing
-// whitespace is what a formatter strips, a reader cannot see it, and there is
-// no formatter here.
-//
-// Revisions:
-//   - 2026-09-20 20:56: initial creation
-//   - 2026-09-20 21:02: generates from a thread's steps where one runs this
-//     function, and refuses a function with neither steps nor a body
-func (g *_Gen) Body(fn *workflowpb.Function) (string, error) {
-	if !g.Runs(fn) {
-		if strings.TrimSpace(fn.GetBody()) == "" {
-			return "", fmt.Errorf("%s: %w", fn.GetName(), ErrNoBody)
+	for _, fn := range flow.GetFunctions() {
+		def, err := _Function(prog, fn)
+		if err != nil {
+			return nil, err
 		}
 
-		return _Indent(fn.GetBody()), nil
+		defs = append(defs, def)
 	}
 
-	return g.Steps(fn)
+	return defs, nil
 }
 
-// Close is the last line of every generated function.
-//
-// The template says where a close goes; this says what it looks like, and that
-// split is the point. A literal `    pass` in the template would read better -
-// a reader would see the whole shape of a def in one place - and it would put
-// an indent in the template, which is the one thing the template must not lay
-// out.
-//
-// The failure it avoids is silent. Measured 2026-09-20 21:00: a close that lost
-// its four spaces is a top-level pass, which parses and runs. The function
-// quietly has no close and nothing says so.
+// _Function is one def, without the blank line after it.
 //
 // Revisions:
-//   - 2026-09-20 21:00: initial creation
-func (g *_Gen) Close() string {
-	return INDENT + END
+//   - 2026-10-01 11:57: initial creation
+//   - 2026-10-01 13:08: returns the def node
+//   - 2026-10-02 00:04: lifted into graph, taking the generated Function
+func _Function(prog *_Program, fn *workflowpb.Function) (*syntax.DefStmt, error) {
+	if fn.GetName() == "" {
+		return nil, fmt.Errorf("function: %w", ERR_FORM)
+	}
+
+	body, err := _Code(prog, fn)
+	if err != nil {
+		return nil, err
+	}
+
+	return _Def(fn.GetName(), fn.GetParams(), body), nil
 }
 
-// _Indent puts one level in front of every line that has anything on it.
+// _Main is def main.
 //
 // Revisions:
-//   - 2026-09-20 20:56: initial creation
-//   - 2026-09-20 21:00: no longer appends the close, which the template now
-//     asks for by name
-func _Indent(body string) string {
-	trimmed := strings.TrimRight(body, "\n")
-	if strings.TrimSpace(trimmed) == "" {
-		return ""
+//   - 2026-10-01 11:57: initial creation
+//   - 2026-10-01 13:08: returns the def node
+//   - 2026-10-02 00:04: lifted into graph, taking the generated Flow
+func _Main(prog *_Program, flow *workflowpb.Flow) (*syntax.DefStmt, error) {
+	body, err := _Entry(prog, flow)
+	if err != nil {
+		return nil, err
 	}
 
-	lines := strings.Split(trimmed, "\n")
-
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			lines[i] = ""
-
-			continue
-		}
-
-		lines[i] = INDENT + line
-	}
-
-	return strings.Join(lines, "\n")
+	return _Def(ENTRY, nil, body), nil
 }

@@ -32,12 +32,12 @@ import (
 )
 
 var (
-	// ErrNumber is returned for an argument that is neither a float nor an
+	// ERR_NUMBER is returned for an argument that is neither a float nor an
 	// int.
-	ErrNumber = errors.New("wants a float or an int")
+	ERR_NUMBER = errors.New("wants a float or an int")
 
-	// ErrBase is returned for a logarithm in base one, which names no power.
-	ErrBase = errors.New("no logarithm has base one")
+	// ERR_BASE is returned for a logarithm in base one, which names no power.
+	ERR_BASE = errors.New("no logarithm has base one")
 )
 
 const (
@@ -280,13 +280,13 @@ func _Whole(
 		return starlark.NumberToInt(starlark.Float(fn(float64(held))))
 	}
 
-	return nil, fmt.Errorf("%s got %s: %w", who, given.Type(), ErrNumber)
+	return nil, fmt.Errorf("%s got %s: %w", who, given.Type(), ERR_NUMBER)
 }
 
 // _Log is the logarithm of x, in base e unless a second argument says
 // otherwise.
 //
-// Returns ErrBase for base one, which names no power of anything.
+// Returns ERR_BASE for base one, which names no power of anything.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
@@ -321,7 +321,7 @@ func _Log(
 	}
 
 	if base == 1 {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), ErrBase)
+		return nil, fmt.Errorf("%s: %w", fn.Name(), ERR_BASE)
 	}
 
 	return starlark.Float(math.Log(x) / math.Log(base)), nil
@@ -385,7 +385,7 @@ func _Float(who string, given starlark.Value) (float64, error) {
 		return float64(held.Float()), nil
 	}
 
-	return 0, fmt.Errorf("%s got %s: %w", who, given.Type(), ErrNumber)
+	return 0, fmt.Errorf("%s got %s: %w", who, given.Type(), ERR_NUMBER)
 }
 
 // _Degrees is a turn in radians as one in degrees.

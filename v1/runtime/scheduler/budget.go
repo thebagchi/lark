@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -13,16 +12,20 @@ const (
 	// THREAD_COST is what one spawned thread is charged: a goroutine with its
 	// stack, an interpreter thread, the locals it carries and a handle.
 	//
-	// Measured 2026-09-27 on a script spawning threads that sleep, as peak
-	// resident memory over a baseline of 11.9MB: 5,000 threads cost 11.9KB
-	// each, 20,000 cost 13.8KB, 40,000 cost 13.7KB. Rounded up to 14KB, so the
-	// charge is never under what a thread actually takes.
+	// Measured on a script spawning threads that sleep, as peak resident memory
+	// over a baseline of the same script spawning none. On 2026-09-27, over
+	// 11.9MB: 5,000 threads cost 11.9KB each, 20,000 cost 13.8KB, 40,000 cost
+	// 13.7KB, rounded up to 14KB. On 2026-10-03, once a thread no longer kept a
+	// goroutine and two channels to watch its context, over 12.8MB: 12.1KB,
+	// 11.6KB and 11.8KB, where the tree just before that change measured 14.5KB,
+	// 13.9KB and 14.1KB. Rounded up to 13KB, so the charge is never under what a
+	// thread actually takes.
 	//
 	// A round number rather than a measurement of the real thing, because Go
 	// will not say what a goroutine costs and a stack grows on use. What this
 	// buys is that spawning without limit is refused; what it does not buy is
 	// an exact figure.
-	THREAD_COST = 14 << 10
+	THREAD_COST = 13 << 10
 
 	// CEILING is how much memory one run may hold through this library at
 	// once, until a host chooses otherwise.
@@ -34,9 +37,9 @@ const (
 	CEILING = 256 << 20
 )
 
-// ErrMemory is returned for an allocation that would take a run past what it
+// ERR_MEMORY is returned for an allocation that would take a run past what it
 // may hold.
-var ErrMemory = errors.New("past the memory this run may use")
+var ERR_MEMORY = errors.New("past the memory this run may use")
 
 // Budget is how much memory one run may hold through this library.
 //
@@ -75,7 +78,7 @@ func NewBudget(ceiling int64) *Budget {
 // Safe from any thread of a run: several may be reading at once, and the
 // ceiling belongs to the run rather than to each thread.
 //
-// Returns ErrMemory naming what was asked for and what was left. Never panics.
+// Returns ERR_MEMORY naming what was asked for and what was left. Never panics.
 //
 // Revisions:
 //   - 2026-09-24 22:52: initial creation
@@ -89,7 +92,7 @@ func (b *Budget) Charge(size int64) error {
 
 		if held+size > b.ceiling {
 			return fmt.Errorf("asked for %d bytes with %d of %d left: %w",
-				size, b.ceiling-held, b.ceiling, ErrMemory)
+				size, b.ceiling-held, b.ceiling, ERR_MEMORY)
 		}
 
 		if b.held.CompareAndSwap(held, held+size) {
@@ -146,35 +149,4 @@ func Allowance(thread *starlark.Thread) *Budget {
 	}
 
 	return locals.run.budget
-}
-
-// _Ceiling is the context key a chosen ceiling is carried under. Its own type,
-// so nothing else can collide with it.
-type _Ceiling struct{}
-
-// Allowing is ctx carrying a ceiling other than CEILING, for the run started
-// under it.
-//
-// Carried on the context for the same reason the reporter is: a run is made
-// inside a call this package owns, and a host has no other way to reach it.
-// Chosen before the run starts and never after, because a ceiling a script
-// could raise partway through is not a ceiling.
-//
-// Revisions:
-//   - 2026-09-24 23:10: initial creation
-func Allowing(ctx context.Context, ceiling int64) context.Context {
-	return context.WithValue(ctx, _Ceiling{}, ceiling)
-}
-
-// _Chosen is the ceiling ctx carries, or the default when it carries none.
-//
-// Revisions:
-//   - 2026-09-24 23:10: initial creation
-func _Chosen(ctx context.Context) int64 {
-	held, ok := ctx.Value(_Ceiling{}).(int64)
-	if !ok || held <= 0 {
-		return CEILING
-	}
-
-	return held
 }

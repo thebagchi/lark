@@ -25,7 +25,7 @@ const SCRIPT = "base32_test.star"
 func _Eval(t *testing.T, expression string) (string, error) {
 	t.Helper()
 
-	env, err := plugin.DEFAULT.Environment()
+	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
@@ -88,8 +88,8 @@ func TestBase32_RefusesWhatItCannotRead(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"of a number", `base32.encode(1)`, unpack.ErrData},
-		{"not base32", `base32.decode("1111")`, base32.ErrEncoded},
+		{"of a number", `base32.encode(1)`, unpack.ERR_DATA},
+		{"not base32", `base32.decode("1111")`, base32.ERR_ENCODED},
 	}
 
 	for _, item := range cases {

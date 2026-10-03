@@ -1,5 +1,5 @@
 def step():
-    sleep(0.05)
+    sleep(50)
     return n()
 
 def main():
