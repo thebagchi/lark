@@ -33,6 +33,7 @@ import (
 //   - 2026-09-24 17:32: initial creation
 //   - 2026-10-02 17:12: hands the compiler file, which the runtime no longer
 //     gives a script by itself
+//   - 2026-10-08 17:55: hash.crc32, where crc32 moved
 func TestScript_ExistsCRCCopyAndSetTogether(t *testing.T) {
 	dir := t.TempDir()
 	secret := filepath.Join(dir, "secret")
@@ -51,8 +52,8 @@ func TestScript_ExistsCRCCopyAndSetTogether(t *testing.T) {
 	src := fmt.Sprintf(`
 def main():
     hidden = file.exists(%q)
-    seed = crc32(b"abc", 4294967296)
-    plain = crc32(b"abc", 0)
+    seed = hash.crc32(b"abc", 4294967296)
+    plain = hash.crc32(b"abc", 0)
     doc = {"a": [1]}
     out = patch_json(doc, [{"op": "copy", "from": "/a", "path": "/b"}])
     out["b"].append(2)
@@ -128,6 +129,13 @@ def main():
 	}
 }
 
+// TestScript_CRCAndCopyAndSet runs three fixes in one script - the widest crc32
+// seed, a patch that copies, and a set inside an update - and a seed one past
+// that width in a run of its own, which must be refused.
+//
+// Revisions:
+//   - 2026-09-24 17:26: initial creation
+//   - 2026-10-08 17:55: hash.crc32, where crc32 moved
 func TestScript_CRCAndCopyAndSet(t *testing.T) {
 	value, err := _Run(t, `
 def main():
@@ -150,7 +158,7 @@ def main():
     handle = spawn(writer)
     state.update("n", slow)
     join(handle)
-    return [doc["a"], state.get("n"), crc32(b"abc", 4294967295) != crc32(b"abc", 0)]
+    return [doc["a"], state.get("n"), hash.crc32(b"abc", 4294967295) != hash.crc32(b"abc", 0)]
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +169,7 @@ def main():
 
 	_, err = _Run(t, `
 def main():
-    return crc32(b"abc", 4294967296)
+    return hash.crc32(b"abc", 4294967296)
 `)
 	if err == nil {
 		t.Fatal("a 2**32 seed was accepted")
@@ -585,9 +593,18 @@ def main():
 	t.Logf("repeat(2**40) after %s: %v", elapsed, err)
 }
 
+// TestHMAC_EmptyAndLongKeyMatchGo checks hash.hmac against Go's own HMAC for an
+// empty key, and for a key longer than a block, which HMAC hashes first.
+//
+// Go's digits are lower case, and hash writes upper case, so they are compared
+// in upper case.
+//
+// Revisions:
+//   - 2026-09-24 17:26: initial creation
+//   - 2026-10-08 18:06: compares in upper case, which hash now writes
 func TestHMAC_EmptyAndLongKeyMatchGo(t *testing.T) {
-	empty := _GoHMAC("")
-	long := _GoHMAC(strings.Repeat("k", 80))
+	empty := strings.ToUpper(_GoHMAC(""))
+	long := strings.ToUpper(_GoHMAC(strings.Repeat("k", 80)))
 	value, err := _Run(t, fmt.Sprintf(`
 def main():
     return [hash.hmac("sha256", "", "abc"), hash.hmac("sha256", %q, "abc")]

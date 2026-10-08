@@ -1,4 +1,4 @@
-package codec
+package hash
 
 import (
 	"fmt"
@@ -22,9 +22,10 @@ import (
 // a wrong answer given confidently.
 //
 // Revisions:
-//   - 2026-09-21 15:25: initial creation
+//   - 2026-09-21 15:25: initial creation, as codec's crc32
 //   - 2026-09-24 16:08: refuses a seed too wide to be a checksum, rather than
 //     truncating it
+//   - 2026-10-08 17:47: a member of the hash module, refusing with unpack's ERR_RANGE
 func _CRC32(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -48,7 +49,12 @@ func _CRC32(
 
 	held, ok := seed.Uint64()
 	if !ok || held > math.MaxUint32 {
-		return nil, fmt.Errorf("%s got %s to continue: %w", fn.Name(), seed, ERR_RANGE)
+		return nil, fmt.Errorf(
+			"%s got %s to continue: %w",
+			fn.Name(),
+			seed,
+			unpack.ERR_RANGE,
+		)
 	}
 
 	return starlark.MakeUint64(uint64(crc32.Update(uint32(held), crc32.IEEETable, data))), nil

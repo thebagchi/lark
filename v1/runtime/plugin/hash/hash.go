@@ -1,5 +1,5 @@
-// Package hash gives a script the digests and the keyed digest. Importing it
-// is what enables it.
+// Package hash gives a script the digests, the keyed digest and a checksum.
+// Importing it is what enables it.
 //
 // A module rather than flat names, for the reason base64 is one: sha256 says
 // what it is anywhere, but a bare hmac does not, and a script reads better
@@ -7,7 +7,15 @@
 //
 // Hex rather than bytes, because what a digest is compared against almost
 // always arrives as text - a checksum file, a header, a column in a table. A
-// script wanting the bytes decodes the hex, which is what codec is for.
+// script wanting the bytes decodes the hex, which is what hex.to_bytes is for.
+//
+// Upper case, as every hex the runtime writes, so a script compares two values
+// it made without folding either. Text from outside is often lower case, and a
+// script comparing a digest against it folds that side.
+//
+// crc32 is the one sum given as an int rather than hex, because a script
+// continues a checksum by handing the number back as the seed of the next
+// call.
 //
 // md5 and sha1 are here and are not to be used for anything a reader must not
 // forge. They are here because a script meeting an old checksum still has to
@@ -21,7 +29,6 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	stdhash "hash"
@@ -45,12 +52,16 @@ const (
 	SHA256 = "sha256"
 	SHA512 = "sha512"
 	HMAC   = "hmac"
+	CRC32  = "crc32"
 
 	// KEY and DATA are what hmac calls its arguments, so a script may pass
 	// them either way round, and ALGORITHM which digest to key.
 	ALGORITHM = "algorithm"
 	KEY       = "key"
 	DATA      = "data"
+
+	// NO_SEED is the checksum a chain starts from.
+	NO_SEED = 0
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -77,6 +88,7 @@ func (h *_Hash) Name() string {
 //
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
+//   - 2026-10-08 17:47: crc32, from codec
 func (h *_Hash) Values() starlark.StringDict {
 	return starlark.StringDict{
 		NAME: &starlarkstruct.Module{
@@ -87,6 +99,7 @@ func (h *_Hash) Values() starlark.StringDict {
 				SHA256: _Digest(SHA256),
 				SHA512: _Digest(SHA512),
 				HMAC:   starlark.NewBuiltin(NAME+"."+HMAC, _HMAC),
+				CRC32:  starlark.NewBuiltin(NAME+"."+CRC32, _CRC32),
 			},
 		},
 	}
@@ -194,7 +207,7 @@ func _Maker(name string) (func() stdhash.Hash, error) {
 	return nil, fmt.Errorf("%q: %w", name, ERR_ALGORITHM)
 }
 
-// _Sum is data through made, as hex.
+// _Sum is data through made, as upper-case hex.
 //
 // Writing to a digest never fails - the interface carries an error because
 // io.Writer does, and every implementation here returns nil - but ignoring one
@@ -202,11 +215,12 @@ func _Maker(name string) (func() stdhash.Hash, error) {
 //
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
+//   - 2026-10-08 18:06: upper case, as every hex the runtime writes
 func _Sum(who string, made stdhash.Hash, data []byte) (starlark.Value, error) {
 	_, err := made.Write(data)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", who, err)
 	}
 
-	return starlark.String(hex.EncodeToString(made.Sum(nil))), nil
+	return starlark.String(fmt.Sprintf("%X", made.Sum(nil))), nil
 }

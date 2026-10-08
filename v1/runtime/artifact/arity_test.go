@@ -52,10 +52,12 @@ func (s _Sources) Load(name string) ([]byte, error) {
 }
 
 // _Arity compiles a script whose main makes the one call given, beside the
-// functions it may call, and returns what the compile said.
+// functions it may call and a local n it may pass, and returns what the compile
+// said.
 //
 // Revisions:
 //   - 2026-10-02 01:27: initial creation
+//   - 2026-10-08 17:28: main binds n, so a call can pass an operation such as n + 1
 func _Arity(call string) error {
 	src := `
 load("lib.star", "g", "h")
@@ -73,6 +75,7 @@ def only(*, a):
     pass
 
 def main():
+    n = 1
     ` + call + `
 `
 
@@ -89,11 +92,13 @@ def main():
 
 // TestArity_RefusesACallItsFunctionDoesNotTake checks the calls refused before
 // the run: too few, too many, a keyword with no parameter, one parameter given
-// twice, a keyword-only parameter passed by position, and a loaded function
-// passed nothing.
+// twice, a keyword-only parameter passed by position, an operation one past the
+// positional parameters of a function that takes **kwargs, and a loaded
+// function passed nothing.
 //
 // Revisions:
 //   - 2026-10-02 01:27: initial creation
+//   - 2026-10-08 17:28: an operation one past the positional parameters
 func TestArity_RefusesACallItsFunctionDoesNotTake(t *testing.T) {
 	refused := []string{
 		"f()",
@@ -103,6 +108,7 @@ func TestArity_RefusesACallItsFunctionDoesNotTake(t *testing.T) {
 		"total = f() or 1",
 		"only()",
 		"only(1)",
+		"keywords(1, n + 1)",
 		"g()",
 	}
 
@@ -117,18 +123,21 @@ func TestArity_RefusesACallItsFunctionDoesNotTake(t *testing.T) {
 }
 
 // TestArity_AcceptsWhatStarlarkBinds checks the calls that compile: a default
-// left out or named, more than the parameters when a function takes *args or
-// **kwargs, a call that unpacks, a name a parameter shadows, a loaded lambda,
-// and a function the script does not define.
+// left out or named, an operation passed by position, more than the parameters
+// when a function takes *args or **kwargs, a call that unpacks, a name a
+// parameter shadows, a loaded lambda, and a function the script does not
+// define.
 //
 // Revisions:
 //   - 2026-10-02 01:27: initial creation
+//   - 2026-10-08 17:28: an operation passed by position
 func TestArity_AcceptsWhatStarlarkBinds(t *testing.T) {
 	accepted := []string{
 		"f(1)",
 		"f(1, 2)",
 		"f(a = 1)",
 		"f(1, b = 2)",
+		"f(n + 1)",
 		"rest(1, 2, 3)",
 		"keywords(1, z = 2)",
 		"only(a = 1)",

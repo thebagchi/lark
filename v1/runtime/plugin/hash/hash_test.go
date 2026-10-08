@@ -2,7 +2,8 @@
 // specification, and the rows are somebody else's: the digest values RFC 1321
 // and RFC 6234 publish for "abc" and the empty string, and RFC 4231's own HMAC
 // vectors. A table written from the implementation would agree with it by
-// construction.
+// construction. The documents print the digits in lower case; they are written
+// here in upper case, as hash writes them.
 package hash_test
 
 import (
@@ -67,33 +68,78 @@ func _Check(t *testing.T, cases []struct{ name, expression, want string }) {
 	}
 }
 
+// _CheckInt runs a table of expression / expected pairs whose value is an int,
+// as a checksum is, rather than the string a digest is.
+//
+// Revisions:
+//   - 2026-10-08 17:52: initial creation
+func _CheckInt(t *testing.T, cases []struct{ name, expression, want string }) {
+	t.Helper()
+
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			got, err := _Eval(t, item.expression)
+			if err != nil {
+				t.Fatalf("%s: %v", item.expression, err)
+			}
+
+			if got != item.want {
+				t.Fatalf("%s gave %s, want %s", item.expression, got, item.want)
+			}
+		})
+	}
+}
+
+// _Refuse runs a table of expressions that must fail with the sentinel given.
+//
+// Revisions:
+//   - 2026-09-21 10:35: initial creation, in codec
+//   - 2026-10-08 17:52: moved here with crc32
+func _Refuse(t *testing.T, cases []struct {
+	name       string
+	expression string
+	want       error
+}) {
+	t.Helper()
+
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			_, err := _Eval(t, item.expression)
+			if !errors.Is(err, item.want) {
+				t.Fatalf("%s gave %v, want %v", item.expression, err, item.want)
+			}
+		})
+	}
+}
+
 // TestDigest_MatchesThePublishedValues is the empty string and "abc" for each
 // digest, which every specification publishes and every implementation agrees
 // on.
 //
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
+//   - 2026-10-08 18:06: the values in upper case, which hash now writes
 func TestDigest_MatchesThePublishedValues(t *testing.T) {
 	_Check(t, []struct{ name, expression, want string }{
-		{"md5 of nothing", `hash.md5("")`, "d41d8cd98f00b204e9800998ecf8427e"},
-		{"md5 of abc", `hash.md5("abc")`, "900150983cd24fb0d6963f7d28e17f72"},
-		{"sha1 of nothing", `hash.sha1("")`, "da39a3ee5e6b4b0d3255bfef95601890afd80709"},
-		{"sha1 of abc", `hash.sha1("abc")`, "a9993e364706816aba3e25717850c26c9cd0d89d"},
+		{"md5 of nothing", `hash.md5("")`, "D41D8CD98F00B204E9800998ECF8427E"},
+		{"md5 of abc", `hash.md5("abc")`, "900150983CD24FB0D6963F7D28E17F72"},
+		{"sha1 of nothing", `hash.sha1("")`, "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709"},
+		{"sha1 of abc", `hash.sha1("abc")`, "A9993E364706816ABA3E25717850C26C9CD0D89D"},
 		{
 			"sha256 of abc",
 			`hash.sha256("abc")`,
-			"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+			"BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD",
 		},
 		{
 			"sha512 of abc",
 			`hash.sha512("abc")`,
-			"ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a" +
-				"2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+			"DDAF35A193617ABACC417349AE20413112E6FA4E89A97EA20A9EEEE64B55D39A" +
+				"2192992A274FC1A836BA3C23A3FEEBBD454D4423643CE80E2A9AC94FA54CA49F",
 		},
 		{
 			"of bytes",
 			`hash.sha256(b"abc")`,
-			"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+			"BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD",
 		},
 	})
 }
@@ -103,23 +149,24 @@ func TestDigest_MatchesThePublishedValues(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
+//   - 2026-10-08 18:06: the values in upper case, which hash now writes
 func TestHMAC_MatchesRFC4231(t *testing.T) {
 	_Check(t, []struct{ name, expression, want string }{
 		{
 			"sha256, case 1",
 			`hash.hmac("sha256", b"\x0b" * 20, "Hi There")`,
-			"b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
+			"B0344C61D8DB38535CA8AFCEAF0BF12B881DC200C9833DA726E9376C2E32CFF7",
 		},
 		{
 			"sha256, case 2",
 			`hash.hmac("sha256", "Jefe", "what do ya want for nothing?")`,
-			"5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+			"5BDCC146BF60754E6A042426089575C75A003F089D2739839DEC58B964EC3843",
 		},
 		{
 			"named either way round",
 			`hash.hmac(algorithm = "sha256", key = "Jefe", data = "what do ya want ` +
 				`for nothing?")`,
-			"5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+			"5BDCC146BF60754E6A042426089575C75A003F089D2739839DEC58B964EC3843",
 		},
 	})
 }

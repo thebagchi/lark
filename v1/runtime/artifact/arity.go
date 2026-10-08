@@ -209,15 +209,20 @@ func (s *_Signature) _Add(name string, starred bool) {
 // _Takes reports whether call's arguments bind to this signature as Starlark
 // binds them: by position first, then by name.
 //
+// The syntax tree holds a keyword as a BinaryExpr whose operator is =, so an
+// operation such as a + 1 is a BinaryExpr too, and is passed by position.
+//
 // Revisions:
 //   - 2026-10-02 01:23: initial creation
+//   - 2026-10-08 17:28: counts an operation such as a + 1 by position, where it
+//     read every BinaryExpr as a keyword
 func (s *_Signature) _Takes(call *syntax.CallExpr) bool {
 	filled := make(map[string]bool)
 	passed := 0
 
 	for _, arg := range call.Args {
 		keyword, ok := arg.(*syntax.BinaryExpr)
-		if !ok {
+		if !ok || keyword.Op != syntax.EQ {
 			passed++
 
 			continue

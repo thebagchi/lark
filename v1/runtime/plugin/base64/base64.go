@@ -1,10 +1,10 @@
 // Package base64 gives a script the base64 encodings. Importing it is what
 // enables it.
 //
-// A module rather than flat names, unlike codec's own conversions: encode and
-// decode are words a script uses for several things, so they are said behind
-// the encoding they belong to. base64.encode reads as what it is; a global
-// encode would not.
+// A module rather than flat names, as every conversion is: encode and decode
+// are words a script uses for several things, so they are said behind the
+// encoding they belong to. base64.encode reads as what it is; a global encode
+// would not.
 //
 // Two alphabets, because both are in the wild. The standard one of RFC 4648
 // section 4 is padded, and the URL and filename safe one of section 5 is not -

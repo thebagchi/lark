@@ -15,6 +15,8 @@ import (
 
 	larkfile "github.com/thebagchi/lark/v1/plugin/file"
 	"github.com/thebagchi/lark/v1/runtime"
+	"github.com/thebagchi/lark/v1/runtime/plugin/codec/buf"
+	"github.com/thebagchi/lark/v1/runtime/plugin/state"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
@@ -263,5 +265,39 @@ def main():
 	taken := time.Since(started)
 	if taken >= _KILLED_WITHIN {
 		t.Fatalf("the run took %v, so the child was waited for rather than killed", taken)
+	}
+}
+
+// TestBuf_SpawnFreezesABuffer hands a buffer to a spawned thread and expects
+// the thread's write refused, and raised again at the join: two threads
+// writing one buffer would race.
+//
+// Revisions:
+//   - 2026-10-08 21:16: initial creation
+//   - 2026-10-08 21:37: write_bytes, where write was
+func TestBuf_SpawnFreezesABuffer(t *testing.T) {
+	_, err := _Run(t, `
+def main():
+    b = buf.new()
+    handle = spawn(lambda: b.write_bytes("x"))
+    join(handle)
+`)
+	if !errors.Is(err, buf.ERR_FROZEN) {
+		t.Fatalf("a spawned write gave %v, want %v", err, buf.ERR_FROZEN)
+	}
+}
+
+// TestBuf_StoreRefusesABuffer stores a buffer and expects it refused: a buffer
+// is not data, and a store would hand every thread one buffer to write.
+//
+// Revisions:
+//   - 2026-10-08 21:16: initial creation
+func TestBuf_StoreRefusesABuffer(t *testing.T) {
+	_, err := _Run(t, `
+def main():
+    state.set("b", buf.new())
+`)
+	if !errors.Is(err, state.ERR_NOT_DATA) {
+		t.Fatalf("a stored buffer gave %v, want %v", err, state.ERR_NOT_DATA)
 	}
 }

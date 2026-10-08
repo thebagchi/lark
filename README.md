@@ -212,10 +212,13 @@ For example, `load("util.star", …)` in `scripts/greet.star` reads
 | `path` | `join`, `dir`, `base`, `ext`, `stem`, `split`, `parts`, `clean`, `isabs`. These work on text only. |
 | `file` | `read`, `bytes`, `write`, `append`, `exists`, `remove`, `list`, `size`, `mkdir`. It **can read and write the disk**, so a script has it only when its host gives it. `lark` gives it. |
 | `jsonpath` | `patch_json`, `extract_json`, `match_json`, `len_json`, `find_key`. |
-| `codec` | Twelve conversions between bytes, hex, bits and integers, and `crc32`. See below. |
+| `hex` | `hex.from_bytes`, `to_bytes`, `from_int`, `to_int`, `from_binary` and `to_binary`. It writes upper case. It reads either case, with or without a `0x` prefix. See below. |
+| `binary` | `binary.from_bytes`, `to_bytes`, `from_int` and `to_int`: text of 0 and 1, with the most significant bit first. It reads text with or without a `0b` prefix. See below. |
+| `integer` | `integer.from_bytes` and `to_bytes`: an integer and its bytes, unsigned unless `signed = True` is given, and big-endian unless `"little"` is given. See below. |
+| `buf` | `buf.new()` makes a buffer to write bytes into, and `buf.reader(data)` makes a reader to take bytes apart. See below. |
 | `base64` | `base64.encode` and `decode`, and `urlencode` and `urldecode` for the alphabet that is safe in a URL. |
 | `base32` | `base32.encode` and `decode`, as RFC 4648 sets them. |
-| `hash` | `hash.md5`, `sha1`, `sha256`, `sha512` and `hash.hmac(algorithm, key, data)`, as hex. |
+| `hash` | `hash.md5`, `sha1`, `sha256`, `sha512` and `hash.hmac(algorithm, key, data)`, as upper-case hex. Also `hash.crc32(data, seed)`, as an integer. |
 | `utils` | `utils.datetime()`: the local time, to the microsecond, as a string. |
 | `arg(name, default)` | Declares an argument that the run supplies. Use it at module level only. |
 
@@ -567,10 +570,10 @@ waiters. If a script needs these, use the store and a loop.
 
 All of these but one are plugins of the runtime itself, and each script has all
 of them. An import of `runtime` imports each one, and each one registers itself:
-`state`, `event`, `jsonpath`, `time`, `math`, `regexp`, `random`, `codec`,
-`base64`, `base32`, `hash`, `path`, `utils`, `args`, `flow` and `core`. **`file`
-is not one of them, because it can read and write the disk.** A script has it
-only when a host gives it. See below.
+`state`, `event`, `jsonpath`, `time`, `math`, `regexp`, `random`, `hex`,
+`binary`, `integer`, `buf`, `base64`, `base32`, `hash`, `path`, `utils`, `args`,
+`flow` and `core`. **`file` is not one of them, because it can read and write
+the disk.** A script has it only when a host gives it. See below.
 
 ### Regular expressions
 
@@ -742,21 +745,37 @@ process cannot search, it gives an error, not `False`. "Not there" and "I cannot
 tell" are different answers. Without this rule, a script that decides to write
 could write over something that it could not see.
 
-### Two styles of names, and why
+### The names of the conversions, and why
 
-The twelve conversions of `codec` are flat names, written as `x2y`: `bytes2hex`,
-`hex2bits`, `int2bytes`. The encodings are modules, for two reasons. A script
-uses `encode` and `decode` for many things, so they are clearer after the name
-of their encoding. Also, a name that ends in a digit cannot take the `2` in the
-middle: `base642bytes` reads as "base 642 bytes".
+Each conversion is in a module. The name of the module is the form that the
+conversion writes or reads: `hex.from_bytes`, `binary.to_int`,
+`integer.to_bytes`, `base64.encode`. A script uses `encode`, `from_bytes` and
+`to_int` for many things. After the name of their form, these words are clear.
+The module for integers is `integer`, because Starlark uses `int` and `bytes` as
+the names of its own builtins.
 
 ```python
-hex = bytes2hex(data)                   # codec's twelve, flat
+text = hex.from_bytes(data)             # upper case, two digits for each byte
+data = hex.to_bytes("00ff")             # either case
+bits = binary.from_int(5, 8)            # "00000101": the width counts bits
+data = integer.to_bytes(256, 4)         # big-endian: the width counts bytes
 token = base64.urlencode(payload)       # unpadded, which is what a JWT carries
 data = base64.urldecode(token)          # padded or not, either way
-sum = crc32(chunk, sum)                 # continues a checksum already started
-mac = hash.hmac("sha256", key, body)    # hex, like every digest here
+sum = hash.crc32(chunk, sum)            # continues a checksum already started
+mac = hash.hmac("sha256", key, body)    # upper-case hex, like every digest here
 ```
+
+Each function that writes hex writes upper case: the `hex` module and the
+digests of `hash`. Each function that reads hex reads either case. It also
+accepts a `0x` prefix, in either case. Each function that reads bits accepts a
+`0b` prefix, in either case: `binary.to_bytes`, `binary.to_int` and
+`hex.from_binary`. To compare a digest with text in lower case, change the text
+to upper case first, for example with `text.upper()`.
+
+The width of `hex.from_int` counts hex digits. The width of `binary.from_int`
+counts bits. These two functions do not cut a number that is wider than the
+width. The width of `integer.to_bytes` counts bytes. `integer.to_bytes` refuses
+a number that is wider than its width.
 
 Each function that takes bytes also takes a `str`. Thus
 `base64.encode("foobar")` and `hash.sha256("abc")` both work. Quoted-printable,
@@ -766,6 +785,58 @@ early years of email, and the third is for one obsolete protocol.
 `md5` and `sha1` are available, but do not use them for anything that a reader
 must not forge. A script that finds an old checksum must still read it. If lark
 refused them, the author would use a worse tool.
+
+### Buffers
+
+Starlark cannot join bytes, and `+=` copies all of the bytes on each write. A
+buffer keeps its bytes and adds to them. `buf.new()` makes a buffer. A reader
+takes bytes apart in the same order. `buf.reader(data)` makes a reader. The
+methods have the names that Go uses: each write starts with `write_`, and each
+read starts with `read_`.
+
+| Call | What it does |
+| --- | --- |
+| `b.write_bytes(data)` | Adds bytes, or the UTF-8 bytes of a `str` |
+| `b.write_string(text)` | Adds the UTF-8 bytes of a `str`. It does not take bytes |
+| `b.write_uint8(n)` to `b.write_uint64(n)` | Adds `n` as an unsigned integer of 8, 16, 32 or 64 bits |
+| `b.write_int8(n)` to `b.write_int64(n)` | Adds `n` in two's complement, so `n` can be negative |
+| `b.write_uint(n, width)` | Adds `n` as an unsigned integer of `width` bytes |
+| `b.write_int(n, width)` | Adds `n` in two's complement, in `width` bytes |
+| `b.bytes()` | Gives all of the bytes in the buffer |
+| `len(b)` | Gives the number of bytes in the buffer |
+| `r.read_bytes(count)` | Gives the next `count` bytes |
+| `r.read_string(count)` | Gives the next `count` bytes as a `str` |
+| `r.read_uint8()` to `r.read_uint64()` | Gives the next 1, 2, 4 or 8 bytes as an unsigned integer |
+| `r.read_int8()` to `r.read_int64()` | Gives the next 1, 2, 4 or 8 bytes as an integer in two's complement |
+| `r.read_uint(width)` | Gives the next `width` bytes as an unsigned integer |
+| `r.read_int(width)` | Gives the next `width` bytes as an integer in two's complement |
+| `len(r)` | Gives the number of bytes that are left |
+
+```python
+b = buf.new()
+b.write_bytes(hex.to_bytes("CAFE"))     # a magic number
+b.write_uint16(len(body))               # a length, big-endian
+b.write_string(body)
+b.write_int16(-1, "little")             # little-endian
+r = buf.reader(b.bytes())
+magic = r.read_bytes(2)
+text = r.read_string(r.read_uint16())
+```
+
+An integer is big-endian. To use little-endian, give `"little"` as the last
+argument. `b.write_uint16(n)` writes the same bytes as `b.write_uint(n, 2)` and
+as `integer.to_bytes(n, 2)`. For two's complement, `integer.to_bytes` and
+`integer.from_bytes` take `signed = True`.
+
+A read moves the reader past the bytes that it gives. `r[0]` gives the next
+byte and does not move the reader. If the reader has fewer bytes than a read
+asks for, the read fails with `buf.ERR_SHORT`. A read that fails does not move
+the reader.
+
+A buffer and a reader are not data, so the store and events refuse them. A
+`spawn` freezes them, because two threads must not change one buffer. After
+that, a write or a read fails with `buf.ERR_FROZEN`. `b.bytes()`, `len()` and
+an index still work.
 
 ### Repeat, retry and limit a call
 
@@ -2101,10 +2172,10 @@ errors of `core` are in the table above, with their runtime names.
 | `args.ERR_NOT_DECLARING` | A script calls `arg()` outside module level |
 | `args.ERR_NOT_VALUE` | A supplied argument is a `google.protobuf.Value` that has no kind |
 | `base64.ERR_ENCODED` / `base32.ERR_ENCODED` | Text is not in that encoding |
-| `codec.ERR_HEX` | Text is not hexadecimal, or it has an odd number of digits where whole bytes are necessary |
-| `codec.ERR_BITS` | Text is not only 0 and 1, or its length is not a multiple of eight where whole bytes are necessary |
-| `codec.ERR_RANGE` | An integer is negative or does not fit its width, or a width is less than one |
-| `event.ERR_NOT_DATA` | A post gets a function, a handle, or a container that holds one |
+| `binary.ERR_BITS` | Text is not only 0 and 1, or its length is not a multiple of eight where whole bytes are necessary |
+| `buf.ERR_FROZEN` | A script writes to a buffer, or reads from a reader, after a `spawn` froze it. A read changes a reader |
+| `buf.ERR_SHORT` | A read asks a reader for more bytes than it has left |
+| `event.ERR_NOT_DATA` | A post gets a function, a handle, a buffer, a reader, or a container that holds one |
 | `event.ERR_POSTED` | A script posts one event a second time |
 | `file.ERR_FILE` | A call of the `file` plugin fails. Each refusal of the plugin matches it. The three errors below also match it |
 | `file.ERR_NOT_A_FILE` | `read` gets a device, a pipe or a directory |
@@ -2114,6 +2185,8 @@ errors of `core` are in the table above, with their runtime names.
 | `flow.ERR_ATTEMPT` | A script calls `n()` outside `repeat` or `retry` |
 | `flow.ERR_TIMEOUT` | The call that `timeout` wraps does not finish in time |
 | `hash.ERR_ALGORITHM` | A keyed digest asks for an algorithm that this plugin does not know |
+| `hex.ERR_HEX` | Text is not hexadecimal, it has no digits where a number is necessary, or it has an odd number of digits where whole bytes are necessary |
+| `integer.ERR_ORDER` | A byte order is not `"big"` or `"little"` |
 | `jsonpath.ERR_POINTER` | A pointer is not a JSON Pointer, as RFC 6901 sets it |
 | `jsonpath.ERR_MISSING` | A pointer names a value that is not there |
 | `jsonpath.ERR_KIND` | A step asks for a member of a value that has no members, or for an index of a value that is not a list |
@@ -2135,8 +2208,9 @@ errors of `core` are in the table above, with their runtime names.
 | `remote.ERR_FIRST` | The first message of a plugin is not a registration. The plugin gets the error |
 | `remote.ERR_ATTACHED` | A plugin announces the name of a plugin that is still attached. The plugin gets the error |
 | `remote.ERR_RENAMED` | A plugin that connects again supplies names that differ from its first names. The plugin gets the error |
-| `state.ERR_NOT_DATA` | A store gets a function, a handle, or a container that holds one |
+| `state.ERR_NOT_DATA` | A store gets a function, a handle, a buffer, a reader, or a container that holds one |
 | `unpack.ERR_DATA` | A value that must be bytes or a string is not bytes and not a string |
+| `unpack.ERR_RANGE` | An integer is negative, or it does not fit its width or the 32 bits of a checksum, or a width is less than one |
 
 ### Also exported
 
@@ -2218,7 +2292,10 @@ script did not already pay for:
 - a file read;
 - a spawned thread;
 - a name and a value that a script puts in the store;
-- an event that a script names or posts.
+- an event that a script names or posts;
+- the text or bytes of an integer that `integer.to_bytes`, `hex.from_int`,
+  `binary.from_int` or a write to a buffer makes, because the script names the
+  width.
 
 A thread costs 13KB: a goroutine, an interpreter thread, its locals and a
 handle. Measurements gave 11.6KB to 12.1KB. Before lark charged for threads,
