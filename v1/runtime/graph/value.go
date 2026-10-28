@@ -15,10 +15,10 @@ import (
 // Both directions of one subject live here: reading the value a literal states
 // out of a script, and writing a value back as the literal a script would have.
 
+// WHOLE is the format a number takes when it has no fractional part, and
+// FRACTION when it has. A JSON number is one type where Starlark has two,
+// and the two differ under // and %.
 const (
-	// WHOLE is the format a number takes when it has no fractional part, and
-	// FRACTION when it has. A JSON number is one type where Starlark has two,
-	// and the two differ under // and %.
 	WHOLE    = 'f'
 	FRACTION = -1
 
@@ -106,7 +106,10 @@ func _Every(items []syntax.Expr) (*structpb.Value, bool) {
 			return nil, false
 		}
 
-		list.Values = append(list.Values, value)
+		list.Values = append(
+			list.Values,
+			value,
+		)
 	}
 
 	return structpb.NewListValue(list), true
@@ -135,7 +138,9 @@ func _Pairs(items []syntax.Expr) (*structpb.Value, bool) {
 		return nil, false
 	}
 
-	fields := &structpb.Struct{Fields: make(map[string]*structpb.Value)}
+	fields := &structpb.Struct{
+		Fields: make(map[string]*structpb.Value),
+	}
 
 	for _, item := range items {
 		entry, ok := item.(*syntax.DictEntry)
@@ -186,7 +191,7 @@ func _Quantity(expr syntax.Expr) (float64, bool) {
 //
 // What a duration in milliseconds is, which a script and the schema both count,
 // and what a loop's count is. A duration that is anything else is one the
-// builtin refuses with ERR_DURATION, so it is no statement and the function
+// builtin refuses with ErrDuration, so it is no statement and the function
 // holding it keeps its text.
 //
 // Revisions:
@@ -232,7 +237,12 @@ func _Value(value *structpb.Value) (syntax.Expr, error) {
 		return _Num(_Number(kind.NumberValue)), nil
 
 	case *structpb.Value_BoolValue:
-		return _Name(_Bool(kind.BoolValue)), nil
+		spelled := FALSE
+		if kind.BoolValue {
+			spelled = TRUE
+		}
+
+		return _Name(spelled), nil
 
 	case *structpb.Value_ListValue:
 		return _List(kind.ListValue)
@@ -241,20 +251,12 @@ func _Value(value *structpb.Value) (syntax.Expr, error) {
 		return _Struct(kind.StructValue)
 
 	default:
-		return nil, fmt.Errorf("%T: %w", value.GetKind(), ERR_FORM)
+		return nil, fmt.Errorf(
+			"%T: %w",
+			value.GetKind(),
+			ErrForm,
+		)
 	}
-}
-
-// _Bool is a JSON boolean as Starlark spells it.
-//
-// Revisions:
-//   - 2026-10-01 11:57: initial creation
-func _Bool(value bool) string {
-	if value {
-		return TRUE
-	}
-
-	return FALSE
 }
 
 // _Number is a JSON number as Starlark writes it.
@@ -266,7 +268,12 @@ func _Bool(value bool) string {
 // Revisions:
 //   - 2026-10-01 11:57: initial creation
 func _Number(number float64) string {
-	return strconv.FormatFloat(number, WHOLE, FRACTION, BITS)
+	return strconv.FormatFloat(
+		number,
+		WHOLE,
+		FRACTION,
+		BITS,
+	)
 }
 
 // _List is a JSON array as a Starlark list.
@@ -283,10 +290,15 @@ func _List(list *structpb.ListValue) (*syntax.ListExpr, error) {
 			return nil, err
 		}
 
-		items = append(items, value)
+		items = append(
+			items,
+			value,
+		)
 	}
 
-	return &syntax.ListExpr{List: items}, nil
+	return &syntax.ListExpr{
+		List: items,
+	}, nil
 }
 
 // _Struct is a JSON object as a Starlark dict.
@@ -307,13 +319,18 @@ func _Struct(fields *structpb.Struct) (*syntax.DictExpr, error) {
 			return nil, err
 		}
 
-		entries = append(entries, &syntax.DictEntry{
-			Key:   _Text(strconv.Quote(key)),
-			Value: value,
-		})
+		entries = append(
+			entries,
+			&syntax.DictEntry{
+				Key:   _Text(strconv.Quote(key)),
+				Value: value,
+			},
+		)
 	}
 
-	return &syntax.DictExpr{List: entries}, nil
+	return &syntax.DictExpr{
+		List: entries,
+	}, nil
 }
 
 // _Whole is a number literal that range can take. A fraction is not a count.
@@ -323,13 +340,22 @@ func _Struct(fields *structpb.Struct) (*syntax.DictExpr, error) {
 func _Whole(value *structpb.Value) (string, error) {
 	number, ok := value.GetKind().(*structpb.Value_NumberValue)
 	if !ok {
-		return "", fmt.Errorf("loop: %w", ERR_FORM)
+		return "", fmt.Errorf(
+			"loop: %w",
+			ErrForm,
+		)
 	}
 
 	text := _Number(number.NumberValue)
 
-	if strings.Contains(text, ".") {
-		return "", fmt.Errorf("loop: %w", ERR_FORM)
+	if strings.Contains(
+		text,
+		".",
+	) {
+		return "", fmt.Errorf(
+			"loop: %w",
+			ErrForm,
+		)
 	}
 
 	return text, nil

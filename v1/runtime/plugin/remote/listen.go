@@ -30,17 +30,21 @@ const (
 	// SOCKET is the mode a socket is created with: this user and nobody else.
 	SOCKET = 0o600
 
-	// _PENDING is how many asks may wait for the stream writer before a
+	// PENDING is how many asks may wait for the stream writer before a
 	// caller blocks. Small on purpose: a plugin that is not keeping up should
 	// slow its callers rather than grow a queue nobody is bounded by.
-	_PENDING = 16
+	PENDING = 16
 )
 
-// ERR_TOKEN is returned for a stream that did not present the token.
-var ERR_TOKEN = errors.New("a plugin presented the wrong token")
+// ErrToken is returned for a stream that did not present the token.
+var (
+	ErrToken = errors.New("a plugin presented the wrong token")
+)
 
-// ERR_FIRST is returned for a stream whose first message was not a Register.
-var ERR_FIRST = errors.New("a plugin spoke before it announced itself")
+// ErrFirst is returned for a stream whose first message was not a Register.
+var (
+	ErrFirst = errors.New("a plugin spoke before it announced itself")
+)
 
 // Listener is the host's socket, and the plugins attached to it.
 //
@@ -52,13 +56,11 @@ var ERR_FIRST = errors.New("a plugin spoke before it announced itself")
 // in the order their plugins first attached, which is the order Plugins hands
 // a compile; both are held under guard, with what this listener started.
 type Listener struct {
+	guard sync.Mutex
 	pluginpb.UnimplementedServiceServer
-
-	token  string
-	server *grpc.Server
-	socket string
-
-	guard     sync.Mutex
+	token     string
+	server    *grpc.Server
+	socket    string
 	attached  map[string]*_Remote
 	installed []plugin.Plugin
 	started   []*exec.Cmd
@@ -76,20 +78,60 @@ type Listener struct {
 //   - 2026-09-25 00:20: initial creation
 //   - 2026-10-02 17:12: keeps what attaches itself, a host handing a compiler
 //     its plugins with WithPlugins and nothing else
-func Listen(socket string, token string) (*Listener, error) {
+func Listen(
+	socket string,
+	token string,
+) (*Listener, error) {
 	err := os.Remove(socket)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("clearing %s: %w", socket, err)
+	if err != nil && !errors.Is(
+		err,
+		os.ErrNotExist,
+	) {
+		return nil, fmt.Errorf(
+			"clearing %s: %w",
+			socket,
+			err,
+		)
 	}
 
-	held, err := net.Listen(UNIX, socket)
+	held, err := net.Listen(
+		UNIX,
+		socket,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("listening on %s: %w", socket, err)
+		return nil, fmt.Errorf(
+			"listening on %s: %w",
+			socket,
+			err,
+		)
 	}
 
-	err = os.Chmod(socket, SOCKET)
+	return _Serving(
+		socket,
+		token,
+		held,
+	)
+}
+
+// _Serving secures the socket and answers on it until Close.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Serving(
+	socket string,
+	token string,
+	held net.Listener,
+) (*Listener, error) {
+	err := os.Chmod(
+		socket,
+		SOCKET,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("securing %s: %w", socket, err)
+		return nil, fmt.Errorf(
+			"securing %s: %w",
+			socket,
+			err,
+		)
 	}
 
 	listener := &Listener{
@@ -99,7 +141,10 @@ func Listen(socket string, token string) (*Listener, error) {
 		attached: map[string]*_Remote{},
 	}
 
-	pluginpb.RegisterServiceServer(listener.server, listener)
+	pluginpb.RegisterServiceServer(
+		listener.server,
+		listener,
+	)
 
 	go func() {
 		// Serve returns when the server is stopped, which Close does.
@@ -140,7 +185,10 @@ func (l *Listener) Close() error {
 	// did not happen. Reporting that as a failure made a run that worked say it
 	// had failed.
 	err := os.Remove(l.socket)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err != nil && !errors.Is(
+		err,
+		os.ErrNotExist,
+	) {
 		return err
 	}
 
@@ -166,16 +214,21 @@ func (l *Listener) Register(stream pluginpb.Service_RegisterServer) error {
 
 	announced := first.GetRegister()
 	if announced == nil {
-		return ERR_FIRST
+		return ErrFirst
 	}
 
 	if announced.GetToken() != l.token {
-		return ERR_TOKEN
+		return ErrToken
 	}
 
 	remote := l._Adapter(announced.GetName())
 
-	asks, gone, err := remote._Attach(announced.GetNames())
+	var (
+		asks chan *pluginpb.Ask
+		gone chan struct{}
+	)
+
+	asks, gone, err = remote._Attach(announced.GetNames())
 	if err != nil {
 		return err
 	}
@@ -183,13 +236,20 @@ func (l *Listener) Register(stream pluginpb.Service_RegisterServer) error {
 	defer remote._Left(gone)
 
 	err = stream.Send(&pluginpb.Response{
-		Of: &pluginpb.Response_Accepted{Accepted: &pluginpb.Accepted{}},
+		Of: &pluginpb.Response_Accepted{
+			Accepted: &pluginpb.Accepted{},
+		},
 	})
 	if err != nil {
 		return err
 	}
 
-	return _Carry(stream, remote, asks, gone)
+	return _Carry(
+		stream,
+		remote,
+		asks,
+		gone,
+	)
 }
 
 // _Carry runs the stream until it closes: asks out, answers in.
@@ -210,26 +270,15 @@ func _Carry(
 
 	sending.Add(1)
 
-	go func() {
-		defer sending.Done()
-
-		for {
-			select {
-			case ask := <-asks:
-				err := stream.Send(&pluginpb.Response{
-					Of: &pluginpb.Response_Ask{Ask: ask},
-				})
-				if err != nil {
-					remote._Left(gone)
-
-					return
-				}
-
-			case <-gone:
-				return
-			}
-		}
-	}()
+	go _Sending(
+		&sending,
+		&_Pipe{
+			stream: stream,
+			remote: remote,
+			asks:   asks,
+			gone:   gone,
+		},
+	)
 
 	defer sending.Wait()
 
@@ -238,7 +287,10 @@ func _Carry(
 		if err != nil {
 			remote._Left(gone)
 
-			if errors.Is(err, io.EOF) {
+			if errors.Is(
+				err,
+				io.EOF,
+			) {
 				return nil
 			}
 
@@ -252,16 +304,61 @@ func _Carry(
 	}
 }
 
+// _Pipe is one attached stream and the asks it sends.
+type _Pipe struct {
+	stream pluginpb.Service_RegisterServer
+	remote *_Remote
+	asks   chan *pluginpb.Ask
+	gone   chan struct{}
+}
+
+// _Sending writes each ask until the stream or the attach ends.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Sending(
+	sending *sync.WaitGroup,
+	pipe *_Pipe,
+) {
+	defer sending.Done()
+
+	for {
+		select {
+		case ask := <-pipe.asks:
+			err := pipe.stream.Send(&pluginpb.Response{
+				Of: &pluginpb.Response_Ask{
+					Ask: ask,
+				},
+			})
+			if err != nil {
+				pipe.remote._Left(pipe.gone)
+
+				return
+			}
+
+		case <-pipe.gone:
+			return
+		}
+	}
+}
+
 // Names is what every attached plugin announced, for the compile-time check.
 //
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
 func (l *Listener) Names() []string {
 	l.guard.Lock()
-	attached := make([]*_Remote, 0, len(l.attached))
+	attached := make(
+		[]*_Remote,
+		0,
+		len(l.attached),
+	)
 
 	for _, remote := range l.attached {
-		attached = append(attached, remote)
+		attached = append(
+			attached,
+			remote,
+		)
 	}
 	l.guard.Unlock()
 
@@ -269,7 +366,69 @@ func (l *Listener) Names() []string {
 
 	for _, remote := range attached {
 		_, names := remote._Named()
-		held = append(held, names...)
+		held = append(
+			held,
+			names...,
+		)
+	}
+
+	sort.Strings(held)
+
+	return held
+}
+
+// Plugins is every plugin this listener has installed, for a compiler to be
+// given.
+//
+// Revisions:
+//   - 2026-09-25 00:20: initial creation, as Registry, returning the registry
+//     itself
+//   - 2026-10-02 13:12: the plugins, since a compiler takes those rather than a
+//     registry
+//   - 2026-10-03 08:28: a copy of the list it installs into, under its lock
+func (l *Listener) Plugins() []plugin.Plugin {
+	l.guard.Lock()
+	defer l.guard.Unlock()
+
+	return slices.Clone(l.installed)
+}
+
+// Live is the name of every plugin with a stream open now.
+//
+// Different from Names, which is what this listener carries: a plugin that has
+// died leaves its names behind, because they are in environments already built
+// from them, and only reappears here when a process attaches for it again. So
+// this is the question "is my plugin up", and Names is "what can a script
+// call".
+//
+// Revisions:
+//   - 2026-09-26 01:56: initial creation
+func (l *Listener) Live() []string {
+	l.guard.Lock()
+	attached := make(
+		[]*_Remote,
+		0,
+		len(l.attached),
+	)
+
+	for _, remote := range l.attached {
+		attached = append(
+			attached,
+			remote,
+		)
+	}
+	l.guard.Unlock()
+
+	held := []string{}
+
+	for _, remote := range attached {
+		if remote._Live() {
+			name, _ := remote._Named()
+			held = append(
+				held,
+				name,
+			)
+		}
 	}
 
 	sort.Strings(held)
@@ -303,56 +462,10 @@ func (l *Listener) _Adapter(name string) *_Remote {
 	}
 
 	l.attached[name] = held
-	l.installed = append(l.installed, held)
-
-	return held
-}
-
-// Plugins is every plugin this listener has installed, for a compiler to be
-// given.
-//
-// Revisions:
-//   - 2026-09-25 00:20: initial creation, as Registry, returning the registry
-//     itself
-//   - 2026-10-02 13:12: the plugins, since a compiler takes those rather than a
-//     registry
-//   - 2026-10-03 08:28: a copy of the list it installs into, under its lock
-func (l *Listener) Plugins() []plugin.Plugin {
-	l.guard.Lock()
-	defer l.guard.Unlock()
-
-	return slices.Clone(l.installed)
-}
-
-// Live is the name of every plugin with a stream open now.
-//
-// Different from Names, which is what this listener carries: a plugin that has
-// died leaves its names behind, because they are in environments already built
-// from them, and only reappears here when a process attaches for it again. So
-// this is the question "is my plugin up", and Names is "what can a script
-// call".
-//
-// Revisions:
-//   - 2026-09-26 01:56: initial creation
-func (l *Listener) Live() []string {
-	l.guard.Lock()
-	attached := make([]*_Remote, 0, len(l.attached))
-
-	for _, remote := range l.attached {
-		attached = append(attached, remote)
-	}
-	l.guard.Unlock()
-
-	held := []string{}
-
-	for _, remote := range attached {
-		if remote._Live() {
-			name, _ := remote._Named()
-			held = append(held, name)
-		}
-	}
-
-	sort.Strings(held)
+	l.installed = append(
+		l.installed,
+		held,
+	)
 
 	return held
 }

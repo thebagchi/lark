@@ -12,12 +12,14 @@ import (
 // HANDED is where each builtin that runs a function it is handed takes that
 // function: spawn first, and each wrapper after the count or the budget it
 // takes first.
-var HANDED = map[string]int{
-	spelling.SPAWN:   0,
-	spelling.REPEAT:  1,
-	spelling.RETRY:   1,
-	spelling.TIMEOUT: 1,
-}
+var (
+	HANDED = map[string]int{
+		spelling.SPAWN:   0,
+		spelling.REPEAT:  1,
+		spelling.RETRY:   1,
+		spelling.TIMEOUT: 1,
+	}
+)
 
 // _Mark is what the compiled tree changes about one call: whether it goes
 // through CALL, which reports it, and the hidden keywords it gains.
@@ -46,7 +48,10 @@ func _Marks(written *syntax.File) map[_At]*_Mark {
 		marks:   make(map[_At]*_Mark),
 	}
 
-	marker._List(written.Stmts, "")
+	marker._List(
+		written.Stmts,
+		"",
+	)
 	marker._Lambdas(written)
 
 	return marker.marks
@@ -64,22 +69,32 @@ func _Marks(written *syntax.File) map[_At]*_Mark {
 //
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
-func (m *_Marker) _List(stmts []syntax.Stmt, branch string) {
+func (m *_Marker) _List(
+	stmts []syntax.Stmt,
+	branch string,
+) {
 	arm := ""
 	if len(Closed(stmts)) == 1 {
 		arm = branch
 	}
 
 	for idx := 0; idx < len(stmts); idx++ {
-		_, chain, matched := Matched(stmts, idx)
+		_, chain, matched := Matched(
+			stmts,
+			idx,
+		)
 		if matched {
 			m._Chain(chain)
+
 			idx++
 
 			continue
 		}
 
-		m._Statement(stmts[idx], arm)
+		m._Statement(
+			stmts[idx],
+			arm,
+		)
 	}
 }
 
@@ -93,26 +108,50 @@ func (m *_Marker) _List(stmts []syntax.Stmt, branch string) {
 //
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
-func (m *_Marker) _Statement(stmt syntax.Stmt, arm string) {
+func (m *_Marker) _Statement(
+	stmt syntax.Stmt,
+	arm string,
+) {
 	switch actual := stmt.(type) {
 	case *syntax.ExprStmt:
-		m._Call(actual.X, arm)
+		m._Call(
+			actual.X,
+			arm,
+		)
 
 	case *syntax.AssignStmt:
-		m._Assign(actual, arm)
+		m._Assign(
+			actual,
+			arm,
+		)
 
 	case *syntax.IfStmt:
-		m._List(actual.True, spelling.IF)
-		m._List(actual.False, spelling.IF)
+		m._List(
+			actual.True,
+			spelling.IF,
+		)
+		m._List(
+			actual.False,
+			spelling.IF,
+		)
 
 	case *syntax.ForStmt:
-		m._List(actual.Body, "")
+		m._List(
+			actual.Body,
+			"",
+		)
 
 	case *syntax.WhileStmt:
-		m._List(actual.Body, "")
+		m._List(
+			actual.Body,
+			"",
+		)
 
 	case *syntax.DefStmt:
-		m._List(actual.Body, "")
+		m._List(
+			actual.Body,
+			"",
+		)
 	}
 }
 
@@ -121,7 +160,10 @@ func (m *_Marker) _Statement(stmt syntax.Stmt, arm string) {
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
 func (m *_Marker) _Chain(chain *syntax.IfStmt) {
-	m._List(chain.True, spelling.MATCH)
+	m._List(
+		chain.True,
+		spelling.MATCH,
+	)
 
 	next := NextCase(chain)
 	if next != nil {
@@ -130,7 +172,10 @@ func (m *_Marker) _Chain(chain *syntax.IfStmt) {
 		return
 	}
 
-	m._List(chain.False, spelling.MATCH)
+	m._List(
+		chain.False,
+		spelling.MATCH,
+	)
 }
 
 // _Assign marks a statement binding one name to a call: the call, as any
@@ -139,7 +184,10 @@ func (m *_Marker) _Chain(chain *syntax.IfStmt) {
 //
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
-func (m *_Marker) _Assign(stmt *syntax.AssignStmt, arm string) {
+func (m *_Marker) _Assign(
+	stmt *syntax.AssignStmt,
+	arm string,
+) {
 	name, ok := stmt.LHS.(*syntax.Ident)
 	if !ok || stmt.Op != syntax.EQ {
 		return
@@ -150,10 +198,17 @@ func (m *_Marker) _Assign(stmt *syntax.AssignStmt, arm string) {
 		return
 	}
 
-	m._Call(call, arm)
+	m._Call(
+		call,
+		arm,
+	)
 
 	if _Builtin(call.Fn) == spelling.SPAWN {
-		m._For(call)._Pass(spelling.BINDING, name.Name, call.Lparen)
+		m._For(call)._Pass(
+			spelling.BINDING,
+			name.Name,
+			call.Lparen,
+		)
 	}
 }
 
@@ -162,7 +217,10 @@ func (m *_Marker) _Assign(stmt *syntax.AssignStmt, arm string) {
 //
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
-func (m *_Marker) _Call(expr syntax.Expr, arm string) {
+func (m *_Marker) _Call(
+	expr syntax.Expr,
+	arm string,
+) {
 	call, ok := expr.(*syntax.CallExpr)
 	if !ok {
 		return
@@ -176,7 +234,11 @@ func (m *_Marker) _Call(expr syntax.Expr, arm string) {
 	mark.reported = true
 
 	if arm != "" {
-		mark._Pass(spelling.BUILTIN, arm, call.Lparen)
+		mark._Pass(
+			spelling.BUILTIN,
+			arm,
+			call.Lparen,
+		)
 	}
 }
 
@@ -190,19 +252,26 @@ func (m *_Marker) _Call(expr syntax.Expr, arm string) {
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
 func (m *_Marker) _Lambdas(written *syntax.File) {
-	syntax.Walk(written, func(node syntax.Node) bool {
-		call, ok := node.(*syntax.CallExpr)
-		if !ok {
+	syntax.Walk(
+		written,
+		func(node syntax.Node) bool {
+			call, ok := node.(*syntax.CallExpr)
+			if !ok {
+				return true
+			}
+
+			callee := m._Called(_Handed(call))
+			if callee != "" {
+				m._For(call)._Pass(
+					spelling.CALLEE,
+					callee,
+					call.Lparen,
+				)
+			}
+
 			return true
-		}
-
-		callee := m._Called(_Handed(call))
-		if callee != "" {
-			m._For(call)._Pass(spelling.CALLEE, callee, call.Lparen)
-		}
-
-		return true
-	})
+		},
+	)
 }
 
 // _Called is the function the script defines or loads that a lambda calls as
@@ -258,7 +327,7 @@ func (m *_Marker) _Script(expr syntax.Expr) (string, bool) {
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
 func (m *_Marker) _For(call *syntax.CallExpr) *_Mark {
-	at := _Where(call.Lparen)
+	var at = _Where(call.Lparen)
 
 	mark, ok := m.marks[at]
 	if !ok {
@@ -273,8 +342,19 @@ func (m *_Marker) _For(call *syntax.CallExpr) *_Mark {
 //
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
-func (mark *_Mark) _Pass(name string, value string, at syntax.Position) {
-	mark.keywords = append(mark.keywords, _Keyword(name, value, at))
+func (mark *_Mark) _Pass(
+	name string,
+	value string,
+	at syntax.Position,
+) {
+	mark.keywords = append(
+		mark.keywords,
+		_Keyword(
+			name,
+			value,
+			at,
+		),
+	)
 }
 
 // _Change rewrites call as marked.
@@ -290,35 +370,50 @@ func (mark *_Mark) _Change(call *syntax.CallExpr) {
 	args := call.Args
 
 	if mark.reported {
-		args = append([]syntax.Expr{call.Fn}, args...)
-		call.Fn = &syntax.Ident{NamePos: syntax.Start(call.Fn), Name: spelling.CALL}
+		args = append(
+			[]syntax.Expr{call.Fn},
+			args...,
+		)
+		call.Fn = &syntax.Ident{
+			NamePos: syntax.Start(call.Fn),
+			Name:    spelling.CALL,
+		}
 	}
 
-	call.Args = _Keyworded(args, mark.keywords)
+	call.Args = _Keyworded(
+		args,
+		mark.keywords,
+	)
 }
 
 // _Apply changes every marked call in the compiled tree.
 //
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
-func _Apply(compiled *syntax.File, marks map[_At]*_Mark) {
+func _Apply(
+	compiled *syntax.File,
+	marks map[_At]*_Mark,
+) {
 	if len(marks) == 0 {
 		return
 	}
 
-	syntax.Walk(compiled, func(node syntax.Node) bool {
-		call, ok := node.(*syntax.CallExpr)
-		if !ok {
+	syntax.Walk(
+		compiled,
+		func(node syntax.Node) bool {
+			call, ok := node.(*syntax.CallExpr)
+			if !ok {
+				return true
+			}
+
+			mark, ok := marks[_Where(call.Lparen)]
+			if ok {
+				mark._Change(call)
+			}
+
 			return true
-		}
-
-		mark, ok := marks[_Where(call.Lparen)]
-		if ok {
-			mark._Change(call)
-		}
-
-		return true
-	})
+		},
+	)
 }
 
 // _Scripts is where each function a script may call by name was first bound:
@@ -382,9 +477,16 @@ func _Builtin(expr syntax.Expr) string {
 //
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
-func _Keyword(name string, value string, at syntax.Position) syntax.Expr {
+func _Keyword(
+	name string,
+	value string,
+	at syntax.Position,
+) syntax.Expr {
 	return &syntax.BinaryExpr{
-		X:     &syntax.Ident{NamePos: at, Name: name},
+		X: &syntax.Ident{
+			NamePos: at,
+			Name:    name,
+		},
 		OpPos: at,
 		Op:    syntax.EQ,
 		Y: &syntax.Literal{
@@ -401,7 +503,10 @@ func _Keyword(name string, value string, at syntax.Position) syntax.Expr {
 //
 // Revisions:
 //   - 2026-10-02 01:16: initial creation
-func _Keyworded(args []syntax.Expr, keywords []syntax.Expr) []syntax.Expr {
+func _Keyworded(
+	args []syntax.Expr,
+	keywords []syntax.Expr,
+) []syntax.Expr {
 	if len(keywords) == 0 {
 		return args
 	}
@@ -416,11 +521,24 @@ func _Keyworded(args []syntax.Expr, keywords []syntax.Expr) []syntax.Expr {
 		}
 	}
 
-	placed := make([]syntax.Expr, 0, len(args)+len(keywords))
-	placed = append(placed, args[:cut]...)
-	placed = append(placed, keywords...)
+	placed := make(
+		[]syntax.Expr,
+		0,
+		len(args)+len(keywords),
+	)
+	placed = append(
+		placed,
+		args[:cut]...,
+	)
+	placed = append(
+		placed,
+		keywords...,
+	)
 
-	return append(placed, args[cut:]...)
+	return append(
+		placed,
+		args[cut:]...,
+	)
 }
 
 // _Unpacked reports whether a call's argument is *args or **kwargs.

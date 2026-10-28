@@ -30,7 +30,11 @@ type _Parse func(
 ) (*integer.Field, error)
 
 // _Encoder is integer's Encode or EncodeSigned.
-type _Encoder func(budget *scheduler.Budget, who string, field *integer.Field) ([]byte, error)
+type _Encoder func(
+	budget *scheduler.Budget,
+	who string,
+	field *integer.Field,
+) ([]byte, error)
 
 // String is what print shows: how many bytes are written, not the bytes, which
 // may be many.
@@ -38,7 +42,11 @@ type _Encoder func(budget *scheduler.Budget, who string, field *integer.Field) (
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
 func (b *Buffer) String() string {
-	return fmt.Sprintf("<%s length %d>", BUFFER_TYPE, len(b.data))
+	return fmt.Sprintf(
+		"<%s length %d>",
+		BUFFER_TYPE,
+		len(b.data),
+	)
 }
 
 // Type names this value's type, as a script's type() sees it.
@@ -71,7 +79,10 @@ func (b *Buffer) Truth() starlark.Bool {
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
 func (b *Buffer) Hash() (uint32, error) {
-	return 0, fmt.Errorf("%s is unhashable", BUFFER_TYPE)
+	return 0, fmt.Errorf(
+		"%s is unhashable",
+		BUFFER_TYPE,
+	)
 }
 
 // Len is how many bytes are written, which len() reads.
@@ -127,12 +138,19 @@ func _WriteBytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(fn, args, kwargs)
+	data, err := unpack.Data(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Appended(fn, data)
+	return _Appended(
+		fn,
+		data,
+	)
 }
 
 // _WriteString appends the UTF-8 bytes of a str, and only of a str, as Go's
@@ -146,12 +164,19 @@ func _WriteString(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Appended(fn, []byte(text))
+	return _Appended(
+		fn,
+		[]byte(text),
+	)
 }
 
 // _Writer is a method that appends an integer as encode writes it - unsigned
@@ -166,25 +191,43 @@ func _WriteString(
 //   - 2026-10-08 21:08: initial creation
 //   - 2026-10-08 21:37: takes what parses the arguments, so a fixed width is a
 //     method too
-func _Writer(name string, parse _Parse, encode _Encoder) *starlark.Builtin {
-	return starlark.NewBuiltin(name, func(
-		thread *starlark.Thread,
-		fn *starlark.Builtin,
-		args starlark.Tuple,
-		kwargs []starlark.Tuple,
-	) (starlark.Value, error) {
-		field, err := parse(fn, args, kwargs)
-		if err != nil {
-			return nil, err
-		}
+func _Writer(
+	name string,
+	parse _Parse,
+	encode _Encoder,
+) *starlark.Builtin {
+	return starlark.NewBuiltin(
+		name,
+		func(
+			thread *starlark.Thread,
+			fn *starlark.Builtin,
+			args starlark.Tuple,
+			kwargs []starlark.Tuple,
+		) (starlark.Value, error) {
+			field, err := parse(
+				fn,
+				args,
+				kwargs,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		data, err := encode(scheduler.Allowance(thread), fn.Name(), field)
-		if err != nil {
-			return nil, err
-		}
+			data, err := encode(
+				scheduler.Allowance(thread),
+				fn.Name(),
+				field,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		return _Appended(fn, data)
-	})
+			return _Appended(
+				fn,
+				data,
+			)
+		},
+	)
 }
 
 // _Number reads the arguments of a method whose width is fixed - a number, and
@@ -203,12 +246,23 @@ func _Number(width int) _Parse {
 			order  = integer.BIG
 		)
 
-		err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &number, &order)
+		err := starlark.UnpackPositionalArgs(
+			fn.Name(),
+			args,
+			kwargs,
+			1,
+			&number,
+			&order,
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		return &integer.Field{Number: number.BigInt(), Width: width, Order: order}, nil
+		return &integer.Field{
+			Number: number.BigInt(),
+			Width:  width,
+			Order:  order,
+		}, nil
 	}
 }
 
@@ -225,7 +279,12 @@ func _Bytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 0)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		0,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -234,20 +293,30 @@ func _Bytes(
 }
 
 // _Appended appends data to the buffer fn is bound to, or refuses with
-// ERR_FROZEN once a spawn has frozen it.
+// ErrFrozen once a spawn has frozen it.
 //
 // Every write ends here, so a frozen buffer is refused in one place.
 //
 // Revisions:
 //   - 2026-10-08 21:37: initial creation, from _Writable, which each write called
 //     first
-func _Appended(fn *starlark.Builtin, data []byte) (starlark.Value, error) {
+func _Appended(
+	fn *starlark.Builtin,
+	data []byte,
+) (starlark.Value, error) {
 	buffer := _Bound(fn)
 	if buffer.frozen {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), ERR_FROZEN)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			ErrFrozen,
+		)
 	}
 
-	buffer.data = append(buffer.data, data...)
+	buffer.data = append(
+		buffer.data,
+		data...,
+	)
 
 	return starlark.None, nil
 }

@@ -15,7 +15,9 @@ import (
 
 // BLANK is the loop variable a Loop is written with. The flow does not store
 // the name, because the body does not read it.
-const BLANK = "_"
+const (
+	BLANK = "_"
+)
 
 // _Loop is the statement a for is, and whether it models.
 //
@@ -27,7 +29,10 @@ const BLANK = "_"
 //
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
-func (r *_Reading) _Loop(stmt *syntax.ForStmt, scope *_Scope) (*workflowpb.Statement, bool) {
+func (r *_Reading) _Loop(
+	stmt *syntax.ForStmt,
+	scope *_Scope,
+) (*workflowpb.Statement, bool) {
 	variable, ok := stmt.Vars.(*syntax.Ident)
 	if !ok {
 		return nil, false
@@ -38,24 +43,38 @@ func (r *_Reading) _Loop(stmt *syntax.ForStmt, scope *_Scope) (*workflowpb.State
 		return nil, false
 	}
 
-	times, ok := r._Times(over.Args[0], scope)
+	times, ok := r._Times(
+		over.Args[0],
+		scope,
+	)
 	if !ok {
 		return nil, false
 	}
 
 	body := dialect.Closed(stmt.Body)
-	if len(body) != 1 || _Reads(body[0], variable.Name) || _Binds(body[0]) {
+	if len(body) != 1 || _Reads(
+		body[0],
+		variable.Name,
+	) || _Binds(body[0]) {
 		return nil, false
 	}
 
-	inner, ok := r._Statement(body[0], scope._Inner())
+	inner, ok := r._Statement(
+		body[0],
+		scope._Inner(),
+	)
 	if !ok {
 		return nil, false
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_Loop{
-		Loop: &workflowpb.Loop{Times: times, Body: inner},
-	}}, true
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_Loop{
+			Loop: &workflowpb.Loop{
+				Times: times,
+				Body:  inner,
+			},
+		},
+	}, true
 }
 
 // _Times is the count a loop runs, as an Operand: a whole, non-negative number,
@@ -63,13 +82,20 @@ func (r *_Reading) _Loop(stmt *syntax.ForStmt, scope *_Scope) (*workflowpb.State
 //
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
-func (r *_Reading) _Times(expr syntax.Expr, scope *_Scope) (*workflowpb.Operand, bool) {
+func (r *_Reading) _Times(
+	expr syntax.Expr,
+	scope *_Scope,
+) (*workflowpb.Operand, bool) {
 	if name, ok := expr.(*syntax.Ident); ok {
 		if _, word := _Word(name.Name); word || !scope._Sees(name.Name) {
 			return nil, false
 		}
 
-		return &workflowpb.Operand{Source: &workflowpb.Operand_Name{Name: name.Name}}, true
+		return &workflowpb.Operand{
+			Source: &workflowpb.Operand_Name{
+				Name: name.Name,
+			},
+		}, true
 	}
 
 	count, ok := _Natural(expr)
@@ -79,24 +105,34 @@ func (r *_Reading) _Times(expr syntax.Expr, scope *_Scope) (*workflowpb.Operand,
 
 	value := structpb.NewNumberValue(float64(count))
 
-	return &workflowpb.Operand{Source: &workflowpb.Operand_Literal{Literal: value}}, true
+	return &workflowpb.Operand{
+		Source: &workflowpb.Operand_Literal{
+			Literal: value,
+		},
+	}, true
 }
 
 // _Reads reports whether a statement reads name anywhere inside it.
 //
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
-func _Reads(stmt syntax.Stmt, name string) bool {
+func _Reads(
+	stmt syntax.Stmt,
+	name string,
+) bool {
 	found := false
 
-	syntax.Walk(stmt, func(node syntax.Node) bool {
-		ident, ok := node.(*syntax.Ident)
-		if ok && ident.Name == name {
-			found = true
-		}
+	syntax.Walk(
+		stmt,
+		func(node syntax.Node) bool {
+			ident, ok := node.(*syntax.Ident)
+			if ok && ident.Name == name {
+				found = true
+			}
 
-		return !found
-	})
+			return !found
+		},
+	)
 
 	return found
 }
@@ -110,7 +146,10 @@ func _Reads(stmt syntax.Stmt, name string) bool {
 func _Binds(stmt syntax.Stmt) bool {
 	bound := make(map[string]bool)
 
-	dialect.Bound([]syntax.Stmt{stmt}, bound)
+	dialect.Bound(
+		[]syntax.Stmt{stmt},
+		bound,
+	)
 
 	return len(bound) > 0
 }
@@ -121,9 +160,15 @@ func _Binds(stmt syntax.Stmt) bool {
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the for node
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Loop
-func _Loop(loop *workflowpb.Loop, prog *_Program) (syntax.Stmt, error) {
+func _Loop(
+	loop *workflowpb.Loop,
+	prog *_Program,
+) (syntax.Stmt, error) {
 	if loop == nil || loop.GetBody() == nil {
-		return nil, fmt.Errorf("loop: %w", ERR_NO_BODY)
+		return nil, fmt.Errorf(
+			"loop: %w",
+			ErrNoBody,
+		)
 	}
 
 	times, err := _Times(loop.GetTimes())
@@ -131,14 +176,20 @@ func _Loop(loop *workflowpb.Loop, prog *_Program) (syntax.Stmt, error) {
 		return nil, err
 	}
 
-	body, err := _Statement(loop.GetBody(), prog)
+	body, err := _Statement(
+		loop.GetBody(),
+		prog,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &syntax.ForStmt{
 		Vars: _Name(BLANK),
-		X:    _Bare(RANGE, []syntax.Expr{times}),
+		X: _Bare(
+			RANGE,
+			[]syntax.Expr{times},
+		),
 		Body: body,
 	}, nil
 }
@@ -151,13 +202,19 @@ func _Loop(loop *workflowpb.Loop, prog *_Program) (syntax.Stmt, error) {
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Operand
 func _Times(op *workflowpb.Operand) (syntax.Expr, error) {
 	if op == nil {
-		return nil, fmt.Errorf("loop: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"loop: %w",
+			ErrForm,
+		)
 	}
 
 	switch src := op.GetSource().(type) {
 	case *workflowpb.Operand_Name:
 		if src.Name == "" {
-			return nil, fmt.Errorf("loop: %w", ERR_FORM)
+			return nil, fmt.Errorf(
+				"loop: %w",
+				ErrForm,
+			)
 		}
 
 		return _Name(src.Name), nil
@@ -171,6 +228,9 @@ func _Times(op *workflowpb.Operand) (syntax.Expr, error) {
 		return _Num(text), nil
 
 	default:
-		return nil, fmt.Errorf("loop: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"loop: %w",
+			ErrForm,
+		)
 	}
 }

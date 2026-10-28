@@ -16,8 +16,8 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
+// NAME is what this plugin is called when a conflict has to name it.
 const (
-	// NAME is what this plugin is called when a conflict has to name it.
 	NAME = "core"
 
 	SPAWN  = spelling.SPAWN
@@ -60,11 +60,26 @@ func (c *_Core) Name() string {
 //   - 2026-09-21 09:46: moved here
 func (c *_Core) Values() starlark.StringDict {
 	return starlark.StringDict{
-		SPAWN:  starlark.NewBuiltin(SPAWN, _Spawn),
-		JOIN:   starlark.NewBuiltin(JOIN, _Join),
-		CANCEL: starlark.NewBuiltin(CANCEL, _Cancel),
-		ASSERT: starlark.NewBuiltin(ASSERT, _Assert),
-		SLEEP:  starlark.NewBuiltin(SLEEP, _Sleep),
+		SPAWN: starlark.NewBuiltin(
+			SPAWN,
+			_Spawn,
+		),
+		JOIN: starlark.NewBuiltin(
+			JOIN,
+			_Join,
+		),
+		CANCEL: starlark.NewBuiltin(
+			CANCEL,
+			_Cancel,
+		),
+		ASSERT: starlark.NewBuiltin(
+			ASSERT,
+			_Assert,
+		),
+		SLEEP: starlark.NewBuiltin(
+			SLEEP,
+			_Sleep,
+		),
 	}
 }
 

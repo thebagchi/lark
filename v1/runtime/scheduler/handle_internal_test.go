@@ -39,7 +39,11 @@ func TestHandle_IsAStarlarkValue(t *testing.T) {
 	var value starlark.Value = _Handle()
 
 	if value.Type() != HANDLE_TYPE {
-		t.Fatalf("type is %q, want %q", value.Type(), HANDLE_TYPE)
+		t.Fatalf(
+			"type is %q, want %q",
+			value.Type(),
+			HANDLE_TYPE,
+		)
 	}
 }
 
@@ -53,8 +57,15 @@ func TestHandle_StringNamesTheFunctionAndTheThread(t *testing.T) {
 	got := _Handle().String()
 
 	for _, want := range []string{HANDLE_TYPE, WORKER_NAME, "#" + WORKER_THREAD} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("String is %q, which does not carry %q", got, want)
+		if !strings.Contains(
+			got,
+			want,
+		) {
+			t.Fatalf(
+				"String is %q, which does not carry %q",
+				got,
+				want,
+			)
 		}
 	}
 }
@@ -82,8 +93,14 @@ func TestHandle_RefusesToHash(t *testing.T) {
 		t.Fatal("a handle hashed, so two spawns of one function could collide")
 	}
 
-	if !strings.Contains(err.Error(), UNHASHABLE) {
-		t.Fatalf("refusal does not say why: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		UNHASHABLE,
+	) {
+		t.Fatalf(
+			"refusal does not say why: %v",
+			err,
+		)
 	}
 }
 
@@ -93,14 +110,18 @@ func TestHandle_RefusesToHash(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 21:54: initial creation
 func TestHandle_FreezeChangesNothing(t *testing.T) {
-	handle := _Handle()
-	before := handle.String()
+	var (
+		handle = _Handle()
+		before = handle.String()
+	)
 
 	handle.Freeze()
 
-	same := handle.String() == before
-	named := handle.Name() == WORKER_NAME
-	lane := handle.Thread() == WORKER_THREAD
+	var (
+		same  = handle.String() == before
+		named = handle.Name() == WORKER_NAME
+		lane  = handle.Thread() == WORKER_THREAD
+	)
 
 	if !same || !named || !lane {
 		t.Fatal("freezing a handle changed it")

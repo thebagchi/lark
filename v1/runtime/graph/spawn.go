@@ -34,7 +34,10 @@ func (r *_Reading) _Spawn(
 		return nil, false
 	}
 
-	target, ok := r._Target(call.Args[0], scope)
+	target, ok := r._Target(
+		call.Args[0],
+		scope,
+	)
 	if !ok {
 		return nil, false
 	}
@@ -43,9 +46,14 @@ func (r *_Reading) _Spawn(
 		return nil, false
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_Spawn{
-		Spawn: &workflowpb.Spawn{Binding: bound, Call: target},
-	}}, true
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_Spawn{
+			Spawn: &workflowpb.Spawn{
+				Binding: bound,
+				Call:    target,
+			},
+		},
+	}, true
 }
 
 // _Join is the statement a join is, bound to its result when the script
@@ -62,7 +70,10 @@ func (r *_Reading) _Join(
 	bound string,
 	scope *_Scope,
 ) (*workflowpb.Statement, bool) {
-	bindings, ok := _Bindings(call.Args, scope)
+	bindings, ok := _Bindings(
+		call.Args,
+		scope,
+	)
 	if !ok {
 		return nil, false
 	}
@@ -71,24 +82,39 @@ func (r *_Reading) _Join(
 		scope._Bind(bound)
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_Join{
-		Join: &workflowpb.Join{Bindings: bindings, Result: bound},
-	}}, true
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_Join{
+			Join: &workflowpb.Join{
+				Bindings: bindings,
+				Result:   bound,
+			},
+		},
+	}, true
 }
 
 // _Cancel is the statement a cancel is, and whether it models.
 //
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
-func (r *_Reading) _Cancel(call *syntax.CallExpr, scope *_Scope) (*workflowpb.Statement, bool) {
-	bindings, ok := _Bindings(call.Args, scope)
+func (r *_Reading) _Cancel(
+	call *syntax.CallExpr,
+	scope *_Scope,
+) (*workflowpb.Statement, bool) {
+	bindings, ok := _Bindings(
+		call.Args,
+		scope,
+	)
 	if !ok {
 		return nil, false
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_Cancel{
-		Cancel: &workflowpb.Cancel{Bindings: bindings},
-	}}, true
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_Cancel{
+			Cancel: &workflowpb.Cancel{
+				Bindings: bindings,
+			},
+		},
+	}, true
 }
 
 // _Bindings is the spawn bindings a join or a cancel names, and whether every
@@ -96,7 +122,10 @@ func (r *_Reading) _Cancel(call *syntax.CallExpr, scope *_Scope) (*workflowpb.St
 //
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
-func _Bindings(args []syntax.Expr, scope *_Scope) ([]string, bool) {
+func _Bindings(
+	args []syntax.Expr,
+	scope *_Scope,
+) ([]string, bool) {
 	var bindings []string
 
 	for _, arg := range args {
@@ -105,7 +134,10 @@ func _Bindings(args []syntax.Expr, scope *_Scope) ([]string, bool) {
 			return nil, false
 		}
 
-		bindings = append(bindings, name.Name)
+		bindings = append(
+			bindings,
+			name.Name,
+		)
 	}
 
 	return bindings, true
@@ -119,7 +151,10 @@ func _Bindings(args []syntax.Expr, scope *_Scope) ([]string, bool) {
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Spawn
 func _Spawn(spawn *workflowpb.Spawn) (syntax.Stmt, error) {
 	if spawn == nil {
-		return nil, fmt.Errorf("spawn: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"spawn: %w",
+			ErrForm,
+		)
 	}
 
 	target, err := _Target(spawn.GetCall())
@@ -127,7 +162,13 @@ func _Spawn(spawn *workflowpb.Spawn) (syntax.Stmt, error) {
 		return nil, err
 	}
 
-	return _Emit(spawn.GetBinding(), _Bare(SPAWN, []syntax.Expr{target})), nil
+	return _Emit(
+		spawn.GetBinding(),
+		_Bare(
+			SPAWN,
+			[]syntax.Expr{target},
+		),
+	), nil
 }
 
 // _Join is a join, bound when the script captures the value.
@@ -138,16 +179,28 @@ func _Spawn(spawn *workflowpb.Spawn) (syntax.Stmt, error) {
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Join
 func _Join(join *workflowpb.Join) (syntax.Stmt, error) {
 	if join == nil {
-		return nil, fmt.Errorf("join: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"join: %w",
+			ErrForm,
+		)
 	}
 
 	var args []syntax.Expr
 
 	for _, name := range join.GetBindings() {
-		args = append(args, _Name(name))
+		args = append(
+			args,
+			_Name(name),
+		)
 	}
 
-	return _Emit(join.GetResult(), _Bare(JOIN, args)), nil
+	return _Emit(
+		join.GetResult(),
+		_Bare(
+			JOIN,
+			args,
+		),
+	), nil
 }
 
 // _Cancel is a cancel.
@@ -158,14 +211,25 @@ func _Join(join *workflowpb.Join) (syntax.Stmt, error) {
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Cancel
 func _Cancel(cancel *workflowpb.Cancel) (syntax.Stmt, error) {
 	if cancel == nil {
-		return nil, fmt.Errorf("cancel: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"cancel: %w",
+			ErrForm,
+		)
 	}
 
 	var args []syntax.Expr
 
 	for _, name := range cancel.GetBindings() {
-		args = append(args, _Name(name))
+		args = append(
+			args,
+			_Name(name),
+		)
 	}
 
-	return &syntax.ExprStmt{X: _Bare(CANCEL, args)}, nil
+	return &syntax.ExprStmt{
+		X: _Bare(
+			CANCEL,
+			args,
+		),
+	}, nil
 }

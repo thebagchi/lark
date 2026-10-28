@@ -14,21 +14,21 @@ import (
 )
 
 var (
-	// ERR_NO_RUN is returned when a builtin is called on a thread no run set up.
-	ERR_NO_RUN = errors.New("no run on this thread")
+	// ErrNoRun is returned when a builtin is called on a thread no run set up.
+	ErrNoRun = errors.New("no run on this thread")
 
-	// ERR_NOT_LOCAL is returned when two plugins claim one key for values of
+	// ErrNotLocal is returned when two plugins claim one key for values of
 	// different types.
-	ERR_NOT_LOCAL = errors.New("a run local holds another type")
+	ErrNotLocal = errors.New("a run local holds another type")
 )
 
+// LOCALS_KEY names the one thing a run leaves on an interpreter thread. A
+// Starlark builtin is handed only a thread, so this is how every builtin
+// here finds the evaluation it belongs to.
+//
+// One local rather than several, so a child inherits everything by copying
+// a struct and nothing is inherited by accident or dropped by omission.
 const (
-	// LOCALS_KEY names the one thing a run leaves on an interpreter thread. A
-	// Starlark builtin is handed only a thread, so this is how every builtin
-	// here finds the evaluation it belongs to.
-	//
-	// One local rather than several, so a child inherits everything by copying
-	// a struct and nothing is inherited by accident or dropped by omission.
 	LOCALS_KEY = "scheduler.locals"
 
 	// SPINE is the entry point's thread id, THREAD prefixes every id, and
@@ -64,14 +64,13 @@ const (
 // cancel would be a second copy of that fact - one that a spawn made during
 // teardown was measured not to be on.
 type _Run struct {
-	ctx    context.Context
-	stop   context.CancelFunc
-	group  sync.WaitGroup
-	into   Reporter
-	logger *slog.Logger
-	budget *Budget
-
 	mutex   sync.Mutex
+	ctx     context.Context
+	stop    context.CancelFunc
+	group   sync.WaitGroup
+	into    Reporter
+	logger  *slog.Logger
+	budget  *Budget
 	outcome error
 	ordinal map[string]int32
 	shared  map[string]any
@@ -162,13 +161,63 @@ func Begin(
 	name string,
 	settings *Settings,
 ) func(err error) error {
+	inner, stop := context.WithCancel(ctx)
+
 	if settings == nil {
 		settings = new(Settings)
 	}
 
-	inner, stop := context.WithCancel(ctx)
+	run := _Begun(
+		inner,
+		stop,
+		settings,
+	)
 
-	run := &_Run{
+	thread.SetLocal(
+		LOCALS_KEY,
+		&_Locals{
+			run:    run,
+			thread: SPINE,
+			ctx:    inner,
+		},
+	)
+	thread.Print = run._Print()
+
+	watching := _CancelOn(
+		inner,
+		thread,
+	)
+
+	run._Tell(func() {
+		run.into.Started(
+			SPINE,
+			&Line{
+				Name: name,
+			},
+		)
+	})
+
+	return _Ended(
+		ctx,
+		&_Done{
+			stop:     stop,
+			run:      run,
+			watching: watching,
+			name:     name,
+		},
+	)
+}
+
+// _Begun is the run a thread is about to carry.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Begun(
+	inner context.Context,
+	stop context.CancelFunc,
+	settings *Settings,
+) *_Run {
+	return &_Run{
 		ctx:     inner,
 		stop:    stop,
 		into:    settings.Reporter,
@@ -178,25 +227,41 @@ func Begin(
 		shared:  make(map[string]any),
 		locks:   make(map[string]chan struct{}),
 	}
+}
 
-	thread.SetLocal(LOCALS_KEY, &_Locals{run: run, thread: SPINE, ctx: inner})
-	thread.Print = run._Print()
+// _Done is what the function Begin returns needs in order to finish the run.
+type _Done struct {
+	stop     context.CancelFunc
+	run      *_Run
+	watching func()
+	name     string
+}
 
-	watching := _CancelOn(inner, thread)
-
-	run._Tell(func() {
-		run.into.Started(SPINE, &Line{Name: name})
-	})
-
+// _Ended is the function Begin returns. It waits, then reports the outcome.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Ended(
+	ctx context.Context,
+	done *_Done,
+) func(err error) error {
 	return func(err error) error {
-		watching()
-		stop()
-		run.group.Wait()
+		done.watching()
+		done.stop()
+		done.run.group.Wait()
 
-		produced := _Produced(ctx, run._Outcome(), err)
+		produced := _Produced(
+			ctx,
+			done.run._Outcome(),
+			err,
+		)
 
-		run._Tell(func() {
-			run.into.Ended(SPINE, name, produced)
+		done.run._Tell(func() {
+			done.run.into.Ended(
+				SPINE,
+				done.name,
+				produced,
+			)
 		})
 
 		return produced
@@ -217,19 +282,35 @@ func Begin(
 //     printed, rather than telling the reporter
 //   - 2026-10-02 16:21: logs a record, whose handler writes the time and the
 //     layout
-func (r *_Run) _Print() func(*starlark.Thread, string) {
-	return func(thread *starlark.Thread, msg string) {
+func (r *_Run) _Print() func(
+	*starlark.Thread,
+	string,
+) {
+	return func(
+		thread *starlark.Thread,
+		msg string,
+	) {
 		blown := guard.Contained(func() {
 			r.logger.LogAttrs(
 				r.ctx,
 				slog.LevelInfo,
 				msg,
-				slog.String(ATTR_THREAD, _Lane(thread)),
-				slog.String(ATTR_FUNCTION, _Caller(thread)),
+				slog.String(
+					ATTR_THREAD,
+					_Lane(thread),
+				),
+				slog.String(
+					ATTR_FUNCTION,
+					_Caller(thread),
+				),
 			)
 		})
 		if blown != nil {
-			r._End(fmt.Errorf("%s: %w", LOGGER, blown))
+			r._End(fmt.Errorf(
+				"%s: %w",
+				LOGGER,
+				blown,
+			))
 		}
 	}
 }
@@ -253,7 +334,11 @@ func (r *_Run) _Tell(report func()) {
 
 	blown := guard.Contained(report)
 	if blown != nil {
-		r._End(fmt.Errorf("%s: %w", REPORTER, blown))
+		r._End(fmt.Errorf(
+			"%s: %w",
+			REPORTER,
+			blown,
+		))
 	}
 }
 
@@ -311,7 +396,10 @@ func (r *_Run) _Number(parent string) string {
 
 	r.ordinal[parent]++
 
-	return _Child(parent, r.ordinal[parent])
+	return _Child(
+		parent,
+		r.ordinal[parent],
+	)
 }
 
 // _Child is the id of a thread's nth child.
@@ -321,8 +409,14 @@ func (r *_Run) _Number(parent string) string {
 //
 // Revisions:
 //   - 2026-09-21 00:59: initial creation
-func _Child(parent string, ordinal int32) string {
-	return spelling.Child(parent, int(ordinal))
+func _Child(
+	parent string,
+	ordinal int32,
+) string {
+	return spelling.Child(
+		parent,
+		int(ordinal),
+	)
 }
 
 // _Of returns the evaluation a thread belongs to.
@@ -334,7 +428,7 @@ func _Child(parent string, ordinal int32) string {
 func _Of(thread *starlark.Thread) (*_Locals, error) {
 	locals, ok := thread.Local(LOCALS_KEY).(*_Locals)
 	if !ok {
-		return nil, ERR_NO_RUN
+		return nil, ErrNoRun
 	}
 
 	return locals, nil
@@ -403,7 +497,10 @@ func Context(thread *starlark.Thread) (context.Context, error) {
 //     end a run without the catching question being asked
 //   - 2026-10-03 23:52: keeps cause on the evaluation as well, which then ends with
 //     it, for a caller with nowhere to raise it
-func Fail(thread *starlark.Thread, cause error) error {
+func Fail(
+	thread *starlark.Thread,
+	cause error,
+) error {
 	locals, err := _Of(thread)
 	if err != nil {
 		return cause
@@ -459,14 +556,18 @@ func AttemptOf(thread *starlark.Thread) int32 {
 // no two plugins store the same shape. The type parameter is what keeps that
 // contained: a caller names the type it expects and never sees the assertion.
 //
-// Returns ERR_NO_RUN when the thread has no run, and ERR_NOT_LOCAL when key already
+// Returns ErrNoRun when the thread has no run, and ErrNotLocal when key already
 // holds something of another type - which means two plugins chose one key.
 //
 // Revisions:
 //   - 2026-09-20 00:31: initial creation, as Local
 //   - 2026-09-21 09:46: renamed: what a run shares is not what an evaluation
 //     carries, and both were called locals
-func Shared[T any](thread *starlark.Thread, key string, build func() T) (T, error) {
+func Shared[T any](
+	thread *starlark.Thread,
+	key string,
+	build func() T,
+) (T, error) {
 	var empty T
 
 	locals, err := _Of(thread)
@@ -489,7 +590,12 @@ func Shared[T any](thread *starlark.Thread, key string, build func() T) (T, erro
 
 	value, ok := held.(T)
 	if !ok {
-		return empty, fmt.Errorf("%s holds a %T: %w", key, held, ERR_NOT_LOCAL)
+		return empty, fmt.Errorf(
+			"%s holds a %T: %w",
+			key,
+			held,
+			ErrNotLocal,
+		)
 	}
 
 	return value, nil

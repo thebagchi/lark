@@ -30,7 +30,10 @@ import (
 // expected to be cheap - a path join, a key normalisation - because it runs for
 // every load whether or not a fetch follows.
 type Loader interface {
-	Resolve(from string, target string) (string, error)
+	Resolve(
+		from string,
+		target string,
+	) (string, error)
 	Load(name string) ([]byte, error)
 }
 
@@ -84,8 +87,14 @@ func LoaderFor(source *Source) Loader {
 //   - 2026-09-19 20:28: resolves only; fetching moved to Load
 //   - 2026-10-03 00:10: moved here from artifact, the one default a compile
 //     and a derivation share
-func (d *_Dir) Resolve(from string, target string) (string, error) {
-	return path.Join(path.Dir(from), target), nil
+func (d *_Dir) Resolve(
+	from string,
+	target string,
+) (string, error) {
+	return path.Join(
+		path.Dir(from),
+		target,
+	), nil
 }
 
 // Load reads the file at name.

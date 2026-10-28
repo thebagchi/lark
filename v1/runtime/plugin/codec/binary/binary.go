@@ -25,12 +25,14 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// ERR_BITS is returned for text that is not made of 0 and 1, or whose length is
+// ErrBits is returned for text that is not made of 0 and 1, or whose length is
 // not the multiple of eight that whole bytes need.
-var ERR_BITS = errors.New("not a bit string")
+var (
+	ErrBits = errors.New("not a bit string")
+)
 
+// NAME is the module, and the four names it holds.
 const (
-	// NAME is the module, and the four names it holds.
 	NAME       = "binary"
 	FROM_BYTES = "from_bytes"
 	TO_BYTES   = "to_bytes"
@@ -77,10 +79,22 @@ func (b *_Binary) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				FROM_BYTES: starlark.NewBuiltin(NAME+"."+FROM_BYTES, _FromBytes),
-				TO_BYTES:   starlark.NewBuiltin(NAME+"."+TO_BYTES, _ToBytes),
-				FROM_INT:   starlark.NewBuiltin(NAME+"."+FROM_INT, _FromInt),
-				TO_INT:     starlark.NewBuiltin(NAME+"."+TO_INT, _ToInt),
+				FROM_BYTES: starlark.NewBuiltin(
+					NAME+"."+FROM_BYTES,
+					_FromBytes,
+				),
+				TO_BYTES: starlark.NewBuiltin(
+					NAME+"."+TO_BYTES,
+					_ToBytes,
+				),
+				FROM_INT: starlark.NewBuiltin(
+					NAME+"."+FROM_INT,
+					_FromInt,
+				),
+				TO_INT: starlark.NewBuiltin(
+					NAME+"."+TO_INT,
+					_ToInt,
+				),
 			},
 		},
 	}
@@ -99,7 +113,11 @@ func _FromBytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(fn, args, kwargs)
+	data, err := unpack.Data(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -126,21 +144,37 @@ func _ToBytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	bits := unpack.Unprefixed(text, PREFIX)
+	bits := unpack.Unprefixed(
+		text,
+		PREFIX,
+	)
 
-	data, err := Decode(fn.Name(), bits)
+	var data []byte
+
+	data, err = Decode(
+		fn.Name(),
+		bits,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(bits)%BITS_PER_BYTE != 0 {
-		return nil, fmt.Errorf("%s got %d bits, not whole bytes: %w",
-			fn.Name(), len(bits), ERR_BITS)
+		return nil, fmt.Errorf(
+			"%s got %d bits, not whole bytes: %w",
+			fn.Name(),
+			len(bits),
+			ErrBits,
+		)
 	}
 
 	return starlark.Bytes(data), nil
@@ -169,7 +203,11 @@ func _FromInt(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	number, width, err := unpack.Counted(fn, args, kwargs)
+	number, width, err := unpack.Counted(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -178,14 +216,21 @@ func _FromInt(
 
 	err = budget.Charge(int64(width))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	defer budget.Credit(int64(width))
 
 	bits := number.Text(BASE)
 	if len(bits) < width {
-		bits = strings.Repeat(PAD, width-len(bits)) + bits
+		bits = strings.Repeat(
+			PAD,
+			width-len(bits),
+		) + bits
 	}
 
 	return starlark.String(bits), nil
@@ -206,21 +251,39 @@ func _ToInt(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	bits := unpack.Unprefixed(text, PREFIX)
+	bits := unpack.Unprefixed(
+		text,
+		PREFIX,
+	)
 
-	err = _Check(fn.Name(), bits)
+	err = _Check(
+		fn.Name(),
+		bits,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	number, ok := new(big.Int).SetString(bits, BASE)
+	number, ok := new(big.Int).SetString(
+		bits,
+		BASE,
+	)
 	if !ok {
-		return nil, fmt.Errorf("%s got %q: %w", fn.Name(), text, ERR_BITS)
+		return nil, fmt.Errorf(
+			"%s got %q: %w",
+			fn.Name(),
+			text,
+			ErrBits,
+		)
 	}
 
 	return starlark.MakeBigInt(number), nil

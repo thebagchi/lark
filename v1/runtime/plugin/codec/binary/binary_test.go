@@ -18,7 +18,9 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-const SCRIPT = "binary_test.star"
+const (
+	SCRIPT = "binary_test.star"
+)
 
 // _Eval runs one Starlark expression against the plugin environment and
 // returns what it produced, as its String form.
@@ -26,17 +28,25 @@ const SCRIPT = "binary_test.star"
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, in codec
 //   - 2026-10-08 17:52: moved here with the conversions it exercises
-func _Eval(t *testing.T, expression string) (string, error) {
+func _Eval(
+	t *testing.T,
+	expression string,
+) (string, error) {
 	t.Helper()
 
 	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	value, err := starlark.EvalOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT},
+		&starlark.Thread{
+			Name: SCRIPT,
+		},
 		SCRIPT,
 		expression,
 		env,
@@ -53,20 +63,38 @@ func _Eval(t *testing.T, expression string) (string, error) {
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, in codec
 //   - 2026-10-08 17:52: moved here
-func _Check(t *testing.T, cases []struct{ name, expression, want string }) {
+func _Check(
+	t *testing.T,
+	cases []struct{ name, expression, want string },
+) {
 	t.Helper()
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Eval(t, item.expression)
-			if err != nil {
-				t.Fatalf("%s: %v", item.expression, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Eval(
+					t,
+					item.expression,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.expression,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s gave %s, want %s", item.expression, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s gave %s, want %s",
+						item.expression,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -75,20 +103,37 @@ func _Check(t *testing.T, cases []struct{ name, expression, want string }) {
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, in codec
 //   - 2026-10-08 17:52: moved here
-func _Refuse(t *testing.T, cases []struct {
-	name       string
-	expression string
-	want       error
-}) {
+func _Refuse(
+	t *testing.T,
+	cases []struct {
+		name       string
+		expression string
+		want       error
+	},
+) {
 	t.Helper()
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			_, err := _Eval(t, item.expression)
-			if !errors.Is(err, item.want) {
-				t.Fatalf("%s gave %v, want %v", item.expression, err, item.want)
-			}
-		})
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					item.expression,
+				)
+				if !errors.Is(
+					err,
+					item.want,
+				) {
+					t.Fatalf(
+						"%s gave %v, want %v",
+						item.expression,
+						err,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -102,31 +147,81 @@ func _Refuse(t *testing.T, cases []struct {
 //   - 2026-10-08 17:52: spells the calls as members of the binary module
 //   - 2026-10-08 18:32: to_bytes with a 0b, taken off once in either case
 func TestBinary_ConvertsToAndFromBytes(t *testing.T) {
-	_Check(t, []struct{ name, expression, want string }{
-		{"from_bytes", `binary.from_bytes(b"\x01\x80")`, `"0000000110000000"`},
-		{"from_bytes of str", `binary.from_bytes("A")`, `"01000001"`},
-		{"from_bytes of nothing", `binary.from_bytes(b"")`, `""`},
-		{"to_bytes", `binary.to_bytes("0000000110000000")`, `b"\x01\x80"`},
-		{"to_bytes of nothing", `binary.to_bytes("")`, `b""`},
-		{"to_bytes strips 0b", `binary.to_bytes("0b01000001")`, `b"A"`},
-		{"to_bytes strips 0B", `binary.to_bytes("0B01000001")`, `b"A"`},
-		{"to_bytes of the prefix alone", `binary.to_bytes("0b")`, `b""`},
-	})
-
-	_Refuse(t, []struct {
-		name       string
-		expression string
-		want       error
-	}{
-		{"to_bytes not a multiple of 8", `binary.to_bytes("0000000")`, binary.ERR_BITS},
-		{
-			"to_bytes short of a byte after the prefix",
-			`binary.to_bytes("0b0100")`,
-			binary.ERR_BITS,
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"from_bytes",
+				`binary.from_bytes(b"\x01\x80")`,
+				`"0000000110000000"`,
+			},
+			{
+				"from_bytes of str",
+				`binary.from_bytes("A")`,
+				`"01000001"`,
+			},
+			{
+				"from_bytes of nothing",
+				`binary.from_bytes(b"")`,
+				`""`,
+			},
+			{
+				"to_bytes",
+				`binary.to_bytes("0000000110000000")`,
+				`b"\x01\x80"`,
+			},
+			{
+				"to_bytes of nothing",
+				`binary.to_bytes("")`,
+				`b""`,
+			},
+			{
+				"to_bytes strips 0b",
+				`binary.to_bytes("0b01000001")`,
+				`b"A"`,
+			},
+			{
+				"to_bytes strips 0B",
+				`binary.to_bytes("0B01000001")`,
+				`b"A"`,
+			},
+			{
+				"to_bytes of the prefix alone",
+				`binary.to_bytes("0b")`,
+				`b""`,
+			},
 		},
-		{"to_bytes not bits", `binary.to_bytes("00000002")`, binary.ERR_BITS},
-		{"from_bytes of a number", `binary.from_bytes(1)`, unpack.ERR_DATA},
-	})
+	)
+
+	_Refuse(
+		t,
+		[]struct {
+			name       string
+			expression string
+			want       error
+		}{
+			{
+				"to_bytes not a multiple of 8",
+				`binary.to_bytes("0000000")`,
+				binary.ErrBits,
+			},
+			{
+				"to_bytes short of a byte after the prefix",
+				`binary.to_bytes("0b0100")`,
+				binary.ErrBits,
+			},
+			{
+				"to_bytes not bits",
+				`binary.to_bytes("00000002")`,
+				binary.ErrBits,
+			},
+			{
+				"from_bytes of a number",
+				`binary.from_bytes(1)`,
+				unpack.ErrData,
+			},
+		},
+	)
 }
 
 // TestBinary_ConvertsToAndFromInts is digits padded to the width, which counts
@@ -142,37 +237,93 @@ func TestBinary_ConvertsToAndFromBytes(t *testing.T) {
 //   - 2026-10-08 21:37: a width past the run's memory
 //   - 2026-10-08 22:19: a width past the million fmt pads to
 func TestBinary_ConvertsToAndFromInts(t *testing.T) {
-	_Check(t, []struct{ name, expression, want string }{
-		{"from_int", `binary.from_int(5, 8)`, `"00000101"`},
-		{
-			"from_int past the million fmt pads to",
-			`[len(binary.from_int(5, 1000001)), binary.from_int(5, 1000001)[-3:]]`,
-			`[1000001, "101"]`,
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"from_int",
+				`binary.from_int(5, 8)`,
+				`"00000101"`,
+			},
+			{
+				"from_int past the million fmt pads to",
+				`[len(binary.from_int(5,` +
+					` 1000001)), binary.from_int(5, ` +
+					`1000001)[-3:]]`,
+				`[1000001, "101"]`,
+			},
+			{
+				"from_int not truncated",
+				`binary.from_int(300, 4)`,
+				`"100101100"`,
+			},
+			{
+				"from_int of zero",
+				`binary.from_int(0, 3)`,
+				`"000"`,
+			},
+			{
+				"to_int",
+				`binary.to_int("100101100")`,
+				`300`,
+			},
+			{
+				"to_int past 64 bits",
+				`binary.to_int("1" + "0" * 64)`,
+				`18446744073709551616`,
+			},
+			{
+				"to_int strips 0b",
+				`binary.to_int("0b101")`,
+				`5`,
+			},
+			{
+				"to_int strips 0B",
+				`binary.to_int("0B101")`,
+				`5`,
+			},
 		},
-		{"from_int not truncated", `binary.from_int(300, 4)`, `"100101100"`},
-		{"from_int of zero", `binary.from_int(0, 3)`, `"000"`},
-		{"to_int", `binary.to_int("100101100")`, `300`},
-		{"to_int past 64 bits", `binary.to_int("1" + "0" * 64)`, `18446744073709551616`},
-		{"to_int strips 0b", `binary.to_int("0b101")`, `5`},
-		{"to_int strips 0B", `binary.to_int("0B101")`, `5`},
-	})
+	)
 
-	_Refuse(t, []struct {
-		name       string
-		expression string
-		want       error
-	}{
-		{"from_int negative", `binary.from_int(-5, 8)`, unpack.ERR_RANGE},
-		{"from_int zero width", `binary.from_int(5, 0)`, unpack.ERR_RANGE},
-		{
-			"from_int wider than the run",
-			`binary.from_int(0, 1 << 40)`,
-			scheduler.ERR_MEMORY,
+	_Refuse(
+		t,
+		[]struct {
+			name       string
+			expression string
+			want       error
+		}{
+			{
+				"from_int negative",
+				`binary.from_int(-5, 8)`,
+				unpack.ErrRange,
+			},
+			{
+				"from_int zero width",
+				`binary.from_int(5, 0)`,
+				unpack.ErrRange,
+			},
+			{
+				"from_int wider than the run",
+				`binary.from_int(0, 1 << 40)`,
+				scheduler.ErrMemory,
+			},
+			{
+				"to_int of nothing",
+				`binary.to_int("")`,
+				binary.ErrBits,
+			},
+			{
+				"to_int of the prefix alone",
+				`binary.to_int("0b")`,
+				binary.ErrBits,
+			},
+			{
+				"to_int prefix taken off once",
+				`binary.to_int("0b0b1")`,
+				binary.ErrBits,
+			},
 		},
-		{"to_int of nothing", `binary.to_int("")`, binary.ERR_BITS},
-		{"to_int of the prefix alone", `binary.to_int("0b")`, binary.ERR_BITS},
-		{"to_int prefix taken off once", `binary.to_int("0b0b1")`, binary.ERR_BITS},
-	})
+	)
 }
 
 // TestBinary_AgreesForEveryByte converts every byte value through from_bytes
@@ -192,12 +343,24 @@ func TestBinary_AgreesForEveryByte(t *testing.T) {
     binary.from_bytes(bytes([b])) == "".join(["1" if b & (128 >> i) else "0" for i in range(8)])
     and binary.to_bytes(binary.from_bytes(bytes([b]))) == bytes([b])
 )]`
+
 	const WHOLE = `binary.to_bytes(binary.from_bytes(bytes(range(256)))) == bytes(range(256))`
 
-	_Check(t, []struct{ name, expression, want string }{
-		{"every byte alone", EVERY, `[]`},
-		{"every byte in one input", WHOLE, `True`},
-	})
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"every byte alone",
+				EVERY,
+				`[]`,
+			},
+			{
+				"every byte in one input",
+				WHOLE,
+				`True`,
+			},
+		},
+	)
 }
 
 // TestBinary_RefusedWhereverTheWrongCharacterIs puts one character that is not
@@ -217,12 +380,34 @@ func TestBinary_RefusedWhereverTheWrongCharacterIs(t *testing.T) {
 
 	for _, wrong := range []string{"2", "4", "8", " ", "\x10", "p", "é"} {
 		for at := range LENGTH {
-			bits := strings.Repeat("1", at) + wrong + strings.Repeat("0", LENGTH-1-at)
-			expression := fmt.Sprintf("binary.to_int(%q)", bits)
+			var (
+				bits = strings.Repeat(
+					"1",
+					at,
+				) + wrong + strings.Repeat(
+					"0",
+					LENGTH-1-at,
+				)
+				expression = fmt.Sprintf(
+					"binary.to_int(%q)",
+					bits,
+				)
+			)
 
-			_, err := _Eval(t, expression)
-			if !errors.Is(err, binary.ERR_BITS) {
-				t.Fatalf("%s gave %v, want %v", expression, err, binary.ERR_BITS)
+			_, err := _Eval(
+				t,
+				expression,
+			)
+			if !errors.Is(
+				err,
+				binary.ErrBits,
+			) {
+				t.Fatalf(
+					"%s gave %v, want %v",
+					expression,
+					err,
+					binary.ErrBits,
+				)
 			}
 		}
 	}

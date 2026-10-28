@@ -15,12 +15,16 @@ import (
 
 // ARGS_LOCAL is what a run's arguments travel under on the thread a unit
 // initialises on. A thread local is keyed by a string, so this is one.
-const ARGS_LOCAL = "artifact.args"
+const (
+	ARGS_LOCAL = "artifact.args"
+)
 
-// ERR_NOT_JSON is returned for a run handed arguments holding a value JSON
+// ErrNotJSON is returned for a run handed arguments holding a value JSON
 // cannot: a function, a channel, a struct. Arguments are values, which is the
 // limit a flow carries.
-var ERR_NOT_JSON = errors.New("an argument holds a value JSON cannot")
+var (
+	ErrNotJSON = errors.New("an argument holds a value JSON cannot")
+)
 
 // RunOption sets one thing on a run of an artifact: the arguments its script
 // is handed, the logger what it prints goes to, the memory it may hold, or
@@ -52,7 +56,7 @@ type _Given struct {
 // because each run initialises the script again. A map of Go values, which is
 // what a host holds - JSON it has read with encoding/json included - and each
 // must be one JSON can hold, which is the limit a flow carries. One that is not
-// fails the run when it starts, with ERR_NOT_JSON, since an option has nowhere
+// fails the run when it starts, with ErrNotJSON, since an option has nowhere
 // to say so.
 //
 // Revisions:
@@ -68,7 +72,11 @@ type _Given struct {
 func WithArgs(args map[string]any) RunOption {
 	held, err := structpb.NewStruct(args)
 	if err != nil {
-		err = fmt.Errorf("%w: %w", ERR_NOT_JSON, err)
+		err = fmt.Errorf(
+			"%w: %w",
+			ErrNotJSON,
+			err,
+		)
 	}
 
 	return func(given *_Given) {
@@ -207,12 +215,18 @@ func Supplied(thread *starlark.Thread) (map[string]*structpb.Value, bool) {
 //   - 2026-09-22 22:24: initial creation
 //   - 2026-10-02 16:08: takes the arguments, which a run is handed rather than
 //     finding on its context
-func _Bind(thread *starlark.Thread, supplied map[string]*structpb.Value) {
+func _Bind(
+	thread *starlark.Thread,
+	supplied map[string]*structpb.Value,
+) {
 	if supplied == nil {
 		supplied = map[string]*structpb.Value{}
 	}
 
-	thread.SetLocal(ARGS_LOCAL, supplied)
+	thread.SetLocal(
+		ARGS_LOCAL,
+		supplied,
+	)
 }
 
 // _Unbind takes a run's arguments off the thread its units initialised on,
@@ -225,5 +239,8 @@ func _Bind(thread *starlark.Thread, supplied map[string]*structpb.Value) {
 // Revisions:
 //   - 2026-10-02 01:41: initial creation
 func _Unbind(thread *starlark.Thread) {
-	thread.SetLocal(ARGS_LOCAL, nil)
+	thread.SetLocal(
+		ARGS_LOCAL,
+		nil,
+	)
 }

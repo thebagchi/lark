@@ -31,7 +31,7 @@ def main():
 ## Try it
 
 ```
-make binaries
+./build.sh binaries
 ./bin/lark.bin -s samples/concurrent.star
 ./bin/lark.bin -s samples/concurrent.star -t   # the flow it describes, as JSON
 ```

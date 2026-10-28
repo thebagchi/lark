@@ -32,12 +32,12 @@ import (
 )
 
 var (
-	// ERR_NUMBER is returned for an argument that is neither a float nor an
+	// ErrNumber is returned for an argument that is neither a float nor an
 	// int.
-	ERR_NUMBER = errors.New("wants a float or an int")
+	ErrNumber = errors.New("wants a float or an int")
 
-	// ERR_BASE is returned for a logarithm in base one, which names no power.
-	ERR_BASE = errors.New("no logarithm has base one")
+	// ErrBase is returned for a logarithm in base one, which names no power.
+	ErrBase = errors.New("no logarithm has base one")
 )
 
 const (
@@ -78,23 +78,89 @@ func (m *_Math) Name() string {
 //   - 2026-09-24 00:53: built here rather than taken from the library, so that
 //     the names the library lacks can be among them
 func (m *_Math) Values() starlark.StringDict {
-	members := starlark.StringDict{
+	members := _MathConstants()
+
+	for name, fn := range _UnaryFns() {
+		members[name] = _Unary(
+			name,
+			fn,
+		)
+	}
+
+	for name, fn := range _BinaryFns() {
+		members[name] = _Binary(
+			name,
+			fn,
+		)
+	}
+
+	return starlark.StringDict{
+		NAME: &starlarkstruct.Module{
+			Name:    NAME,
+			Members: members,
+		},
+	}
+}
+
+// _MathConstants is the numbers and the names that are not a plain wrap.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _MathConstants() starlark.StringDict {
+	return starlark.StringDict{
 		"e":   starlark.Float(math.E),
 		"pi":  starlark.Float(math.Pi),
 		"tau": starlark.Float(TURN),
 		"inf": starlark.Float(math.Inf(1)),
 		"nan": starlark.Float(math.NaN()),
-
-		"ceil":  starlark.NewBuiltin("ceil", _Ceil),
-		"floor": starlark.NewBuiltin("floor", _Floor),
-		"trunc": starlark.NewBuiltin("trunc", _Trunc),
-		"log":   starlark.NewBuiltin("log", _Log),
-		"gcd":   starlark.NewBuiltin("gcd", _GCD),
-		"isnan": _Asks("isnan", math.IsNaN),
-		"isinf": _Asks("isinf", func(x float64) bool { return math.IsInf(x, 0) }),
+		"ceil": starlark.NewBuiltin(
+			"ceil",
+			_Ceil,
+		),
+		"floor": starlark.NewBuiltin(
+			"floor",
+			_Floor,
+		),
+		"trunc": starlark.NewBuiltin(
+			"trunc",
+			_Trunc,
+		),
+		"log": starlark.NewBuiltin(
+			"log",
+			_Log,
+		),
+		"gcd": starlark.NewBuiltin(
+			"gcd",
+			_GCD,
+		),
+		"isnan": _Asks(
+			"isnan",
+			math.IsNaN,
+		),
+		"isinf": _Asks(
+			"isinf",
+			_Inf,
+		),
 	}
+}
 
-	for name, fn := range map[string]func(float64) float64{
+// _Inf reports whether x is an infinity.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Inf(x float64) bool {
+	return math.IsInf(
+		x,
+		0,
+	)
+}
+
+// _UnaryFns is each one-argument function the module publishes.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _UnaryFns() map[string]func(float64) float64 {
+	return map[string]func(float64) float64{
 		"fabs":    math.Abs,
 		"round":   math.Round,
 		"exp":     math.Exp,
@@ -116,23 +182,27 @@ func (m *_Math) Values() starlark.StringDict {
 		"log10":   math.Log10,
 		"degrees": _Degrees,
 		"radians": _Radians,
-	} {
-		members[name] = _Unary(name, fn)
 	}
+}
 
-	for name, fn := range map[string]func(float64, float64) float64{
+// _BinaryFns is each two-argument function the module publishes.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _BinaryFns() map[string]func(
+	float64,
+	float64,
+) float64 {
+	return map[string]func(
+		float64,
+		float64,
+	) float64{
 		"copysign":  math.Copysign,
 		"mod":       math.Mod,
 		"pow":       math.Pow,
 		"remainder": math.Remainder,
 		"atan2":     math.Atan2,
 		"hypot":     math.Hypot,
-	} {
-		members[name] = _Binary(name, fn)
-	}
-
-	return starlark.StringDict{
-		NAME: &starlarkstruct.Module{Name: NAME, Members: members},
 	}
 }
 
@@ -141,72 +211,140 @@ func (m *_Math) Values() starlark.StringDict {
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Unary(name string, fn func(float64) float64) *starlark.Builtin {
-	return starlark.NewBuiltin(name, func(
-		thread *starlark.Thread,
-		held *starlark.Builtin,
-		args starlark.Tuple,
-		kwargs []starlark.Tuple,
-	) (starlark.Value, error) {
-		x, err := _One(name, args, kwargs)
-		if err != nil {
-			return nil, err
-		}
+func _Unary(
+	name string,
+	fn func(float64) float64,
+) *starlark.Builtin {
+	return starlark.NewBuiltin(
+		name,
+		func(
+			thread *starlark.Thread,
+			held *starlark.Builtin,
+			args starlark.Tuple,
+			kwargs []starlark.Tuple,
+		) (starlark.Value, error) {
+			x, err := _One(
+				name,
+				args,
+				kwargs,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		return starlark.Float(fn(x)), nil
-	})
+			return starlark.Float(fn(x)), nil
+		},
+	)
 }
 
 // _Binary wraps a two-argument function, which answers in floats.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Binary(name string, fn func(float64, float64) float64) *starlark.Builtin {
-	return starlark.NewBuiltin(name, func(
-		thread *starlark.Thread,
-		held *starlark.Builtin,
-		args starlark.Tuple,
-		kwargs []starlark.Tuple,
-	) (starlark.Value, error) {
-		var first, second starlark.Value
+func _Binary(
+	name string,
+	fn func(
+		float64,
+		float64,
+	) float64,
+) *starlark.Builtin {
+	return starlark.NewBuiltin(
+		name,
+		func(
+			thread *starlark.Thread,
+			held *starlark.Builtin,
+			args starlark.Tuple,
+			kwargs []starlark.Tuple,
+		) (starlark.Value, error) {
+			return _Pair(
+				name,
+				fn,
+				args,
+				kwargs,
+			)
+		},
+	)
+}
 
-		err := starlark.UnpackPositionalArgs(name, args, kwargs, 2, &first, &second)
-		if err != nil {
-			return nil, err
-		}
+// _Pair applies fn to the two numbers a call was given.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Pair(
+	name string,
+	fn func(
+		float64,
+		float64,
+	) float64,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
+	var first, second starlark.Value
 
-		x, err := _Float(name, first)
-		if err != nil {
-			return nil, err
-		}
+	const NEEDED = 2
 
-		y, err := _Float(name, second)
-		if err != nil {
-			return nil, err
-		}
+	err := starlark.UnpackPositionalArgs(
+		name,
+		args,
+		kwargs,
+		NEEDED,
+		&first,
+		&second,
+	)
+	if err != nil {
+		return nil, err
+	}
 
-		return starlark.Float(fn(x, y)), nil
-	})
+	x, err := _Float(
+		name,
+		first,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	y, err := _Float(
+		name,
+		second,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return starlark.Float(fn(
+		x,
+		y,
+	)), nil
 }
 
 // _Asks wraps a question about a float, which answers in bools.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Asks(name string, fn func(float64) bool) *starlark.Builtin {
-	return starlark.NewBuiltin(name, func(
-		thread *starlark.Thread,
-		held *starlark.Builtin,
-		args starlark.Tuple,
-		kwargs []starlark.Tuple,
-	) (starlark.Value, error) {
-		x, err := _One(name, args, kwargs)
-		if err != nil {
-			return nil, err
-		}
+func _Asks(
+	name string,
+	fn func(float64) bool,
+) *starlark.Builtin {
+	return starlark.NewBuiltin(
+		name,
+		func(
+			thread *starlark.Thread,
+			held *starlark.Builtin,
+			args starlark.Tuple,
+			kwargs []starlark.Tuple,
+		) (starlark.Value, error) {
+			x, err := _One(
+				name,
+				args,
+				kwargs,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		return starlark.Bool(fn(x)), nil
-	})
+			return starlark.Bool(fn(x)), nil
+		},
+	)
 }
 
 // _Ceil is the smallest integer at or above x.
@@ -223,7 +361,12 @@ func _Ceil(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	return _Whole(fn.Name(), args, kwargs, math.Ceil)
+	return _Whole(
+		fn.Name(),
+		args,
+		kwargs,
+		math.Ceil,
+	)
 }
 
 // _Floor is the largest integer at or below x.
@@ -236,7 +379,12 @@ func _Floor(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	return _Whole(fn.Name(), args, kwargs, math.Floor)
+	return _Whole(
+		fn.Name(),
+		args,
+		kwargs,
+		math.Floor,
+	)
 }
 
 // _Trunc is x with its fraction dropped, which rounds towards zero.
@@ -252,7 +400,12 @@ func _Trunc(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	return _Whole(fn.Name(), args, kwargs, math.Trunc)
+	return _Whole(
+		fn.Name(),
+		args,
+		kwargs,
+		math.Trunc,
+	)
 }
 
 // _Whole answers in integers, which is what the three rounding directions do.
@@ -267,7 +420,13 @@ func _Whole(
 ) (starlark.Value, error) {
 	var given starlark.Value
 
-	err := starlark.UnpackPositionalArgs(who, args, kwargs, 1, &given)
+	err := starlark.UnpackPositionalArgs(
+		who,
+		args,
+		kwargs,
+		1,
+		&given,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -280,13 +439,18 @@ func _Whole(
 		return starlark.NumberToInt(starlark.Float(fn(float64(held))))
 	}
 
-	return nil, fmt.Errorf("%s got %s: %w", who, given.Type(), ERR_NUMBER)
+	return nil, fmt.Errorf(
+		"%s got %s: %w",
+		who,
+		given.Type(),
+		ErrNumber,
+	)
 }
 
 // _Log is the logarithm of x, in base e unless a second argument says
 // otherwise.
 //
-// Returns ERR_BASE for base one, which names no power of anything.
+// Returns ErrBase for base one, which names no power of anything.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
@@ -301,30 +465,61 @@ func _Log(
 		named starlark.Value
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &given, &named)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&given,
+		&named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	x, err := _Float(fn.Name(), given)
+	x, err := _Float(
+		fn.Name(),
+		given,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	base := math.E
-
-	if named != nil {
-		base, err = _Float(fn.Name(), named)
-		if err != nil {
-			return nil, err
-		}
+	base, err := _Base(
+		fn.Name(),
+		named,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	if base == 1 {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), ERR_BASE)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			ErrBase,
+		)
 	}
 
 	return starlark.Float(math.Log(x) / math.Log(base)), nil
+}
+
+// _Base is the logarithm base a call named, or e when it named none.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Base(
+	who string,
+	named starlark.Value,
+) (float64, error) {
+	if named == nil {
+		return math.E, nil
+	}
+
+	return _Float(
+		who,
+		named,
+	)
 }
 
 // _GCD is the greatest common divisor of two integers.
@@ -342,13 +537,23 @@ func _GCD(
 ) (starlark.Value, error) {
 	var first, second starlark.Int
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &first, &second)
+	const NEEDED = 2
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&first,
+		&second,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	held := new(
-		big.Int).GCD(nil,
+		big.Int).GCD(
+		nil,
 		nil,
 		new(big.Int).Abs(first.BigInt()),
 		new(big.Int).Abs(second.BigInt()),
@@ -361,22 +566,38 @@ func _GCD(
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _One(who string, args starlark.Tuple, kwargs []starlark.Tuple) (float64, error) {
+func _One(
+	who string,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (float64, error) {
 	var given starlark.Value
 
-	err := starlark.UnpackPositionalArgs(who, args, kwargs, 1, &given)
+	err := starlark.UnpackPositionalArgs(
+		who,
+		args,
+		kwargs,
+		1,
+		&given,
+	)
 	if err != nil {
 		return 0, err
 	}
 
-	return _Float(who, given)
+	return _Float(
+		who,
+		given,
+	)
 }
 
 // _Float is one value as a float, accepting an int as every one of these does.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Float(who string, given starlark.Value) (float64, error) {
+func _Float(
+	who string,
+	given starlark.Value,
+) (float64, error) {
 	switch held := given.(type) {
 	case starlark.Float:
 		return float64(held), nil
@@ -385,7 +606,12 @@ func _Float(who string, given starlark.Value) (float64, error) {
 		return float64(held.Float()), nil
 	}
 
-	return 0, fmt.Errorf("%s got %s: %w", who, given.Type(), ERR_NUMBER)
+	return 0, fmt.Errorf(
+		"%s got %s: %w",
+		who,
+		given.Type(),
+		ErrNumber,
+	)
 }
 
 // _Degrees is a turn in radians as one in degrees.

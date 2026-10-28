@@ -36,7 +36,7 @@ type _Attempts struct {
 // since a wrapper takes none to pass on. The line names the function the
 // dialect read off the lambda, as a spawn's does.
 //
-// Returns ERR_COUNT for a count below one, and scheduler.ERR_DURATION for a
+// Returns ErrCount for a count below one, and scheduler.ErrDuration for a
 // delay that is not a whole number of milliseconds an int32 holds.
 //
 // Revisions:
@@ -49,44 +49,140 @@ func _Counted(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (*_Attempts, error) {
-	callee, rest := scheduler.Hidden(kwargs, spelling.CALLEE)
+	var (
+		callee, rest = scheduler.Hidden(
+			kwargs,
+			spelling.CALLEE,
+		)
+		count, target, delay, err = _CountArgs(
+			who,
+			args,
+			rest,
+		)
+	)
+	if err != nil {
+		return nil, err
+	}
 
+	return &_Attempts{
+		target: target,
+		name: scheduler.Named(
+			target,
+			callee,
+		),
+		builtin: who,
+		written: fmt.Sprintf(
+			"%s(%d, %s)",
+			who,
+			count,
+			target.Name(),
+		),
+		count: count,
+		delay: delay,
+	}, nil
+}
+
+// _CountArgs reads the count, the function, and the delay a retry was given.
+//
+// The delay is unpacked again with whatever came third, so a delay named as
+// well as passed third is refused as one given twice.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _CountArgs(
+	who string,
+	args starlark.Tuple,
+	rest []starlark.Tuple,
+) (int32, *starlark.Function, time.Duration, error) {
 	var (
 		count  int32
 		target *starlark.Function
 		given  starlark.Value = starlark.MakeInt(0)
 	)
 
-	err := starlark.UnpackPositionalArgs(who, args, nil, WRAPPED, &count, &target, &given)
+	err := starlark.UnpackPositionalArgs(
+		who,
+		args,
+		nil,
+		WRAPPED,
+		&count,
+		&target,
+		&given,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", who, err)
+		return 0, nil, 0, fmt.Errorf(
+			"%s: %w",
+			who,
+			err,
+		)
 	}
 
-	// Unpacked again with whatever came third, so a delay named as well as
-	// passed third is refused as one given twice, and any other keyword as one
-	// a wrapper does not take.
-	err = starlark.UnpackArgs(who, args[WRAPPED:], rest, DELAY+"?", &given)
+	delay, err := _CountDelay(
+		who,
+		count,
+		given,
+		&_Tail{
+			args: args,
+			rest: rest,
+		},
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", who, err)
+		return 0, nil, 0, err
+	}
+
+	return count, target, delay, nil
+}
+
+// _Tail is the positional tail and the keywords a count still has to read.
+type _Tail struct {
+	args starlark.Tuple
+	rest []starlark.Tuple
+}
+
+// _CountDelay reads the optional delay and refuses a count below one.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _CountDelay(
+	who string,
+	count int32,
+	given starlark.Value,
+	tail *_Tail,
+) (time.Duration, error) {
+	err := starlark.UnpackArgs(
+		who,
+		tail.args[WRAPPED:],
+		tail.rest,
+		DELAY+"?",
+		&given,
+	)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"%s: %w",
+			who,
+			err,
+		)
 	}
 
 	if count < ONCE {
-		return nil, fmt.Errorf("%s got %d: %w", who, count, ERR_COUNT)
+		return 0, fmt.Errorf(
+			"%s got %d: %w",
+			who,
+			count,
+			ErrCount,
+		)
 	}
 
 	delay, err := scheduler.Duration(given)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", who, err)
+		return 0, fmt.Errorf(
+			"%s: %w",
+			who,
+			err,
+		)
 	}
 
-	return &_Attempts{
-		target:  target,
-		name:    scheduler.Named(target, callee),
-		builtin: who,
-		written: fmt.Sprintf("%s(%d, %s)", who, count, target.Name()),
-		count:   count,
-		delay:   delay,
-	}, nil
+	return delay, nil
 }
 
 // _Attempted runs attempt n beside the caller and waits for it, after waiting
@@ -113,26 +209,48 @@ func (a *_Attempts) _Attempted(
 	attempt int32,
 	opts ...scheduler.Option,
 ) (starlark.Value, error) {
-	err := a._Pause(thread, attempt)
+	err := a._Pause(
+		thread,
+		attempt,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	scheduler.Open(thread, &scheduler.Line{
-		Name:    a.name,
-		Builtin: a.builtin,
-		Attempt: attempt,
-		Count:   a.count,
-	})
+	scheduler.Open(
+		thread,
+		&scheduler.Line{
+			Name:    a.name,
+			Builtin: a.builtin,
+			Attempt: attempt,
+			Count:   a.count,
+		},
+	)
 
-	counted := append([]scheduler.Option{scheduler.Attempt(attempt)}, opts...)
+	counted := append(
+		[]scheduler.Option{scheduler.Attempt(attempt)},
+		opts...,
+	)
 
-	handle, err := scheduler.Beside(thread, a.target, counted...)
+	var handle *scheduler.Handle
+
+	handle, err = scheduler.Beside(
+		thread,
+		a.target,
+		counted...,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", a.target.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			a.target.Name(),
+			err,
+		)
 	}
 
-	return scheduler.Wait(thread, handle)
+	return scheduler.Wait(
+		thread,
+		handle,
+	)
 }
 
 // _Pause waits out the delay that comes before attempt, or until the
@@ -144,12 +262,15 @@ func (a *_Attempts) _Attempted(
 // before the next attempt starts, and the delay stays part of the wrapper's
 // line rather than becoming a sleep line of its own.
 //
-// Returns scheduler.ERR_CANCELLED, wrapping the context's error, when the
+// Returns scheduler.ErrCancelled, wrapping the context's error, when the
 // evaluation is cancelled first.
 //
 // Revisions:
 //   - 2026-10-02 00:59: initial creation
-func (a *_Attempts) _Pause(thread *starlark.Thread, attempt int32) error {
+func (a *_Attempts) _Pause(
+	thread *starlark.Thread,
+	attempt int32,
+) error {
 	waits := attempt > ONCE && a.delay > 0
 	if !waits {
 		return nil
@@ -168,6 +289,10 @@ func (a *_Attempts) _Pause(thread *starlark.Thread, attempt int32) error {
 		return nil
 
 	case <-ctx.Done():
-		return fmt.Errorf("%w: %w", scheduler.ERR_CANCELLED, ctx.Err())
+		return fmt.Errorf(
+			"%w: %w",
+			scheduler.ErrCancelled,
+			ctx.Err(),
+		)
 	}
 }

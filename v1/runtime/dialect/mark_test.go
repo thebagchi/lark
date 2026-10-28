@@ -22,10 +22,12 @@ const (
 )
 
 // LOADED is what LIBRARY holds: one function a script may load and call.
-const LOADED = `
+const (
+	LOADED = `
 def helper():
     pass
 `
+)
 
 // _Record keeps what the calls the dialect changed did when they ran: each
 // call that went through CALL, with the branch it was told, and each hidden
@@ -45,16 +47,31 @@ func (r *_Record) _Call(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	builtin, rest := scheduler.Hidden(kwargs, spelling.BUILTIN)
+	var builtin, rest = scheduler.Hidden(
+		kwargs,
+		spelling.BUILTIN,
+	)
 
 	target, ok := args[0].(starlark.Callable)
 	if !ok {
-		return nil, fmt.Errorf("%s handed a %s", fn.Name(), args[0].Type())
+		return nil, fmt.Errorf(
+			"%s handed a %s",
+			fn.Name(),
+			args[0].Type(),
+		)
 	}
 
-	r.lines = append(r.lines, strings.TrimSpace("call "+target.Name()+" "+builtin))
+	r.lines = append(
+		r.lines,
+		strings.TrimSpace("call "+target.Name()+" "+builtin),
+	)
 
-	return starlark.Call(thread, target, args[1:], rest)
+	return starlark.Call(
+		thread,
+		target,
+		args[1:],
+		rest,
+	)
 }
 
 // _Hidden is a builtin that runs nothing and keeps the hidden keywords it was
@@ -71,16 +88,23 @@ func (r *_Record) _Hidden(
 	line := fn.Name()
 
 	for _, pair := range kwargs {
-		key, named := starlark.AsString(pair[0])
-		value, text := starlark.AsString(pair[1])
+		var key, named = starlark.AsString(pair[0])
 
-		hidden := named && text && strings.HasPrefix(key, HIDDEN)
+		var value, text = starlark.AsString(pair[1])
+
+		hidden := named && text && strings.HasPrefix(
+			key,
+			HIDDEN,
+		)
 		if hidden {
 			line += " " + key + "=" + value
 		}
 	}
 
-	r.lines = append(r.lines, line)
+	r.lines = append(
+		r.lines,
+		line,
+	)
 
 	return starlark.None, nil
 }
@@ -90,14 +114,21 @@ func (r *_Record) _Hidden(
 //
 // Revisions:
 //   - 2026-10-02 01:18: initial creation
-func _Marked(t *testing.T, src string) []string {
+func _Marked(
+	t *testing.T,
+	src string,
+) []string {
 	t.Helper()
 
-	record := &_Record{}
-
-	env := starlark.StringDict{
-		spelling.CALL: starlark.NewBuiltin(spelling.CALL, record._Call),
-	}
+	var (
+		record = &_Record{}
+		env    = starlark.StringDict{
+			spelling.CALL: starlark.NewBuiltin(
+				spelling.CALL,
+				record._Call,
+			),
+		}
+	)
 
 	for _, name := range []string{
 		spelling.SPAWN,
@@ -105,24 +136,54 @@ func _Marked(t *testing.T, src string) []string {
 		spelling.RETRY,
 		spelling.TIMEOUT,
 	} {
-		env[name] = starlark.NewBuiltin(name, record._Hidden)
+		env[name] = starlark.NewBuiltin(
+			name,
+			record._Hidden,
+		)
 	}
 
-	_, program, err := dialect.Compile(SCRIPT, []byte(src), env.Has)
+	_, program, err := dialect.Compile(
+		SCRIPT,
+		[]byte(src),
+		env.Has,
+	)
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
-	thread := &starlark.Thread{Name: SCRIPT, Load: _Library}
+	var (
+		thread = &starlark.Thread{
+			Name: SCRIPT,
+			Load: _Library,
+		}
+		globals starlark.StringDict
+	)
 
-	globals, err := program.Init(thread, env)
+	globals, err = program.Init(
+		thread,
+		env,
+	)
 	if err != nil {
-		t.Fatalf("init: %v", err)
+		t.Fatalf(
+			"init: %v",
+			err,
+		)
 	}
 
-	_, err = starlark.Call(thread, globals[ENTRY], nil, nil)
+	_, err = starlark.Call(
+		thread,
+		globals[ENTRY],
+		nil,
+		nil,
+	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	return record.lines
@@ -132,8 +193,17 @@ func _Marked(t *testing.T, src string) []string {
 //
 // Revisions:
 //   - 2026-10-02 01:18: initial creation
-func _Library(thread *starlark.Thread, module string) (starlark.StringDict, error) {
-	return starlark.ExecFileOptions(dialect.OPTIONS, thread, module, LOADED, nil)
+func _Library(
+	thread *starlark.Thread,
+	module string,
+) (starlark.StringDict, error) {
+	return starlark.ExecFileOptions(
+		dialect.OPTIONS,
+		thread,
+		module,
+		LOADED,
+		nil,
+	)
 }
 
 // TestMark_ReportsAStatementCallOfAScriptFunction checks which calls go
@@ -144,7 +214,9 @@ func _Library(thread *starlark.Thread, module string) (starlark.StringDict, erro
 // Revisions:
 //   - 2026-10-02 01:18: initial creation
 func TestMark_ReportsAStatementCallOfAScriptFunction(t *testing.T) {
-	got := _Marked(t, `
+	var got = _Marked(
+		t,
+		`
 load("library.star", "helper")
 
 def once():
@@ -168,7 +240,8 @@ def main():
     run(once)
 
 once()
-`)
+`,
+	)
 
 	want := []string{
 		"call once",
@@ -179,8 +252,18 @@ once()
 		"call once",
 	}
 
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("got %q, want %q", got, want)
+	if strings.Join(
+		got,
+		"\n",
+	) != strings.Join(
+		want,
+		"\n",
+	) {
+		t.Fatalf(
+			"got %q, want %q",
+			got,
+			want,
+		)
 	}
 }
 
@@ -192,7 +275,9 @@ once()
 // Revisions:
 //   - 2026-10-02 01:18: initial creation
 func TestMark_TellsABranchsCallItsBuiltin(t *testing.T) {
-	got := _Marked(t, `
+	var got = _Marked(
+		t,
+		`
 def once():
     pass
 
@@ -222,7 +307,8 @@ def main():
         once()
     if True:
         once(*[])
-`)
+`,
+	)
 
 	want := []string{
 		"call once if",
@@ -234,8 +320,18 @@ def main():
 		"call once if",
 	}
 
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("got %q, want %q", got, want)
+	if strings.Join(
+		got,
+		"\n",
+	) != strings.Join(
+		want,
+		"\n",
+	) {
+		t.Fatalf(
+			"got %q, want %q",
+			got,
+			want,
+		)
 	}
 }
 
@@ -247,7 +343,9 @@ def main():
 // Revisions:
 //   - 2026-10-02 01:18: initial creation
 func TestMark_PassesWhatABuiltinReports(t *testing.T) {
-	got := _Marked(t, `
+	var got = _Marked(
+		t,
+		`
 def work(n):
     pass
 
@@ -261,7 +359,8 @@ def main():
     timeout(5, lambda: work(5))
     handles = [spawn(lambda: work(i)) for i in range(1)]
     each = spawn(*[work])
-`)
+`,
+	)
 
 	want := []string{
 		"spawn %binding=h",
@@ -275,8 +374,18 @@ def main():
 		"spawn %binding=each",
 	}
 
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("got %q, want %q", got, want)
+	if strings.Join(
+		got,
+		"\n",
+	) != strings.Join(
+		want,
+		"\n",
+	) {
+		t.Fatalf(
+			"got %q, want %q",
+			got,
+			want,
+		)
 	}
 }
 
@@ -286,7 +395,8 @@ def main():
 // Revisions:
 //   - 2026-10-02 01:18: initial creation
 func TestMark_ReturnsTheTreeAsWritten(t *testing.T) {
-	src := `
+	var (
+		src = `
 def once():
     pass
 
@@ -295,23 +405,36 @@ def main():
         once()
     h = spawn(lambda: once())
 `
+		env = starlark.StringDict{
+			spelling.CALL:  starlark.None,
+			spelling.SPAWN: starlark.None,
+		}
+	)
 
-	env := starlark.StringDict{
-		spelling.CALL:  starlark.None,
-		spelling.SPAWN: starlark.None,
-	}
-
-	tree, _, err := dialect.Compile(SCRIPT, []byte(src), env.Has)
+	tree, _, err := dialect.Compile(
+		SCRIPT,
+		[]byte(src),
+		env.Has,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	syntax.Walk(tree, func(node syntax.Node) bool {
-		name, ok := node.(*syntax.Ident)
-		if ok && strings.HasPrefix(name.Name, HIDDEN) {
-			t.Fatalf("the returned tree names %s", name.Name)
-		}
+	syntax.Walk(
+		tree,
+		func(node syntax.Node) bool {
+			name, ok := node.(*syntax.Ident)
+			if ok && strings.HasPrefix(
+				name.Name,
+				HIDDEN,
+			) {
+				t.Fatalf(
+					"the returned tree names %s",
+					name.Name,
+				)
+			}
 
-		return true
-	})
+			return true
+		},
+	)
 }

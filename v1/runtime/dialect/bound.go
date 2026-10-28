@@ -14,14 +14,20 @@ import (
 //
 // Revisions:
 //   - 2026-10-03 20:51: initial creation, from two copies of this walk
-func Bound(stmts []syntax.Stmt, into map[string]bool) {
+func Bound(
+	stmts []syntax.Stmt,
+	into map[string]bool,
+) {
 	for _, stmt := range stmts {
 		switch held := stmt.(type) {
 		case *syntax.DefStmt:
 			into[held.Name.Name] = true
 
 		case *syntax.AssignStmt:
-			_Targets(held.LHS, into)
+			_Targets(
+				held.LHS,
+				into,
+			)
 
 		case *syntax.LoadStmt:
 			for _, named := range held.To {
@@ -29,15 +35,30 @@ func Bound(stmts []syntax.Stmt, into map[string]bool) {
 			}
 
 		case *syntax.ForStmt:
-			_Targets(held.Vars, into)
-			Bound(held.Body, into)
+			_Targets(
+				held.Vars,
+				into,
+			)
+			Bound(
+				held.Body,
+				into,
+			)
 
 		case *syntax.WhileStmt:
-			Bound(held.Body, into)
+			Bound(
+				held.Body,
+				into,
+			)
 
 		case *syntax.IfStmt:
-			Bound(held.True, into)
-			Bound(held.False, into)
+			Bound(
+				held.True,
+				into,
+			)
+			Bound(
+				held.False,
+				into,
+			)
 		}
 	}
 }
@@ -47,22 +68,34 @@ func Bound(stmts []syntax.Stmt, into map[string]bool) {
 //
 // Revisions:
 //   - 2026-10-03 20:51: initial creation, from two copies of it
-func _Targets(expr syntax.Expr, into map[string]bool) {
+func _Targets(
+	expr syntax.Expr,
+	into map[string]bool,
+) {
 	switch held := expr.(type) {
 	case *syntax.Ident:
 		into[held.Name] = true
 
 	case *syntax.TupleExpr:
 		for _, part := range held.List {
-			_Targets(part, into)
+			_Targets(
+				part,
+				into,
+			)
 		}
 
 	case *syntax.ListExpr:
 		for _, part := range held.List {
-			_Targets(part, into)
+			_Targets(
+				part,
+				into,
+			)
 		}
 
 	case *syntax.ParenExpr:
-		_Targets(held.X, into)
+		_Targets(
+			held.X,
+			into,
+		)
 	}
 }

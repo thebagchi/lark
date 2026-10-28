@@ -18,14 +18,14 @@ const (
 	// SCRIPT is what a failure calls the script it was given.
 	SCRIPT = "event.star"
 
-	// _DEADLINE is how long a script gets before it is taken to have hung. A
+	// DEADLINE is how long a script gets before it is taken to have hung. A
 	// regression in a wait does not fail, it blocks, so every test here runs
 	// under this.
-	_DEADLINE = 20 * time.Second
+	DEADLINE = 20 * time.Second
 
-	// _NARROW is a ceiling that one small event fits inside, and that neither
+	// NARROW is a ceiling that one small event fits inside, and that neither
 	// one event of 128KB nor twenty thousand named ones do.
-	_NARROW = 64 << 10
+	NARROW = 64 << 10
 )
 
 // _Ran compiles and runs src with the event names present, under a deadline.
@@ -35,38 +35,57 @@ const (
 //
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
-func _Ran(t *testing.T, src string) (string, error) {
+func _Ran(
+	t *testing.T,
+	src string,
+) (string, error) {
 	t.Helper()
 
-	built, err := runtime.Compile(&runtime.Source{Entry: SCRIPT, Text: []byte(src)})
+	built, err := runtime.Compile(&runtime.Source{
+		Entry: SCRIPT,
+		Text:  []byte(src),
+	})
 	if err != nil {
 		return "", err
 	}
 
-	type outcome struct {
+	type _Outcome struct {
 		got string
 		err error
 	}
 
-	answered := make(chan outcome, 1)
+	answered := make(
+		chan _Outcome,
+		1,
+	)
 
 	go func() {
-		value, err := runtime.Start(context.Background(), built).Wait()
+		value, err := runtime.Start(
+			context.Background(),
+			built,
+		).Wait()
 		if err != nil {
-			answered <- outcome{err: err}
+			answered <- _Outcome{
+				err: err,
+			}
 
 			return
 		}
 
-		answered <- outcome{got: value.String()}
+		answered <- _Outcome{
+			got: value.String(),
+		}
 	}()
 
 	select {
 	case held := <-answered:
 		return held.got, held.err
 
-	case <-time.After(_DEADLINE):
-		t.Fatalf("the script did not finish within %v: a wait is not returning", _DEADLINE)
+	case <-time.After(DEADLINE):
+		t.Fatalf(
+			"the script did not finish within %v: a wait is not returning",
+			DEADLINE,
+		)
 	}
 
 	return "", nil
@@ -78,7 +97,9 @@ func _Ran(t *testing.T, src string) (string, error) {
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_OneThreadWaitsForAnother(t *testing.T) {
-	got, err := _Ran(t, `
+	got, err := _Ran(
+		t,
+		`
 def waiter():
     value, err = event.wait("loaded", 10000)
 
@@ -91,13 +112,20 @@ def main():
     event.post("loaded", {"rows": 12})
 
     return join(held)[0]
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf(
+			"%v",
+			err,
+		)
 	}
 
 	if got != `[{"rows": 12}, None]` {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -112,7 +140,9 @@ def main():
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_APostBeforeAnyoneWaitsIsStillSeen(t *testing.T) {
-	got, err := _Ran(t, `
+	got, err := _Ran(
+		t,
+		`
 def main():
     event.post("ready", "done")
 
@@ -121,13 +151,20 @@ def main():
     value, err = event.wait("ready", 10000)
 
     return [value, err]
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf(
+			"%v",
+			err,
+		)
 	}
 
 	if got != `["done", None]` {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -137,7 +174,9 @@ def main():
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_EveryWaiterSeesIt(t *testing.T) {
-	got, err := _Ran(t, `
+	got, err := _Ran(
+		t,
+		`
 def waiter():
     value, err = event.wait("go", 10000)
 
@@ -152,13 +191,20 @@ def main():
     event.post("go", 7)
 
     return [join(first)[0], join(second)[0], join(third)[0]]
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf(
+			"%v",
+			err,
+		)
 	}
 
 	if got != "[7, 7, 7]" {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -171,35 +217,53 @@ def main():
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_ARunOutWaitSaysSo(t *testing.T) {
-	got, err := _Ran(t, `
+	got, err := _Ran(
+		t,
+		`
 def main():
     value, err = event.wait("never", 50)
 
     return [value, err]
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf(
+			"%v",
+			err,
+		)
 	}
 
 	if got != `[None, "timed out"]` {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 
 	// And the pair is what tells a posted None from a wait that ran out.
-	got, err = _Ran(t, `
+	got, err = _Ran(
+		t,
+		`
 def main():
     event.post("empty", None)
 
     value, err = event.wait("empty", 10000)
 
     return [value, err]
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf(
+			"%v",
+			err,
+		)
 	}
 
 	if got != "[None, None]" {
-		t.Fatalf("a posted None gave %s, which a timeout must not match", got)
+		t.Fatalf(
+			"a posted None gave %s, which a timeout must not match",
+			got,
+		)
 	}
 }
 
@@ -209,19 +273,28 @@ def main():
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_ATimeoutAroundAWaitCutsIt(t *testing.T) {
-	_, err := _Ran(t, `
+	_, err := _Ran(
+		t,
+		`
 def patient():
     return event.wait("never", 300000)
 
 def main():
     return timeout(200, patient)
-`)
+`,
+	)
 	if err == nil {
 		t.Fatal("a timeout around a three-hundred-second wait returned nothing")
 	}
 
-	if !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("got %v, want the outer timeout", err)
+	if !strings.Contains(
+		err.Error(),
+		"timed out",
+	) {
+		t.Fatalf(
+			"got %v, want the outer timeout",
+			err,
+		)
 	}
 }
 
@@ -230,15 +303,24 @@ def main():
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_PostingTwiceIsRefused(t *testing.T) {
-	_, err := _Ran(t, `
+	_, err := _Ran(
+		t,
+		`
 def main():
     event.post("once", 1)
     event.post("once", 2)
 
     return "reached"
-`)
-	if !errors.Is(err, event.ERR_POSTED) {
-		t.Fatalf("got %v, want ERR_POSTED", err)
+`,
+	)
+	if !errors.Is(
+		err,
+		event.ErrPosted,
+	) {
+		t.Fatalf(
+			"got %v, want ErrPosted",
+			err,
+		)
 	}
 }
 
@@ -254,7 +336,9 @@ def main():
 //   - 2026-09-30 22:41: the function comes back from a call, so the run is what
 //     refuses it
 func TestEvent_WhatCannotCrossIsRefused(t *testing.T) {
-	_, err := _Ran(t, `
+	_, err := _Ran(
+		t,
+		`
 def helper():
     return 1
 
@@ -265,9 +349,16 @@ def main():
     event.post("code", pick())
 
     return "reached"
-`)
-	if !errors.Is(err, event.ERR_NOT_DATA) {
-		t.Fatalf("got %v, want ERR_NOT_DATA", err)
+`,
+	)
+	if !errors.Is(
+		err,
+		event.ErrNotData,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNotData",
+			err,
+		)
 	}
 }
 
@@ -293,14 +384,28 @@ func TestEvent_AVisibleFunctionIsRefusedBeforeItRuns(t *testing.T) {
 	}
 
 	for name, script := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := runtime.Compile(
-				&runtime.Source{Entry: name + ".star", Text: []byte(script)},
-			)
-			if !errors.Is(err, event.ERR_NOT_DATA) {
-				t.Fatalf("compiling gave %v, want ERR_NOT_DATA before it ran", err)
-			}
-		})
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := runtime.Compile(
+					&runtime.Source{
+						Entry: name + ".star",
+						Text:  []byte(script),
+					},
+				)
+				if !errors.Is(
+					err,
+					event.ErrNotData,
+				) {
+					t.Fatalf(
+						"compiling"+
+							" gave %v, want ErrNotData "+
+							"before it ran",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -319,7 +424,9 @@ func TestEvent_AVisibleFunctionIsRefusedBeforeItRuns(t *testing.T) {
 //   - 2026-09-30 22:41: the function comes back from a call, so the refusal is
 //     the run's
 func TestEvent_ARefusedPostStopsTheWholeRun(t *testing.T) {
-	got, err := _Ran(t, `
+	got, err := _Ran(
+		t,
+		`
 def poster():
     event.post("once", 1)
     event.post("once", 2)
@@ -330,12 +437,22 @@ def main():
     sleep(5000)
 
     return "run survived"
-`)
-	if !errors.Is(err, event.ERR_POSTED) {
-		t.Fatalf("a second post nobody joins: got %s, %v; want ERR_POSTED", got, err)
+`,
+	)
+	if !errors.Is(
+		err,
+		event.ErrPosted,
+	) {
+		t.Fatalf(
+			"a second post nobody joins: got %s, %v; want ErrPosted",
+			got,
+			err,
+		)
 	}
 
-	got, err = _Ran(t, `
+	got, err = _Ran(
+		t,
+		`
 def helper():
     return 1
 
@@ -351,9 +468,17 @@ def main():
     sleep(5000)
 
     return "run survived"
-`)
-	if !errors.Is(err, event.ERR_NOT_DATA) {
-		t.Fatalf("a function posted nobody joins: got %s, %v; want ERR_NOT_DATA", got, err)
+`,
+	)
+	if !errors.Is(
+		err,
+		event.ErrNotData,
+	) {
+		t.Fatalf(
+			"a function posted nobody joins: got %s, %v; want ErrNotData",
+			got,
+			err,
+		)
 	}
 }
 
@@ -364,12 +489,15 @@ def main():
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_WaitingIsCancelledWithTheRun(t *testing.T) {
 	built, err := runtime.Compile(
-		&runtime.Source{Entry: SCRIPT, Text: []byte(`
+		&runtime.Source{
+			Entry: SCRIPT,
+			Text: []byte(`
 def main():
     value, err = event.wait("never", 300000)
 
     return err
-`)},
+`),
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -382,21 +510,36 @@ def main():
 		stop()
 	}()
 
-	answered := make(chan error, 1)
+	answered := make(
+		chan error,
+		1,
+	)
 
 	go func() {
-		_, err := runtime.Start(ctx, built).Wait()
+		_, err := runtime.Start(
+			ctx,
+			built,
+		).Wait()
 		answered <- err
 	}()
 
 	select {
 	case err := <-answered:
-		if !errors.Is(err, scheduler.ERR_CANCELLED) {
-			t.Fatalf("got %v, want ERR_CANCELLED", err)
+		if !errors.Is(
+			err,
+			scheduler.ErrCancelled,
+		) {
+			t.Fatalf(
+				"got %v, want ErrCancelled",
+				err,
+			)
 		}
 
-	case <-time.After(_DEADLINE):
-		t.Fatalf("a cancelled run did not end within %v", _DEADLINE)
+	case <-time.After(DEADLINE):
+		t.Fatalf(
+			"a cancelled run did not end within %v",
+			DEADLINE,
+		)
 	}
 }
 
@@ -412,7 +555,9 @@ def main():
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_ManyWaitersBothSidesOfThePost(t *testing.T) {
-	got, err := _Ran(t, `
+	got, err := _Ran(
+		t,
+		`
 def waiter():
     value, err = event.wait("go", 10000)
 
@@ -446,14 +591,21 @@ def main():
         total += join(held)[0]
 
     return total
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf(
+			"%v",
+			err,
+		)
 	}
 
 	// Thirty-two waiters, five each, and none of them -1.
 	if got != "160" {
-		t.Fatalf("got %s, want 160: some waiter missed the post", got)
+		t.Fatalf(
+			"got %s, want 160: some waiter missed the post",
+			got,
+		)
 	}
 }
 
@@ -469,24 +621,43 @@ def main():
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_AnEventIsChargedForWhatItHolds(t *testing.T) {
-	_, err := _Under(t, _NARROW, `
+	_, err := _Under(
+		t,
+		NARROW,
+		`
 def main():
     event.post("small", "x" * 1024)
 
     return "posted"
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("one event of 1KB under %d bytes: %v", _NARROW, err)
+		t.Fatalf(
+			"one event of 1KB under %d bytes: %v",
+			NARROW,
+			err,
+		)
 	}
 
-	_, err = _Under(t, _NARROW, `
+	_, err = _Under(
+		t,
+		NARROW,
+		`
 def main():
     event.post("large", "x" * (128 * 1024))
 
     return "posted"
-`)
-	if !errors.Is(err, scheduler.ERR_MEMORY) {
-		t.Fatalf("one event of 128KB under %d bytes: %v, want ERR_MEMORY", _NARROW, err)
+`,
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrMemory,
+	) {
+		t.Fatalf(
+			"one event of 128KB under %d bytes: %v, want ErrMemory",
+			NARROW,
+			err,
+		)
 	}
 }
 
@@ -501,17 +672,24 @@ def main():
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
 func TestEvent_NamingOneIsChargedToo(t *testing.T) {
-	_, err := _Under(t, _NARROW, `
+	_, err := _Under(
+		t,
+		NARROW,
+		`
 def main():
     for i in range(20000):
         value, err = event.wait("never%d" % i, 0)
 
     return "waited"
-`)
-	if !errors.Is(err, scheduler.ERR_MEMORY) {
+`,
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrMemory,
+	) {
 		t.Fatalf(
-			"twenty thousand named events under %d bytes: %v, want ERR_MEMORY",
-			_NARROW,
+			"twenty thousand named events under %d bytes: %v, want ErrMemory",
+			NARROW,
 			err,
 		)
 	}
@@ -521,10 +699,17 @@ def main():
 //
 // Revisions:
 //   - 2026-09-30 21:02: initial creation
-func _Under(t *testing.T, ceiling int64, src string) (string, error) {
+func _Under(
+	t *testing.T,
+	ceiling int64,
+	src string,
+) (string, error) {
 	t.Helper()
 
-	built, err := runtime.Compile(&runtime.Source{Entry: SCRIPT, Text: []byte(src)})
+	built, err := runtime.Compile(&runtime.Source{
+		Entry: SCRIPT,
+		Text:  []byte(src),
+	})
 	if err != nil {
 		return "", err
 	}
@@ -539,4 +724,63 @@ func _Under(t *testing.T, ceiling int64, src string) (string, error) {
 	}
 
 	return value.String(), nil
+}
+
+// TestRegression_Wait proves that event.wait refuses while a name is held,
+// the same way join does.
+//
+// Without the check, hold waits for "go" while the scheduler lock for "k" is
+// held. The poster thread would post "go", but it needs state.set("k", 1)
+// first, which needs that same lock. The wait lasts until the bound or until
+// the run is cancelled. With the check, _Wait sees the held name and refuses
+// at once with ErrNested.
+//
+// Revisions:
+//   - 2026-10-24 16:05: initial creation
+func TestRegression_Wait(t *testing.T) {
+	done := make(
+		chan error,
+		1,
+	)
+
+	go func() {
+		_, err := _Ran(
+			t,
+			`
+def poster():
+    event.wait("holding", 500)
+    state.set("k", 1)
+    event.post("go", 1)
+
+def hold(v):
+    event.post("holding", 1)
+    return event.wait("go", 500)[0]
+
+def main():
+    spawn(poster)
+    return state.update("k", hold)
+`,
+		)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(
+			err,
+			scheduler.ErrNested,
+		) {
+			t.Fatalf(
+				"got %v, want ErrNested",
+				err,
+			)
+		}
+
+	case <-time.After(DEADLINE):
+		t.Fatalf(
+			"the script did not finish within %v: event.wait is not refusing under "+
+				"a held name",
+			DEADLINE,
+		)
+	}
 }

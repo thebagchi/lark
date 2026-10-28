@@ -28,7 +28,10 @@ type _Refusal struct {
 //
 // Revisions:
 //   - 2026-10-02 00:18: initial creation
-func _Bodied(t *testing.T, body string) string {
+func _Bodied(
+	t *testing.T,
+	body string,
+) string {
 	t.Helper()
 
 	quoted, err := json.Marshal(body)
@@ -41,7 +44,9 @@ func _Bodied(t *testing.T, body string) string {
 }
 
 // MAIN is the main every body case ends with.
-const MAIN = "\ndef main():\n    f()\n    pass\n"
+const (
+	MAIN = "\ndef main():\n    f()\n    pass\n"
+)
 
 // TestEmit_Writes is the script each flow writes.
 //
@@ -94,8 +99,11 @@ func TestEmit_Writes(t *testing.T) {
 		},
 		{
 			name: "elif",
-			flow: _Bodied(t, "if kind == \"alpha\":\n    work()\n"+
-				"elif kind == \"beta\":\n    slow()"),
+			flow: _Bodied(
+				t,
+				"if kind == \"alpha\":\n    work()\n"+
+					"elif kind == \"beta\":\n    slow()",
+			),
 			want: "def f():\n    if kind == \"alpha\":\n        work()\n" +
 				"        pass\n" +
 				"    elif kind == \"beta\":\n        slow()\n        pass\n" +
@@ -103,8 +111,11 @@ func TestEmit_Writes(t *testing.T) {
 		},
 		{
 			name: "else if",
-			flow: _Bodied(t, "if ready():\n    work()\nelse:\n    if flag:\n"+
-				"        slow()"),
+			flow: _Bodied(
+				t,
+				"if ready():\n    work()\nelse:\n    if flag:\n"+
+					"        slow()",
+			),
 			want: "def f():\n    if ready():\n        work()\n        pass\n" +
 				"    else:\n" +
 				"        if flag:\n            slow()\n            pass\n" +
@@ -113,13 +124,19 @@ func TestEmit_Writes(t *testing.T) {
 		},
 		{
 			name: "while",
-			flow: _Bodied(t, "while ready():\n    work()"),
+			flow: _Bodied(
+				t,
+				"while ready():\n    work()",
+			),
 			want: "def f():\n    while ready():\n        work()\n        pass\n" +
 				"    pass\n" + MAIN,
 		},
 		{
 			name: "break",
-			flow: _Bodied(t, "for _ in range(3):\n    break"),
+			flow: _Bodied(
+				t,
+				"for _ in range(3):\n    break",
+			),
 			want: "def f():\n    for _ in range(3):\n        break\n        pass\n" +
 				"    pass\n" + MAIN,
 		},
@@ -160,80 +177,116 @@ func TestEmit_Writes(t *testing.T) {
 		},
 		{
 			name: "one line",
-			flow: _Bodied(t, "if ready(): once()"),
+			flow: _Bodied(
+				t,
+				"if ready(): once()",
+			),
 			want: "def f():\n    if ready():\n        once()\n        pass\n" +
 				"    pass\n" + MAIN,
 		},
 		{
 			name: "one line for",
-			flow: _Bodied(t, "for _ in range(3): once()"),
+			flow: _Bodied(
+				t,
+				"for _ in range(3): once()",
+			),
 			want: "def f():\n    for _ in range(3):\n        once()\n        pass\n" +
 				"    pass\n" + MAIN,
 		},
 		{
 			name: "inner line",
-			flow: _Bodied(t, "if ready():\n    if flag: once()"),
+			flow: _Bodied(
+				t,
+				"if ready():\n    if flag: once()",
+			),
 			want: "def f():\n    if ready():\n        if flag:\n            once()\n" +
 				"            pass\n        pass\n    pass\n" + MAIN,
 		},
 		{
 			name: "one line def",
-			flow: _Bodied(t, "def inner(): once()"),
+			flow: _Bodied(
+				t,
+				"def inner(): once()",
+			),
 			want: "def f():\n\n    def inner():\n        once()\n        pass\n" +
 				"    pass\n" + MAIN,
 		},
 		{
 			name: "comment on def",
-			flow: _Bodied(t, "once()\n# helper\ndef inner():\n    twice()"),
+			flow: _Bodied(
+				t,
+				"once()\n# helper\ndef inner():\n    twice()",
+			),
 			want: "def f():\n    once()\n\n    # helper\n    def inner():\n" +
 				"        twice()\n" +
 				"        pass\n    pass\n" + MAIN,
 		},
 		{
 			name: "trailing comment",
-			flow: _Bodied(t, "once()  # note"),
+			flow: _Bodied(
+				t,
+				"once()  # note",
+			),
 			want: "def f():\n    once()\n    pass\n" + MAIN,
 		},
 		{
 			name: "trailing comment on a one-line suite",
-			flow: _Bodied(t, "if ready(): once()  # note"),
+			flow: _Bodied(
+				t,
+				"if ready(): once()  # note",
+			),
 			want: "def f():\n    if ready():\n        once()\n        pass\n" +
 				"    pass\n" + MAIN,
 		},
 		{
 			name: "trailing comment on a header",
-			flow: _Bodied(t, "if ready():  # why\n    once()\nelse:  # other\n"+
-				"    slow()"),
+			flow: _Bodied(
+				t,
+				"if ready():  # why\n    once()\nelse:  # other\n"+
+					"    slow()",
+			),
 			want: "def f():\n    if ready():\n        once()\n        pass\n" +
 				"    else:\n" +
 				"        slow()\n        pass\n    pass\n" + MAIN,
 		},
 		{
 			name: "line comments",
-			flow: _Bodied(t, "# leading comment\nonce()\n\n# between\nonce()\n"+
-				"# trailing comment"),
+			flow: _Bodied(
+				t,
+				"# leading comment\nonce()\n\n# between\nonce()\n"+
+					"# trailing comment",
+			),
 			want: "def f():\n    # leading comment\n    once()\n    # between\n" +
 				"    once()\n" +
 				"    # trailing comment\n    pass\n" + MAIN,
 		},
 		{
 			name: "a comment at the end of a block",
-			flow: _Bodied(t, "if ready():\n    # arm\n    once()\n    # after"),
+			flow: _Bodied(
+				t,
+				"if ready():\n    # arm\n    once()\n    # after",
+			),
 			want: "def f():\n    if ready():\n        # arm\n        once()\n" +
 				"        # after\n" +
 				"        pass\n    pass\n" + MAIN,
 		},
 		{
 			name: "a comment at the end of an inner block",
-			flow: _Bodied(t, "if ready():\n    once()\n    # end of the if\nslow()"),
+			flow: _Bodied(
+				t,
+				"if ready():\n    once()\n    # end of the if\nslow()",
+			),
 			want: "def f():\n    if ready():\n        once()\n" +
 				"        # end of the if\n" +
 				"        pass\n    slow()\n    pass\n" + MAIN,
 		},
 		{
 			name: "a comment above an elif",
-			flow: _Bodied(t, "if ready():\n    once()\n# about the elif\n"+
-				"elif flag:\n    slow()"),
+			flow: _Bodied(
+				t,
+				"if ready():\n    once()\n# about the elif\n"+
+					"elif flag:\n    slow()",
+			),
 			want: "def f():\n    if ready():\n        once()\n        pass\n" +
 				"    # about the elif\n    elif flag:\n        slow()\n" +
 				"        pass\n" +
@@ -241,62 +294,101 @@ func TestEmit_Writes(t *testing.T) {
 		},
 		{
 			name: "a comment above an else",
-			flow: _Bodied(t, "if ready():\n    once()\n# about the else\nelse:\n"+
-				"    slow()"),
+			flow: _Bodied(
+				t,
+				"if ready():\n    once()\n# about the else\nelse:\n"+
+					"    slow()",
+			),
 			want: "def f():\n    if ready():\n        once()\n        pass\n" +
 				"    # about the else\n    else:\n        slow()\n        pass\n" +
 				"    pass\n" + MAIN,
 		},
 		{
 			name: "a comment after a final return",
-			flow: _Bodied(t, "if done():\n    return 1\n    # log this later\nonce()"),
+			flow: _Bodied(
+				t,
+				"if done():\n    return 1\n    # log this later\nonce()",
+			),
 			want: "def f():\n    if done():\n        # log this later\n" +
 				"        return 1\n" +
 				"    once()\n    pass\n" + MAIN,
 		},
 		{
 			name: "comments inside a list",
-			flow: _Bodied(t, "x = [\n    1,  # first\n    # second follows\n    2,\n"+
-				"]\nonce()"),
+			flow: _Bodied(
+				t,
+				"x = [\n    1,  # first\n    # second follows\n    2,\n"+
+					"]\nonce()",
+			),
 			want: "def f():\n    x = [\n        1,\n        # second follows\n" +
 				"        2,\n" +
 				"    ]\n    once()\n    pass\n" + MAIN,
 		},
 		{
 			name: "an index at the end",
-			flow: _Bodied(t, "got = [1, 2]\nreturn got[0] + got[1]"),
+			flow: _Bodied(
+				t,
+				"got = [1, 2]\nreturn got[0] + got[1]",
+			),
 			want: "def f():\n    got = [1, 2]\n    return got[0] + got[1]\n" + MAIN,
 		},
 		{
 			name: "a slice at the end",
-			flow: _Bodied(t, "xs = [1, 2, 3]\nreturn xs[1:2]"),
+			flow: _Bodied(
+				t,
+				"xs = [1, 2, 3]\nreturn xs[1:2]",
+			),
 			want: "def f():\n    xs = [1, 2, 3]\n    return xs[1:2]\n" + MAIN,
 		},
 		{
 			name: "an index ending a statement",
-			flow: _Bodied(t, "x = got[0]\nonce()"),
+			flow: _Bodied(
+				t,
+				"x = got[0]\nonce()",
+			),
 			want: "def f():\n    x = got[0]\n    once()\n    pass\n" + MAIN,
 		},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			got, err := graph.Emit(_Flow(t, tc.flow))
-			if err != nil {
-				t.Fatalf("emit: %v", err)
-			}
+				got, err := graph.Emit(_Flow(
+					t,
+					tc.flow,
+				))
+				if err != nil {
+					t.Fatalf(
+						"emit: %v",
+						err,
+					)
+				}
 
-			_, err = dialect.OPTIONS.Parse("out.star", got, 0)
-			if err != nil {
-				t.Fatalf("parse: %v\n%s", err, got)
-			}
+				_, err = dialect.OPTIONS.Parse(
+					"out.star",
+					got,
+					0,
+				)
+				if err != nil {
+					t.Fatalf(
+						"parse: %v\n%s",
+						err,
+						got,
+					)
+				}
 
-			if string(got) != tc.want {
-				t.Fatalf("got\n%s\nwant\n%s", got, tc.want)
-			}
-		})
+				if string(got) != tc.want {
+					t.Fatalf(
+						"got\n%s\nwant\n%s",
+						got,
+						tc.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -309,34 +401,58 @@ func TestEmit_Refuses(t *testing.T) {
 	t.Parallel()
 
 	cases := []_Refusal{
-		{name: "empty", flow: `{}`, err: graph.ERR_NO_BODY},
+		{
+			name: "empty",
+			flow: `{}`,
+			err:  graph.ErrNoBody,
+		},
 		{
 			name: "empty list",
 			flow: `{
 				"functions": [{"name": "f", "statements": {"statement": []}}],
 				"main": {"statement": [{"call": {"function": "f"}}]}
 			}`,
-			err: graph.ERR_NO_BODY,
+			err: graph.ErrNoBody,
 		},
-		{name: "comments", flow: _Bodied(t, "# only"), err: graph.ERR_NO_BODY},
+		{
+			name: "comments",
+			flow: _Bodied(
+				t,
+				"# only",
+			),
+			err: graph.ErrNoBody,
+		},
 		{
 			name: "both",
 			flow: `{"main": {"statement": [{"call": {
 				"function": "f", "args": [1], "operands": [{"name": "x"}]
 			}}]}}`,
-			err: graph.ERR_FORM,
+			err: graph.ErrForm,
 		},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			_, err := graph.Emit(_Flow(t, tc.flow))
-			if !errors.Is(err, tc.err) {
-				t.Fatalf("got %v, want %v", err, tc.err)
-			}
-		})
+				_, err := graph.Emit(_Flow(
+					t,
+					tc.flow,
+				))
+				if !errors.Is(
+					err,
+					tc.err,
+				) {
+					t.Fatalf(
+						"got %v, want %v",
+						err,
+						tc.err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -349,19 +465,42 @@ func TestEmit_RoundTrips(t *testing.T) {
 	t.Parallel()
 
 	for _, name := range []string{"dag", "every", "shapes"} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			want := _Flow(t, _Read(t, "testdata/"+name+".json"))
+				var (
+					want = _Flow(
+						t,
+						_Read(
+							t,
+							"testdata/"+name+".json",
+						),
+					)
+					out []byte
+					err error
+				)
 
-			out, err := graph.Emit(want)
-			if err != nil {
-				t.Fatalf("emit: %v", err)
-			}
+				out, err = graph.Emit(want)
+				if err != nil {
+					t.Fatalf(
+						"emit: %v",
+						err,
+					)
+				}
 
-			got := _Derived(t, string(out))
+				got := _Derived(
+					t,
+					string(out),
+				)
 
-			_Same(t, got, want)
-		})
+				_Same(
+					t,
+					got,
+					want,
+				)
+			},
+		)
 	}
 }

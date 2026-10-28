@@ -15,14 +15,26 @@ func TestCheck_Fixtures(t *testing.T) {
 	t.Parallel()
 
 	for _, name := range []string{"dag", "every", "shapes"} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			err := graph.Check(_Flow(t, _Read(t, "testdata/"+name+".json")))
-			if err != nil {
-				t.Fatalf("check: %v", err)
-			}
-		})
+				err := graph.Check(_Flow(
+					t,
+					_Read(
+						t,
+						"testdata/"+name+".json",
+					),
+				))
+				if err != nil {
+					t.Fatalf(
+						"check: %v",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -39,40 +51,44 @@ func TestCheck_Refuses(t *testing.T) {
 			flow: `{"functions": [{"name": "f", "body": "pass"}, {"name": "f", ` +
 				`"body": "pass"}],
 				"text": "pass"}`,
-			err: graph.ERR_DUPLICATE,
+			err: graph.ErrDuplicate,
 		},
 		{
 			name: "a function named main",
 			flow: `{"functions": [{"name": "main", "body": "pass"}], "text": "pass"}`,
-			err:  graph.ERR_DUPLICATE,
+			err:  graph.ErrDuplicate,
 		},
 		{
 			name: "a function and a constant of one name",
 			flow: `{"functions": [{"name": "f", "body": "pass"}],
 				"constants": {"f": {"value": 1}}, "text": "pass"}`,
-			err: graph.ERR_DUPLICATE,
+			err: graph.ErrDuplicate,
 		},
 		{
 			name: "a constant and an argument of one name",
 			flow: `{"constants": {"x": {"value": 1}}, "args": {"x": {"name": "x"}},
 				"text": "pass"}`,
-			err: graph.ERR_DUPLICATE,
+			err: graph.ErrDuplicate,
 		},
-		{name: "no main", flow: `{}`, err: graph.ERR_NO_BODY},
+		{
+			name: "no main",
+			flow: `{}`,
+			err:  graph.ErrNoBody,
+		},
 		{
 			name: "an empty main",
 			flow: `{"main": {"statement": []}}`,
-			err:  graph.ERR_NO_BODY,
+			err:  graph.ErrNoBody,
 		},
 		{
 			name: "a body of only comments",
 			flow: `{"functions": [{"name": "f", "body": "# only"}], "text": "pass"}`,
-			err:  graph.ERR_NO_BODY,
+			err:  graph.ErrNoBody,
 		},
 		{
 			name: "a function with no code",
 			flow: `{"functions": [{"name": "f"}], "text": "pass"}`,
-			err:  graph.ERR_NO_BODY,
+			err:  graph.ErrNoBody,
 		},
 		{
 			name: "too few arguments",
@@ -80,40 +96,40 @@ func TestCheck_Refuses(t *testing.T) {
 				`"body": "pass"}],
 				"main": {"statement": [{"call": {
 					"function": "sign", "args": ["a"]}}]}}`,
-			err: graph.ERR_ARITY,
+			err: graph.ErrArity,
 		},
 		{
 			name: "too many arguments",
 			flow: `{"functions": [{"name": "work", "body": "pass"}],
 				"main": {"statement": [{"spawn": {"call": {
 					"function": "work", "args": [1]}}}]}}`,
-			err: graph.ERR_ARITY,
+			err: graph.ErrArity,
 		},
 		{
 			name: "both lists",
 			flow: `{"functions": [{"name": "f", "params": ["a", "b"], "body": "pass"}],
 				"main": {"statement": [{"call": {"function": "f", "args": [1],
 					"operands": [{"name": "f"}]}}]}}`,
-			err: graph.ERR_ARGUMENTS,
+			err: graph.ErrArguments,
 		},
 		{
 			name: "a call of a function the flow does not declare",
 			flow: `{"main": {"statement": [{"call": {"function": "nowhere"}}]}}`,
-			err:  graph.ERR_UNRESOLVED,
+			err:  graph.ErrUnresolved,
 		},
 		{
 			name: "an operand naming nothing",
 			flow: `{"functions": [{"name": "f", "params": ["x"], "body": "pass"}],
 				"main": {"statement": [{"call": {"function": "f",
 					"operands": [{"name": "missing"}]}}]}}`,
-			err: graph.ERR_UNRESOLVED,
+			err: graph.ErrUnresolved,
 		},
 		{
 			name: "a condition naming nothing",
 			flow: `{"functions": [{"name": "f", "body": "pass"}],
 				"main": {"statement": [{"if": {"condition": {"name": "missing"},
 					"then": {"call": {"function": "f"}}}}]}}`,
-			err: graph.ERR_UNRESOLVED,
+			err: graph.ErrUnresolved,
 		},
 		{
 			name: "a result used after the branch that bound it",
@@ -126,7 +142,7 @@ func TestCheck_Refuses(t *testing.T) {
 					{"call": {
 						"function": "sign", "operands": [{"name": "got"}]}}
 				]}}`,
-			err: graph.ERR_UNRESOLVED,
+			err: graph.ErrUnresolved,
 		},
 		{
 			name: "a constant naming an argument",
@@ -134,7 +150,7 @@ func TestCheck_Refuses(t *testing.T) {
 				"constants": {"label": {"call": {"function": "f",
 					"operands": [{"name": "port"}]}}},
 				"args": {"port": {"name": "port"}}, "text": "pass"}`,
-			err: graph.ERR_UNRESOLVED,
+			err: graph.ErrUnresolved,
 		},
 		{
 			name: "constants naming each other",
@@ -145,12 +161,12 @@ func TestCheck_Refuses(t *testing.T) {
 					"b": {"call": {
 						"function": "f", "operands": [{"name": "a"}]}}
 				}, "text": "pass"}`,
-			err: graph.ERR_CONSTANT,
+			err: graph.ErrConstant,
 		},
 		{
 			name: "a join of a binding no spawn holds",
 			flow: `{"main": {"statement": [{"join": {"bindings": ["h"]}}]}}`,
-			err:  graph.ERR_NOT_FORKED,
+			err:  graph.ErrNotForked,
 		},
 		{
 			name: "a join of a binding in the other branch",
@@ -159,7 +175,7 @@ func TestCheck_Refuses(t *testing.T) {
 					"then": {"spawn": {
 						"binding": "h", "call": {"function": "work"}}},
 					"else": {"join": {"bindings": ["h"]}}}}]}}`,
-			err: graph.ERR_NOT_FORKED,
+			err: graph.ErrNotForked,
 		},
 		{
 			name: "two spawns of one binding",
@@ -168,18 +184,31 @@ func TestCheck_Refuses(t *testing.T) {
 					{"spawn": {"binding": "h", "call": {"function": "work"}}},
 					{"spawn": {"binding": "h", "call": {"function": "work"}}}
 				]}}`,
-			err: graph.ERR_NOT_FORKED,
+			err: graph.ErrNotForked,
 		},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			err := graph.Check(_Flow(t, tc.flow))
-			if !errors.Is(err, tc.err) {
-				t.Fatalf("got %v, want %v", err, tc.err)
-			}
-		})
+				err := graph.Check(_Flow(
+					t,
+					tc.flow,
+				))
+				if !errors.Is(
+					err,
+					tc.err,
+				) {
+					t.Fatalf(
+						"got %v, want %v",
+						err,
+						tc.err,
+					)
+				}
+			},
+		)
 	}
 }

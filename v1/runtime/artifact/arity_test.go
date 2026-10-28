@@ -34,8 +34,14 @@ type _Sources map[string]string
 //
 // Revisions:
 //   - 2026-10-02 01:27: initial creation
-func (s _Sources) Resolve(from string, target string) (string, error) {
-	return path.Join(path.Dir(from), target), nil
+func (s _Sources) Resolve(
+	from string,
+	target string,
+) (string, error) {
+	return path.Join(
+		path.Dir(from),
+		target,
+	), nil
 }
 
 // Load returns the script held under name.
@@ -45,7 +51,11 @@ func (s _Sources) Resolve(from string, target string) (string, error) {
 func (s _Sources) Load(name string) ([]byte, error) {
 	src, ok := s[name]
 	if !ok {
-		return nil, fmt.Errorf("%s: %w", name, artifact.ERR_NO_UNIT)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			name,
+			artifact.ErrNoUnit,
+		)
 	}
 
 	return []byte(src), nil
@@ -79,9 +89,12 @@ def main():
     ` + call + `
 `
 
-	loader := _Sources{LOADABLE: LOADED}
+	var (
+		loader = _Sources{LOADABLE: LOADED}
+		err    error
+	)
 
-	_, err := artifact.Compile(&script.Source{
+	_, err = artifact.Compile(&script.Source{
 		Entry:  MAIN,
 		Text:   []byte(src),
 		Loader: loader,
@@ -113,12 +126,21 @@ func TestArity_RefusesACallItsFunctionDoesNotTake(t *testing.T) {
 	}
 
 	for _, call := range refused {
-		t.Run(call, func(t *testing.T) {
-			err := _Arity(call)
-			if !errors.Is(err, artifact.ERR_ARITY) {
-				t.Fatalf("got %v, want ERR_ARITY", err)
-			}
-		})
+		t.Run(
+			call,
+			func(t *testing.T) {
+				err := _Arity(call)
+				if !errors.Is(
+					err,
+					artifact.ErrArity,
+				) {
+					t.Fatalf(
+						"got %v, want ErrArity",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -149,12 +171,18 @@ func TestArity_AcceptsWhatStarlarkBinds(t *testing.T) {
 	}
 
 	for _, call := range accepted {
-		t.Run(call, func(t *testing.T) {
-			err := _Arity(call)
-			if err != nil {
-				t.Fatalf("refused: %v", err)
-			}
-		})
+		t.Run(
+			call,
+			func(t *testing.T) {
+				err := _Arity(call)
+				if err != nil {
+					t.Fatalf(
+						"refused: %v",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -164,7 +192,7 @@ func TestArity_AcceptsWhatStarlarkBinds(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 01:27: initial creation
 func TestArity_CountsOnlyTheFunctionTheNameMeans(t *testing.T) {
-	src := `
+	var src = `
 def f(a):
     pass
 
@@ -175,9 +203,15 @@ def main():
     call(len)
 `
 
-	_, err := artifact.Compile(&script.Source{Entry: MAIN, Text: []byte(src)})
+	_, err := artifact.Compile(&script.Source{
+		Entry: MAIN,
+		Text:  []byte(src),
+	})
 	if err != nil {
-		t.Fatalf("refused: %v", err)
+		t.Fatalf(
+			"refused: %v",
+			err,
+		)
 	}
 }
 
@@ -187,7 +221,7 @@ def main():
 // Revisions:
 //   - 2026-10-02 01:27: initial creation
 func TestArity_SaysWhereTheCallIs(t *testing.T) {
-	src := `
+	var src = `
 def f(a):
     pass
 
@@ -195,8 +229,18 @@ def main():
     f()
 `
 
-	_, err := artifact.Compile(&script.Source{Entry: MAIN, Text: []byte(src)})
-	if err == nil || !strings.HasPrefix(err.Error(), MAIN+":6:5: call of f") {
-		t.Fatalf("got %v, want a refusal at %s:6:5", err, MAIN)
+	_, err := artifact.Compile(&script.Source{
+		Entry: MAIN,
+		Text:  []byte(src),
+	})
+	if err == nil || !strings.HasPrefix(
+		err.Error(),
+		MAIN+":6:5: call of f",
+	) {
+		t.Fatalf(
+			"got %v, want a refusal at %s:6:5",
+			err,
+			MAIN,
+		)
 	}
 }

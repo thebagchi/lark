@@ -12,12 +12,14 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// ERR_ORDER is returned for a byte order that is neither big nor little.
-var ERR_ORDER = errors.New("not a byte order")
+// ErrOrder is returned for a byte order that is neither big nor little.
+var (
+	ErrOrder = errors.New("not a byte order")
+)
 
+// BIG and LITTLE are the byte orders a script may name, BIG when it names
+// none.
 const (
-	// BIG and LITTLE are the byte orders a script may name, BIG when it names
-	// none.
 	BIG    = "big"
 	LITTLE = "little"
 
@@ -39,34 +41,60 @@ type Field struct {
 //
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
-func Unpack(fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (*Field, error) {
+func Unpack(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (*Field, error) {
 	var (
 		number starlark.Int
 		width  int
 		order  = BIG
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &number, &width, &order)
+	const NEEDED = 2
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&number,
+		&width,
+		&order,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Field{Number: number.BigInt(), Width: width, Order: order}, nil
+	return &Field{
+		Number: number.BigInt(),
+		Width:  width,
+		Order:  order,
+	}, nil
 }
 
 // Encode is field's number as unsigned bytes, as many as its width, in its
 // order.
 //
-// Returns unpack.ERR_RANGE for a width below one, a negative number, or a
-// number too wide for the width, ERR_ORDER for an order that is neither big nor
-// little, and scheduler.ERR_MEMORY for a width the run cannot afford.
+// Returns unpack.ErrRange for a width below one, a negative number, or a
+// number too wide for the width, ErrOrder for an order that is neither big nor
+// little, and scheduler.ErrMemory for a width the run cannot afford.
 //
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, as the body of codec's int2bytes
 //   - 2026-10-08 21:08: lifted out of to_bytes, taking a byte order and charging
 //     the width, so buf writes integers through it too
-func Encode(budget *scheduler.Budget, who string, field *Field) ([]byte, error) {
-	err := _Charge(budget, who, field.Width)
+func Encode(
+	budget *scheduler.Budget,
+	who string,
+	field *Field,
+) ([]byte, error) {
+	err := _Charge(
+		budget,
+		who,
+		field.Width,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -78,16 +106,28 @@ func Encode(budget *scheduler.Budget, who string, field *Field) ([]byte, error) 
 			"%s got %s, which is negative: %w",
 			who,
 			field.Number,
-			unpack.ERR_RANGE,
+			unpack.ErrRange,
 		)
 	}
 
 	if field.Number.BitLen() > field.Width*BITS_PER_BYTE {
-		return nil, fmt.Errorf("%s: %s does not fit %d bytes: %w",
-			who, field.Number, field.Width, unpack.ERR_RANGE)
+		return nil, fmt.Errorf(
+			"%s: %s does not fit %d bytes: %w",
+			who,
+			field.Number,
+			field.Width,
+			unpack.ErrRange,
+		)
 	}
 
-	return _Ordered(who, field.Number.FillBytes(make([]byte, field.Width)), field.Order)
+	return _Ordered(
+		who,
+		field.Number.FillBytes(make(
+			[]byte,
+			field.Width,
+		)),
+		field.Order,
+	)
 }
 
 // EncodeSigned is field's number in two's complement, as many bytes as its
@@ -101,17 +141,26 @@ func Encode(budget *scheduler.Budget, who string, field *Field) ([]byte, error) 
 //
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
-func EncodeSigned(budget *scheduler.Budget, who string, field *Field) ([]byte, error) {
-	err := _Charge(budget, who, field.Width)
+func EncodeSigned(
+	budget *scheduler.Budget,
+	who string,
+	field *Field,
+) ([]byte, error) {
+	err := _Charge(
+		budget,
+		who,
+		field.Width,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	defer budget.Credit(int64(field.Width))
 
-	negative := field.Number.Sign() < 0
-
-	magnitude := field.Number
+	var (
+		negative  = field.Number.Sign() < 0
+		magnitude = field.Number
+	)
 	if negative {
 		magnitude = new(big.Int).Not(field.Number)
 	}
@@ -119,28 +168,48 @@ func EncodeSigned(budget *scheduler.Budget, who string, field *Field) ([]byte, e
 	// The first bit is the sign's, so the number has one bit fewer than the
 	// width holds.
 	if magnitude.BitLen() >= field.Width*BITS_PER_BYTE {
-		return nil, fmt.Errorf("%s: %s does not fit %d bytes: %w",
-			who, field.Number, field.Width, unpack.ERR_RANGE)
+		return nil, fmt.Errorf(
+			"%s: %s does not fit %d bytes: %w",
+			who,
+			field.Number,
+			field.Width,
+			unpack.ErrRange,
+		)
 	}
 
-	data := magnitude.FillBytes(make([]byte, field.Width))
+	data := magnitude.FillBytes(make(
+		[]byte,
+		field.Width,
+	))
 	if negative {
 		_Flip(data)
 	}
 
-	return _Ordered(who, data, field.Order)
+	return _Ordered(
+		who,
+		data,
+		field.Order,
+	)
 }
 
 // Decode reads data as an unsigned integer, its bytes in order.
 //
-// Returns ERR_ORDER for an order that is neither big nor little.
+// Returns ErrOrder for an order that is neither big nor little.
 //
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, as the body of codec's bytes2int
 //   - 2026-10-08 21:08: lifted out of from_bytes, taking a byte order, so buf
 //     reads integers through it too
-func Decode(who string, data []byte, order string) (*big.Int, error) {
-	ordered, err := _Ordered(who, data, order)
+func Decode(
+	who string,
+	data []byte,
+	order string,
+) (*big.Int, error) {
+	ordered, err := _Ordered(
+		who,
+		data,
+		order,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -154,12 +223,20 @@ func Decode(who string, data []byte, order string) (*big.Int, error) {
 // A negative number's bits are flipped back, which gives its complement, -n-1,
 // and the complement of that is the number.
 //
-// Returns ERR_ORDER for an order that is neither big nor little.
+// Returns ErrOrder for an order that is neither big nor little.
 //
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
-func DecodeSigned(who string, data []byte, order string) (*big.Int, error) {
-	ordered, err := _Ordered(who, data, order)
+func DecodeSigned(
+	who string,
+	data []byte,
+	order string,
+) (*big.Int, error) {
+	ordered, err := _Ordered(
+		who,
+		data,
+		order,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -185,14 +262,27 @@ func DecodeSigned(who string, data []byte, order string) (*big.Int, error) {
 //
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
-func _Charge(budget *scheduler.Budget, who string, width int) error {
+func _Charge(
+	budget *scheduler.Budget,
+	who string,
+	width int,
+) error {
 	if width < 1 {
-		return fmt.Errorf("%s got a width of %d: %w", who, width, unpack.ERR_RANGE)
+		return fmt.Errorf(
+			"%s got a width of %d: %w",
+			who,
+			width,
+			unpack.ErrRange,
+		)
 	}
 
 	err := budget.Charge(int64(width))
 	if err != nil {
-		return fmt.Errorf("%s: %w", who, err)
+		return fmt.Errorf(
+			"%s: %w",
+			who,
+			err,
+		)
 	}
 
 	return nil
@@ -205,7 +295,11 @@ func _Charge(budget *scheduler.Budget, who string, width int) error {
 //
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
-func _Ordered(who string, data []byte, order string) ([]byte, error) {
+func _Ordered(
+	who string,
+	data []byte,
+	order string,
+) ([]byte, error) {
 	switch order {
 	case BIG:
 		return data, nil
@@ -217,7 +311,12 @@ func _Ordered(who string, data []byte, order string) ([]byte, error) {
 		return reversed, nil
 	}
 
-	return nil, fmt.Errorf("%s got %q: %w", who, order, ERR_ORDER)
+	return nil, fmt.Errorf(
+		"%s got %q: %w",
+		who,
+		order,
+		ErrOrder,
+	)
 }
 
 // _Flip inverts every bit of data, in place.

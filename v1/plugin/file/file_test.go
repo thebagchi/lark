@@ -20,14 +20,14 @@ const (
 	// SCRIPT is what a failure calls the expression it was given.
 	SCRIPT = "file_test.star"
 
-	// _DEVICE is the character device the unbounded read was found on. It has
+	// DEVICE is the character device the unbounded read was found on. It has
 	// no end, so reading it is the defect.
-	_DEVICE = "/dev/zero"
+	DEVICE = "/dev/zero"
 
-	// _DEADLINE is how long a refusal may take before the read is taken to be
+	// DEADLINE is how long a refusal may take before the read is taken to be
 	// unbounded. A refusal is a stat and a comparison, so this is enormous on
 	// purpose.
-	_DEADLINE = 10 * time.Second
+	DEADLINE = 10 * time.Second
 )
 
 // _Eval evaluates one expression, with root bound so a fixture can name paths
@@ -37,7 +37,11 @@ const (
 //   - 2026-09-24 00:53: initial creation
 //   - 2026-10-02 17:12: gives the script this plugin, which a host hands over
 //     rather than one that registers itself
-func _Eval(t *testing.T, root string, expression string) (string, error) {
+func _Eval(
+	t *testing.T,
+	root string,
+	expression string,
+) (string, error) {
 	t.Helper()
 
 	held := _Environment(t)
@@ -45,7 +49,9 @@ func _Eval(t *testing.T, root string, expression string) (string, error) {
 
 	value, err := starlark.EvalOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT},
+		&starlark.Thread{
+			Name: SCRIPT,
+		},
 		SCRIPT,
 		expression,
 		held,
@@ -66,11 +72,17 @@ func _Eval(t *testing.T, root string, expression string) (string, error) {
 func _Environment(t *testing.T) starlark.StringDict {
 	t.Helper()
 
-	plugins := slices.Concat(plugin.DEFAULT, []plugin.Plugin{&larkfile.Plugin{}})
+	var plugins = slices.Concat(
+		plugin.DEFAULT,
+		[]plugin.Plugin{&larkfile.Plugin{}},
+	)
 
 	env, err := plugin.Environment(plugins)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	return env
@@ -82,56 +94,73 @@ func _Environment(t *testing.T) starlark.StringDict {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func TestFile_WritesAndReadsBack(t *testing.T) {
-	root := t.TempDir()
-
-	cases := []struct{ name, expression, want string }{
-		{
-			"write then read",
-			`file.write(path.join(root, "a.txt"), "hello") or ` +
-				`file.read(path.join(root, "a.txt"))`,
-			`"hello"`,
-		},
-		{
-			"read as bytes",
-			`file.bytes(path.join(root, "a.txt"))`,
-			`b"hello"`,
-		},
-		{
-			"write bytes",
-			`file.write(path.join(root, "b.bin"), b"\x00\xff") or ` +
-				`file.bytes(path.join(root, "b.bin"))`,
-			`b"\x00\xff"`,
-		},
-		{
-			"append",
-			`file.append(path.join(root, "a.txt"), " there") or ` +
-				`file.read(path.join(root, "a.txt"))`,
-			`"hello there"`,
-		},
-		{
-			"size",
-			`file.size(path.join(root, "a.txt"))`,
-			"11",
-		},
-		{
-			"write makes the directory above it",
-			`file.write(path.join(root, "deep", "down", "c.txt"), "x") or ` +
-				`file.read(path.join(root, "deep", "down", "c.txt"))`,
-			`"x"`,
-		},
-	}
+	var (
+		root  = t.TempDir()
+		cases = []struct{ name, expression, want string }{
+			{
+				"write then read",
+				`file.write(path.join(root, "a.txt"), "hello") or ` +
+					`file.read(path.join(root, "a.txt"))`,
+				`"hello"`,
+			},
+			{
+				"read as bytes",
+				`file.bytes(path.join(root, "a.txt"))`,
+				`b"hello"`,
+			},
+			{
+				"write bytes",
+				`file.write(path.join(root, "b.bin"), b"\x00\xff") or ` +
+					`file.bytes(path.join(root, "b.bin"))`,
+				`b"\x00\xff"`,
+			},
+			{
+				"append",
+				`file.append(path.join(root, "a.txt"), " there") or ` +
+					`file.read(path.join(root, "a.txt"))`,
+				`"hello there"`,
+			},
+			{
+				"size",
+				`file.size(path.join(root, "a.txt"))`,
+				"11",
+			},
+			{
+				"write makes the directory above it",
+				`file.write(path.join(root, "deep", "down", "c.txt"), "x") or ` +
+					`file.read(path.join(root, "deep", "down", "c.txt"))`,
+				`"x"`,
+			},
+		}
+	)
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Eval(t, root, item.expression)
-			if err != nil {
-				t.Fatalf("%s: %v", item.expression, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Eval(
+					t,
+					root,
+					item.expression,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.expression,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s gave %s, want %s", item.expression, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s gave %s, want %s",
+						item.expression,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -144,16 +173,35 @@ func TestFile_AsksAndLists(t *testing.T) {
 	root := t.TempDir()
 
 	for _, name := range []string{"b.txt", "a.txt", "c.txt"} {
-		err := os.WriteFile(filepath.Join(root, name), nil, 0o600)
+		err := os.WriteFile(
+			filepath.Join(
+				root,
+				name,
+			),
+			nil,
+			0o600,
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	cases := []struct{ name, expression, want string }{
-		{"exists", `file.exists(path.join(root, "a.txt"))`, "True"},
-		{"does not exist", `file.exists(path.join(root, "nope.txt"))`, "False"},
-		{"list is sorted", `file.list(root)`, `["a.txt", "b.txt", "c.txt"]`},
+		{
+			"exists",
+			`file.exists(path.join(root, "a.txt"))`,
+			"True",
+		},
+		{
+			"does not exist",
+			`file.exists(path.join(root, "nope.txt"))`,
+			"False",
+		},
+		{
+			"list is sorted",
+			`file.list(root)`,
+			`["a.txt", "b.txt", "c.txt"]`,
+		},
 		{
 			"remove then gone",
 			`file.remove(path.join(root, "a.txt")) or file.exists(path.join(root, ` +
@@ -163,16 +211,32 @@ func TestFile_AsksAndLists(t *testing.T) {
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Eval(t, root, item.expression)
-			if err != nil {
-				t.Fatalf("%s: %v", item.expression, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Eval(
+					t,
+					root,
+					item.expression,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.expression,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s gave %s, want %s", item.expression, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s gave %s, want %s",
+						item.expression,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -182,19 +246,40 @@ func TestFile_AsksAndLists(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func TestFile_RemovesOneThingAndNeverATree(t *testing.T) {
-	root := t.TempDir()
+	var root = t.TempDir()
 
-	err := os.WriteFile(filepath.Join(root, "kept.txt"), nil, 0o600)
+	err := os.WriteFile(
+		filepath.Join(
+			root,
+			"kept.txt",
+		),
+		nil,
+		0o600,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = _Eval(t, root, `file.remove(root)`)
-	if !errors.Is(err, larkfile.ERR_FILE) {
-		t.Fatalf("removing a directory with something in it gave %v, want ERR_FILE", err)
+	_, err = _Eval(
+		t,
+		root,
+		`file.remove(root)`,
+	)
+	if !errors.Is(
+		err,
+		larkfile.ErrFile,
+	) {
+		t.Fatalf(
+			"removing a directory with something in it gave %v, want ErrFile",
+			err,
+		)
 	}
 
-	got, err := _Eval(t, root, `file.exists(path.join(root, "kept.txt"))`)
+	got, err := _Eval(
+		t,
+		root,
+		`file.exists(path.join(root, "kept.txt"))`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,26 +295,60 @@ func TestFile_RemovesOneThingAndNeverATree(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func TestFile_ReportsWhatTheFilesystemRefused(t *testing.T) {
-	root := t.TempDir()
-
-	cases := []struct{ name, expression string }{
-		{"reading nothing", `file.read(path.join(root, "nope.txt"))`},
-		{"listing a file", `file.list(path.join(root, "nope.txt"))`},
-		{"sizing nothing", `file.size(path.join(root, "nope.txt"))`},
-		{"removing nothing", `file.remove(path.join(root, "nope.txt"))`},
-	}
+	var (
+		root  = t.TempDir()
+		cases = []struct{ name, expression string }{
+			{
+				"reading nothing",
+				`file.read(path.join(root, "nope.txt"))`,
+			},
+			{
+				"listing a file",
+				`file.list(path.join(root, "nope.txt"))`,
+			},
+			{
+				"sizing nothing",
+				`file.size(path.join(root, "nope.txt"))`,
+			},
+			{
+				"removing nothing",
+				`file.remove(path.join(root, "nope.txt"))`,
+			},
+		}
+	)
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			_, err := _Eval(t, root, item.expression)
-			if !errors.Is(err, larkfile.ERR_FILE) {
-				t.Fatalf("%s gave %v, want ERR_FILE", item.expression, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					root,
+					item.expression,
+				)
+				if !errors.Is(
+					err,
+					larkfile.ErrFile,
+				) {
+					t.Fatalf(
+						"%s gave %v, want ErrFile",
+						item.expression,
+						err,
+					)
+				}
 
-			if !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("%s lost the reason underneath: %v", item.expression, err)
-			}
-		})
+				if !errors.Is(
+					err,
+					os.ErrNotExist,
+				) {
+					t.Fatalf(
+						"%s lost the reason underneath: %v",
+						item.expression,
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -241,19 +360,33 @@ func TestFile_MakesDirectories(t *testing.T) {
 	root := t.TempDir()
 
 	for range 2 {
-		_, err := _Eval(t, root, `file.mkdir(path.join(root, "made", "deeper"))`)
+		_, err := _Eval(
+			t,
+			root,
+			`file.mkdir(path.join(root, "made", "deeper"))`,
+		)
 		if err != nil {
-			t.Fatalf("mkdir: %v", err)
+			t.Fatalf(
+				"mkdir: %v",
+				err,
+			)
 		}
 	}
 
-	got, err := _Eval(t, root, `file.list(path.join(root, "made"))`)
+	got, err := _Eval(
+		t,
+		root,
+		`file.list(path.join(root, "made"))`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if got != `["deeper"]` {
-		t.Fatalf("got %s, want the directory made once", got)
+		t.Fatalf(
+			"got %s, want the directory made once",
+			got,
+		)
 	}
 }
 
@@ -274,51 +407,97 @@ func TestExists_TellsAbsenceFromBeingUnableToLook(t *testing.T) {
 		t.Skip("root may search a directory whatever its mode")
 	}
 
-	root := t.TempDir()
-	closed := filepath.Join(root, "secret")
-
-	err := os.Mkdir(closed, 0o700)
+	var (
+		root   = t.TempDir()
+		closed = filepath.Join(
+			root,
+			"secret",
+		)
+		err = os.Mkdir(
+			closed,
+			0o700,
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	hidden := filepath.Join(closed, "note")
+	hidden := filepath.Join(
+		closed,
+		"note",
+	)
 
-	err = os.WriteFile(hidden, []byte("still here"), 0o600)
+	err = os.WriteFile(
+		hidden,
+		[]byte("still here"),
+		0o600,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = os.Chmod(closed, 0o000)
+	err = os.Chmod(
+		closed,
+		0o000,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Put it back, or the temporary directory cannot be removed.
 	defer func() {
-		err := os.Chmod(closed, 0o700)
+		err := os.Chmod(
+			closed,
+			0o700,
+		)
 		if err != nil {
 			t.Error(err)
 		}
 	}()
 
-	_, err = _Eval(t, root, `file.exists(path.join(root, "secret", "note"))`)
-	if !errors.Is(err, larkfile.ERR_FILE) {
-		t.Fatalf("a file behind a closed directory gave %v, want ERR_FILE", err)
+	_, err = _Eval(
+		t,
+		root,
+		`file.exists(path.join(root, "secret", "note"))`,
+	)
+	if !errors.Is(
+		err,
+		larkfile.ErrFile,
+	) {
+		t.Fatalf(
+			"a file behind a closed directory gave %v, want ErrFile",
+			err,
+		)
 	}
 
-	if !errors.Is(err, os.ErrPermission) {
-		t.Fatalf("the refusal lost the reason underneath: %v", err)
+	if !errors.Is(
+		err,
+		os.ErrPermission,
+	) {
+		t.Fatalf(
+			"the refusal lost the reason underneath: %v",
+			err,
+		)
 	}
 
 	// And absence is still False rather than a refusal.
-	got, err := _Eval(t, root, `file.exists(path.join(root, "nope.txt"))`)
+	got, err := _Eval(
+		t,
+		root,
+		`file.exists(path.join(root, "nope.txt"))`,
+	)
 	if err != nil {
-		t.Fatalf("asking about an absent file gave %v, want False", err)
+		t.Fatalf(
+			"asking about an absent file gave %v, want False",
+			err,
+		)
 	}
 
 	if got != "False" {
-		t.Fatalf("an absent file gave %s, want False", got)
+		t.Fatalf(
+			"an absent file gave %s, want False",
+			got,
+		)
 	}
 }
 
@@ -334,14 +513,27 @@ func TestExists_TellsAbsenceFromBeingUnableToLook(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 16:23: initial creation
 func TestRead_RefusesWhatIsNotARegularFile(t *testing.T) {
-	root := t.TempDir()
+	var root = t.TempDir()
 
-	err := os.WriteFile(filepath.Join(root, "ordinary.txt"), []byte("text"), 0o600)
+	err := os.WriteFile(
+		filepath.Join(
+			root,
+			"ordinary.txt",
+		),
+		[]byte("text"),
+		0o600,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = os.Mkdir(filepath.Join(root, "inner"), 0o750)
+	err = os.Mkdir(
+		filepath.Join(
+			root,
+			"inner",
+		),
+		0o750,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,18 +544,39 @@ func TestRead_RefusesWhatIsNotARegularFile(t *testing.T) {
 	}
 
 	for name, expression := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := _Eval(t, root, expression)
-			if !errors.Is(err, larkfile.ERR_NOT_A_FILE) {
-				t.Fatalf("%s gave %v, want ERR_NOT_A_FILE", expression, err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					root,
+					expression,
+				)
+				if !errors.Is(
+					err,
+					larkfile.ErrNotAFile,
+				) {
+					t.Fatalf(
+						"%s gave %v, want ErrNotAFile",
+						expression,
+						err,
+					)
+				}
 
-			// And it still answers the general question, so a caller
-			// branching on ERR_FILE does not miss it.
-			if !errors.Is(err, larkfile.ERR_FILE) {
-				t.Fatalf("%s did not also match ERR_FILE: %v", expression, err)
-			}
-		})
+				// And it still answers the general question, so a caller
+				// branching on ErrFile does not miss it.
+				if !errors.Is(
+					err,
+					larkfile.ErrFile,
+				) {
+					t.Fatalf(
+						"%s did not also match ErrFile: %v",
+						expression,
+						err,
+					)
+				}
+			},
+		)
 	}
 
 	// The device is the case this exists for, and it is checked apart from
@@ -371,40 +584,65 @@ func TestRead_RefusesWhatIsNotARegularFile(t *testing.T) {
 	// guard removed this call never returns, so the deadline is what turns
 	// "the fix is gone" into a failure instead of a suite that has to be
 	// killed. Measured: 174 seconds and still reading.
-	if _, err := os.Stat(_DEVICE); err == nil {
-		t.Run("a device with no end", func(t *testing.T) {
-			done := make(chan error, 1)
+	if _, err := os.Stat(DEVICE); err == nil {
+		t.Run(
+			"a device with no end",
+			func(t *testing.T) {
+				done := make(
+					chan error,
+					1,
+				)
 
-			go func() {
-				_, err := _Eval(t, root, `file.read("`+_DEVICE+`")`)
-				done <- err
-			}()
+				go func() {
+					_, err := _Eval(
+						t,
+						root,
+						`file.read("`+DEVICE+`")`,
+					)
+					done <- err
+				}()
 
-			select {
-			case err := <-done:
-				if !errors.Is(err, larkfile.ERR_NOT_A_FILE) {
-					t.Fatalf(
-						"reading %s gave %v, want ERR_NOT_A_FILE",
-						_DEVICE,
+				select {
+				case err := <-done:
+					if !errors.Is(
 						err,
+						larkfile.ErrNotAFile,
+					) {
+						t.Fatalf(
+							"reading %s gave %v, want ErrNotAFile",
+							DEVICE,
+							err,
+						)
+					}
+				case <-time.After(DEADLINE):
+					t.Fatalf(
+						"reading"+
+							" %s did not return: the read is "+
+							"unbounded again",
+						DEVICE,
 					)
 				}
-			case <-time.After(_DEADLINE):
-				t.Fatalf(
-					"reading %s did not return: the read is unbounded again",
-					_DEVICE,
-				)
-			}
-		})
+			},
+		)
 	}
 
 	// An ordinary file is untouched by any of this.
-	got, err := _Eval(t, root, `file.read(path.join(root, "ordinary.txt"))`)
+	got, err := _Eval(
+		t,
+		root,
+		`file.read(path.join(root, "ordinary.txt"))`,
+	)
 	if err != nil {
-		t.Fatalf("reading an ordinary file gave %v", err)
+		t.Fatalf(
+			"reading an ordinary file gave %v",
+			err,
+		)
 	}
 
 	if got != `"text"` {
-		t.Fatalf("an ordinary file read as %s, want \"text\"", got)
+		t.Fatalf(
+			"an ordinary file read as %s, want \"text\"",
+			got,
+		)
 	}
 }

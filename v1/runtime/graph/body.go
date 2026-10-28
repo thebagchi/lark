@@ -9,7 +9,9 @@ import (
 )
 
 // COMMENT opens a line comment.
-const COMMENT = "#"
+const (
+	COMMENT = "#"
+)
 
 // _Body is the inside of a def as text: whole lines, from the first comment or
 // statement under the header to the last line of the body, with the
@@ -35,18 +37,27 @@ const COMMENT = "#"
 //     pass rather than only the def's own
 //   - 2026-10-03 20:40: takes its module as a text whose lines are already found, so
 //     a module of many functions is not split again for each
-func _Body(text *_Lines, def *syntax.DefStmt) string {
+func _Body(
+	text *_Lines,
+	def *syntax.DefStmt,
+) string {
 	if len(def.Body) == 0 {
 		return ""
 	}
 
-	lines := text.lines
+	var (
+		first syntax.Position
+		last  syntax.Position
+		head  = def.Rparen.Line
+	)
 
-	first, _ := def.Body[0].Span()
-	_, last := def.Body[len(def.Body)-1].Span()
+	first, _ = def.Body[0].Span()
+	_, last = def.Body[len(def.Body)-1].Span()
 
-	start := text._At(first.Line, first.Col)
-	head := def.Rparen.Line
+	start := text._At(
+		first.Line,
+		first.Col,
+	)
 
 	// A body on the header's own line has no indentation of its own to remove,
 	// and nothing above it under the header.
@@ -54,22 +65,72 @@ func _Body(text *_Lines, def *syntax.DefStmt) string {
 		return text.src[start:text._LineEnd(last.Line)]
 	}
 
-	indent := text.src[text._At(first.Line, FIRST):start]
-	from := _First(lines, head, first.Line)
-	to := _Last(lines, last.Line, indent)
-	closers := _Closers(def.Body)
+	return _KeptLines(
+		&_Clip{
+			text:  text,
+			def:   def,
+			first: first,
+			last:  last,
+			start: start,
+		},
+	)
+}
+
+// _Clip is the span of a body that sits under its header.
+type _Clip struct {
+	text  *_Lines
+	def   *syntax.DefStmt
+	first syntax.Position
+	last  syntax.Position
+	start int
+}
+
+// _KeptLines is the body with the header's indentation removed.
+//
+// A line that only closes a nest the body itself opened is left out.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _KeptLines(clip *_Clip) string {
+	indent := clip.text.src[clip.text._At(
+		clip.first.Line,
+		FIRST,
+	):clip.start]
+
+	var (
+		from = _First(
+			clip.text.lines,
+			clip.def.Rparen.Line,
+			clip.first.Line,
+		)
+		closers = _Closers(clip.def.Body)
+		to      = _Last(
+			clip.text.lines,
+			clip.last.Line,
+			indent,
+		)
+	)
 
 	var kept []string
 
 	for line := from; line <= to; line++ {
-		if closers[int32(line)] && strings.TrimSpace(lines[line-1]) == END {
+		if closers[int32(line)] && strings.TrimSpace(clip.text.lines[line-1]) == END {
 			continue
 		}
 
-		kept = append(kept, lines[line-1])
+		kept = append(
+			kept,
+			clip.text.lines[line-1],
+		)
 	}
 
-	return _Dedent(strings.Join(kept, "\n"), indent)
+	return _Dedent(
+		strings.Join(
+			kept,
+			"\n",
+		),
+		indent,
+	)
 }
 
 // _First is the first line of a body: the first comment line under the
@@ -77,9 +138,16 @@ func _Body(text *_Lines, def *syntax.DefStmt) string {
 //
 // Revisions:
 //   - 2026-10-02 00:00: initial creation
-func _First(lines []string, head int32, first int32) int {
+func _First(
+	lines []string,
+	head int32,
+	first int32,
+) int {
 	for line := head + 1; line < first; line++ {
-		if strings.HasPrefix(strings.TrimSpace(lines[line-1]), COMMENT) {
+		if strings.HasPrefix(
+			strings.TrimSpace(lines[line-1]),
+			COMMENT,
+		) {
 			return int(line)
 		}
 	}
@@ -93,18 +161,29 @@ func _First(lines []string, head int32, first int32) int {
 //
 // Revisions:
 //   - 2026-10-02 00:00: initial creation
-func _Last(lines []string, last int32, indent string) int {
+func _Last(
+	lines []string,
+	last int32,
+	indent string,
+) int {
 	to := int(last)
 
 	for line := int(last) + 1; line <= len(lines); line++ {
-		text := lines[line-1]
+		var text = lines[line-1]
+
 		trimmed := strings.TrimSpace(text)
 
 		if trimmed == "" {
 			continue
 		}
 
-		inside := strings.HasPrefix(text, indent) && strings.HasPrefix(trimmed, COMMENT)
+		inside := strings.HasPrefix(
+			text,
+			indent,
+		) && strings.HasPrefix(
+			trimmed,
+			COMMENT,
+		)
 		if !inside {
 			break
 		}
@@ -124,7 +203,10 @@ func _Last(lines []string, last int32, indent string) int {
 func _Closers(body []syntax.Stmt) map[int32]bool {
 	found := make(map[int32]bool)
 
-	_Closing(body, found)
+	_Closing(
+		body,
+		found,
+	)
 
 	return found
 }
@@ -137,7 +219,10 @@ func _Closers(body []syntax.Stmt) map[int32]bool {
 //   - 2026-10-02 01:14: finds the closer through dialect.Closed, which the
 //     dialect reads a suite with too
 //   - 2026-10-03 20:49: reaches a def's, a for's or a while's suite through _SuiteOf
-func _Closing(body []syntax.Stmt, found map[int32]bool) {
+func _Closing(
+	body []syntax.Stmt,
+	found map[int32]bool,
+) {
 	closed := len(dialect.Closed(body)) < len(body)
 	if closed {
 		found[syntax.Start(body[len(body)-1]).Line] = true
@@ -146,15 +231,24 @@ func _Closing(body []syntax.Stmt, found map[int32]bool) {
 	for _, stmt := range body {
 		branch, ok := stmt.(*syntax.IfStmt)
 		if ok {
-			_Closing(branch.True, found)
-			_Closing(branch.False, found)
+			_Closing(
+				branch.True,
+				found,
+			)
+			_Closing(
+				branch.False,
+				found,
+			)
 
 			continue
 		}
 
 		suite := _SuiteOf(stmt)
 		if suite != nil {
-			_Closing(*suite, found)
+			_Closing(
+				*suite,
+				found,
+			)
 		}
 	}
 }
@@ -171,8 +265,14 @@ func _Closing(body []syntax.Stmt, found map[int32]bool) {
 //     spaces
 //   - 2026-10-02 00:00: dedents the first line too, since a body is whole
 //     lines now
-func _Dedent(body string, indent string) string {
-	lines := strings.Split(body, "\n")
+func _Dedent(
+	body string,
+	indent string,
+) string {
+	lines := strings.Split(
+		body,
+		"\n",
+	)
 
 	for i := range lines {
 		if strings.TrimSpace(lines[i]) == "" {
@@ -181,10 +281,16 @@ func _Dedent(body string, indent string) string {
 			continue
 		}
 
-		lines[i] = strings.TrimPrefix(lines[i], indent)
+		lines[i] = strings.TrimPrefix(
+			lines[i],
+			indent,
+		)
 	}
 
-	return strings.Join(lines, "\n")
+	return strings.Join(
+		lines,
+		"\n",
+	)
 }
 
 // _Indent prefixes each line. A blank line stays blank, so a nested block
@@ -192,24 +298,39 @@ func _Dedent(body string, indent string) string {
 //
 // Revisions:
 //   - 2026-10-01 11:57: initial creation
-func _Indent(text, indent string) string {
+func _Indent(
+	text,
+	indent string,
+) string {
 	if text == "" {
 		return ""
 	}
 
 	var out []string
 
-	for _, line := range strings.Split(text, "\n") {
+	for _, line := range strings.Split(
+		text,
+		"\n",
+	) {
 		if strings.TrimSpace(line) == "" {
-			out = append(out, "")
+			out = append(
+				out,
+				"",
+			)
 
 			continue
 		}
 
-		out = append(out, indent+line)
+		out = append(
+			out,
+			indent+line,
+		)
 	}
 
-	return strings.Join(out, "\n")
+	return strings.Join(
+		out,
+		"\n",
+	)
 }
 
 // _Params is the names in a def's signature, in order, and whether every one
@@ -232,7 +353,10 @@ func _Params(def *syntax.DefStmt) ([]string, bool) {
 			return nil, false
 		}
 
-		names = append(names, name.Name)
+		names = append(
+			names,
+			name.Name,
+		)
 	}
 
 	return names, true

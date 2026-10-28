@@ -382,13 +382,13 @@ message Arg {
 // does not begin with a call of main. Field 2 is unused: it was the
 // thread list, and a flow has none.
 message Flow {
-  repeated Function functions = 1;
+  repeated Function functions     = 1;
   map<string, Constant> constants = 3;
   map<string, Arg> args           = 4;
 
   oneof spine {
-    Statements main           = 5;
-    string text               = 6;
+    Statements main               = 5;
+    string text                   = 6;
   }
 }
 

@@ -35,8 +35,14 @@ type _Disk struct{}
 //
 // Revisions:
 //   - 2026-09-19 21:47: initial creation
-func (d *_Disk) Resolve(from string, target string) (string, error) {
-	return path.Join(path.Dir(from), target), nil
+func (d *_Disk) Resolve(
+	from string,
+	target string,
+) (string, error) {
+	return path.Join(
+		path.Dir(from),
+		target,
+	), nil
 }
 
 // Load reads the fixture at name.
@@ -44,7 +50,10 @@ func (d *_Disk) Resolve(from string, target string) (string, error) {
 // Revisions:
 //   - 2026-09-19 21:47: initial creation
 func (d *_Disk) Load(name string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(INTERNAL_DIR, name))
+	return os.ReadFile(filepath.Join(
+		INTERNAL_DIR,
+		name,
+	))
 }
 
 // _Names returns the unit names of built, in initialisation order.
@@ -52,10 +61,17 @@ func (d *_Disk) Load(name string) ([]byte, error) {
 // Revisions:
 //   - 2026-09-19 21:47: initial creation
 func _Names(built *Artifact) []string {
-	names := make([]string, 0, len(built.saved.GetUnits()))
+	names := make(
+		[]string,
+		0,
+		len(built.saved.GetUnits()),
+	)
 
 	for _, unit := range built.saved.GetUnits() {
-		names = append(names, unit.GetName())
+		names = append(
+			names,
+			unit.GetName(),
+		)
 	}
 
 	return names
@@ -65,12 +81,22 @@ func _Names(built *Artifact) []string {
 //
 // Revisions:
 //   - 2026-09-19 21:47: initial creation
-func _Build(t *testing.T, name string) *Artifact {
+func _Build(
+	t *testing.T,
+	name string,
+) *Artifact {
 	t.Helper()
 
-	src, err := os.ReadFile(filepath.Join(INTERNAL_DIR, name))
+	src, err := os.ReadFile(filepath.Join(
+		INTERNAL_DIR,
+		name,
+	))
 	if err != nil {
-		t.Fatalf("read fixture %s: %v", name, err)
+		t.Fatalf(
+			"read fixture %s: %v",
+			name,
+			err,
+		)
 	}
 
 	built, err := Compile(&script.Source{
@@ -79,7 +105,11 @@ func _Build(t *testing.T, name string) *Artifact {
 		Loader: &_Disk{},
 	})
 	if err != nil {
-		t.Fatalf("compile %s: %v", name, err)
+		t.Fatalf(
+			"compile %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return built
@@ -91,21 +121,37 @@ func _Build(t *testing.T, name string) *Artifact {
 // Revisions:
 //   - 2026-09-19 21:48: initial creation
 func TestCompile_HoldsEveryDependency(t *testing.T) {
-	names := _Names(_Build(t, ENTRY_FIXTURE))
+	names := _Names(_Build(
+		t,
+		ENTRY_FIXTURE,
+	))
 
 	if len(names) != EXPECTED_UNITS {
-		t.Fatalf("artifact holds %v, want %d units", names, EXPECTED_UNITS)
+		t.Fatalf(
+			"artifact holds %v, want %d units",
+			names,
+			EXPECTED_UNITS,
+		)
 	}
 
 	if names[0] != FIRST_UNIT {
-		t.Fatalf("units are %v, want a dependency first", names)
+		t.Fatalf(
+			"units are %v, want a dependency first",
+			names,
+		)
 	}
 
 	if names[len(names)-1] != LAST_UNIT {
-		t.Fatalf("units are %v, want the entry last", names)
+		t.Fatalf(
+			"units are %v, want the entry last",
+			names,
+		)
 	}
 
-	t.Logf("compiled together, dependencies first: %v", names)
+	t.Logf(
+		"compiled together, dependencies first: %v",
+		names,
+	)
 }
 
 // TestCompile_OneSpellingCanMeanTwoModules proves a module is identified by
@@ -115,7 +161,10 @@ func TestCompile_HoldsEveryDependency(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 21:48: initial creation
 func TestCompile_OneSpellingCanMeanTwoModules(t *testing.T) {
-	names := _Names(_Build(t, BOTH_FIXTURE))
+	names := _Names(_Build(
+		t,
+		BOTH_FIXTURE,
+	))
 
 	for _, want := range []string{LEFT_LIB, RIGHT_LIB} {
 		found := false
@@ -127,9 +176,16 @@ func TestCompile_OneSpellingCanMeanTwoModules(t *testing.T) {
 		}
 
 		if !found {
-			t.Fatalf("units %v do not include %s", names, want)
+			t.Fatalf(
+				"units %v do not include %s",
+				names,
+				want,
+			)
 		}
 	}
 
-	t.Logf("one spelling, two units: %v", names)
+	t.Logf(
+		"one spelling, two units: %v",
+		names,
+	)
 }

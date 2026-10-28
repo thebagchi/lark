@@ -27,7 +27,12 @@ func _NewTrailing(out io.Writer) *_Trailing {
 		ReplaceAttr: _Unspoken,
 	}
 
-	return &_Trailing{inner: slog.NewTextHandler(out, options)}
+	return &_Trailing{
+		inner: slog.NewTextHandler(
+			out,
+			options,
+		),
+	}
 }
 
 // Enabled is whether the handler wrapped writes a record of level.
@@ -35,8 +40,14 @@ func _NewTrailing(out io.Writer) *_Trailing {
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
 //   - 2026-10-03 16:31: moved here from cmd/lark, so WithLog writes as lark does
-func (t *_Trailing) Enabled(ctx context.Context, level slog.Level) bool {
-	return t.inner.Enabled(ctx, level)
+func (t *_Trailing) Enabled(
+	ctx context.Context,
+	level slog.Level,
+) bool {
+	return t.inner.Enabled(
+		ctx,
+		level,
+	)
 }
 
 // Handle writes record with its message moved after its attributes.
@@ -44,8 +55,16 @@ func (t *_Trailing) Enabled(ctx context.Context, level slog.Level) bool {
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
 //   - 2026-10-03 16:31: moved here from cmd/lark, so WithLog writes as lark does
-func (t *_Trailing) Handle(ctx context.Context, record slog.Record) error {
-	moved := slog.NewRecord(record.Time, record.Level, "", record.PC)
+func (t *_Trailing) Handle(
+	ctx context.Context,
+	record slog.Record,
+) error {
+	moved := slog.NewRecord(
+		record.Time,
+		record.Level,
+		"",
+		record.PC,
+	)
 
 	record.Attrs(func(attr slog.Attr) bool {
 		moved.AddAttrs(attr)
@@ -53,9 +72,15 @@ func (t *_Trailing) Handle(ctx context.Context, record slog.Record) error {
 		return true
 	})
 
-	moved.AddAttrs(slog.String(slog.MessageKey, record.Message))
+	moved.AddAttrs(slog.String(
+		slog.MessageKey,
+		record.Message,
+	))
 
-	return t.inner.Handle(ctx, moved)
+	return t.inner.Handle(
+		ctx,
+		moved,
+	)
 }
 
 // WithAttrs is this handler over the wrapped one with attrs added.
@@ -64,7 +89,9 @@ func (t *_Trailing) Handle(ctx context.Context, record slog.Record) error {
 //   - 2026-10-02 16:33: initial creation
 //   - 2026-10-03 16:31: moved here from cmd/lark, so WithLog writes as lark does
 func (t *_Trailing) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &_Trailing{inner: t.inner.WithAttrs(attrs)}
+	return &_Trailing{
+		inner: t.inner.WithAttrs(attrs),
+	}
 }
 
 // WithGroup is this handler over the wrapped one inside the group name.
@@ -73,7 +100,9 @@ func (t *_Trailing) WithAttrs(attrs []slog.Attr) slog.Handler {
 //   - 2026-10-02 16:33: initial creation
 //   - 2026-10-03 16:31: moved here from cmd/lark, so WithLog writes as lark does
 func (t *_Trailing) WithGroup(name string) slog.Handler {
-	return &_Trailing{inner: t.inner.WithGroup(name)}
+	return &_Trailing{
+		inner: t.inner.WithGroup(name),
+	}
 }
 
 // _Unspoken drops the message slog writes first, which Handle emptied after
@@ -84,7 +113,10 @@ func (t *_Trailing) WithGroup(name string) slog.Handler {
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
 //   - 2026-10-03 16:31: moved here from cmd/lark, so WithLog writes as lark does
-func _Unspoken(groups []string, attr slog.Attr) slog.Attr {
+func _Unspoken(
+	groups []string,
+	attr slog.Attr,
+) slog.Attr {
 	emptied := len(groups) == 0 && attr.Key == slog.MessageKey && attr.Value.String() == ""
 	if emptied {
 		return slog.Attr{}

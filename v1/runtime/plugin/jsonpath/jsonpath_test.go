@@ -14,24 +14,34 @@ import (
 	_ "github.com/thebagchi/lark/v1/runtime/plugin/jsonpath"
 )
 
-const SCRIPT = "jsonpath_test.star"
+const (
+	SCRIPT = "jsonpath_test.star"
+)
 
 // _Eval runs one Starlark expression against the plugin environment and
 // returns what it produced, as its String form.
 //
 // Revisions:
 //   - 2026-09-20 01:23: initial creation
-func _Eval(t *testing.T, expression string) (string, error) {
+func _Eval(
+	t *testing.T,
+	expression string,
+) (string, error) {
 	t.Helper()
 
 	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	value, err := starlark.EvalOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT},
+		&starlark.Thread{
+			Name: SCRIPT,
+		},
 		SCRIPT,
 		expression,
 		env,
@@ -47,20 +57,38 @@ func _Eval(t *testing.T, expression string) (string, error) {
 //
 // Revisions:
 //   - 2026-09-20 01:24: initial creation
-func _Check(t *testing.T, cases []struct{ name, expression, want string }) {
+func _Check(
+	t *testing.T,
+	cases []struct{ name, expression, want string },
+) {
 	t.Helper()
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Eval(t, item.expression)
-			if err != nil {
-				t.Fatalf("%s: %v", item.expression, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Eval(
+					t,
+					item.expression,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.expression,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s gave %s, want %s", item.expression, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s gave %s, want %s",
+						item.expression,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -70,23 +98,58 @@ func _Check(t *testing.T, cases []struct{ name, expression, want string }) {
 // Revisions:
 //   - 2026-09-20 01:25: initial creation
 func TestPointer_ResolvesRFC6901(t *testing.T) {
-	const doc = `{"a": {"b": [10, 20]}, "e/f": 1, "g~h": 2, "": 3}`
+	const DOC = `{"a": {"b": [10, 20]}, "e/f": 1, "g~h": 2, "": 3}`
 
-	_Check(t, []struct{ name, expression, want string }{
-		{
-			"whole document",
-			`extract_json(` + doc + `, "")`,
-			`{"a": {"b": [10, 20]}, "e/f": 1, "g~h": 2, "": 3}`,
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"whole document",
+				`extract_json(` + DOC + `, "")`,
+				`{"a": {"b": [10, 20]}, "e/f": 1, "g~h": 2, "": 3}`,
+			},
+			{
+				"member",
+				`extract_json(` + DOC + `, "/a")`,
+				`{"b": [10, 20]}`,
+			},
+			{
+				"nested member",
+				`extract_json(` + DOC + `, "/a/b")`,
+				`[10, 20]`,
+			},
+			{
+				"list index",
+				`extract_json(` + DOC + `, "/a/b/1")`,
+				`20`,
+			},
+			{
+				"escaped slash",
+				`extract_json(` + DOC + `, "/e~1f")`,
+				`1`,
+			},
+			{
+				"escaped tilde",
+				`extract_json(` + DOC + `, "/g~0h")`,
+				`2`,
+			},
+			{
+				"empty key",
+				`extract_json(` + DOC + `, "/")`,
+				`3`,
+			},
+			{
+				"missing member",
+				`extract_json(` + DOC + `, "/nope")`,
+				`None`,
+			},
+			{
+				"index past the end",
+				`extract_json(` + DOC + `, "/a/b/9")`,
+				`None`,
+			},
 		},
-		{"member", `extract_json(` + doc + `, "/a")`, `{"b": [10, 20]}`},
-		{"nested member", `extract_json(` + doc + `, "/a/b")`, `[10, 20]`},
-		{"list index", `extract_json(` + doc + `, "/a/b/1")`, `20`},
-		{"escaped slash", `extract_json(` + doc + `, "/e~1f")`, `1`},
-		{"escaped tilde", `extract_json(` + doc + `, "/g~0h")`, `2`},
-		{"empty key", `extract_json(` + doc + `, "/")`, `3`},
-		{"missing member", `extract_json(` + doc + `, "/nope")`, `None`},
-		{"index past the end", `extract_json(` + doc + `, "/a/b/9")`, `None`},
-	})
+	)
 }
 
 // TestPointer_RefusesWhatIsNotAPointer proves a malformed pointer is the
@@ -97,9 +160,15 @@ func TestPointer_ResolvesRFC6901(t *testing.T) {
 //   - 2026-09-21 08:09: a signed index is not one either
 func TestPointer_RefusesWhatIsNotAPointer(t *testing.T) {
 	for _, pointer := range []string{`"a/b"`, `"/a/01"`, `"/a/"`, `"/a/+0"`, `"/a/-1"`} {
-		_, err := _Eval(t, `extract_json({"a": [1]}, `+pointer+`)`)
+		_, err := _Eval(
+			t,
+			`extract_json({"a": [1]}, `+pointer+`)`,
+		)
 		if err == nil {
-			t.Fatalf("%s was accepted as a pointer", pointer)
+			t.Fatalf(
+				"%s was accepted as a pointer",
+				pointer,
+			)
 		}
 	}
 }
@@ -113,76 +182,93 @@ func TestPointer_RefusesWhatIsNotAPointer(t *testing.T) {
 //   - 2026-10-03 19:28: a move of the whole document onto itself, and a member moved onto
 //     itself keeping its place
 func TestPatch_AppliesRFC6902(t *testing.T) {
-	_Check(t, []struct{ name, expression, want string }{
-		{
-			"add a member",
-			`patch_json({"a": 1}, [{"op": "add", "path": "/b", "value": 2}])`,
-			`{"a": 1, "b": 2}`,
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"add a member",
+				`patch_json({"a": 1}, [{"op": "add", "path": "/b", "value": 2}])`,
+				`{"a": 1, "b": 2}`,
+			},
+			{
+				"add inserts into a list",
+				`patch_json({"a":` +
+					` [1, 3]}, [{"op": "add", "path": "/a/1", ` +
+					`"value": 2}])`,
+				`{"a": [1, 2, 3]}`,
+			},
+			{
+				"add" +
+					" appends with a dash",
+				`patch_json({"a": [1]}, [{"op": "add", "path": "/a/-", ` +
+					`"value": 2}])`,
+				`{"a": [1, 2]}`,
+			},
+			{
+				"replace a member",
+				`patch_json({"a": 1}, [{"op": "replace", "path": "/a", ` +
+					`"value": 2}])`,
+				`{"a": 2}`,
+			},
+			{
+				"remove a member",
+				`patch_json({"a": 1, "b": 2}, [{"op": "remove", "path": "/b"}])`,
+				`{"a": 1}`,
+			},
+			{
+				"remove an element",
+				`patch_json({"a": [1, 2, 3]}, [{"op": "remove", "path": "/a/1"}])`,
+				`{"a": [1, 3]}`,
+			},
+			{
+				"move",
+				`patch_json({"a": 1}, [{"op": "move", "from": "/a", ` +
+					`"path": "/b"}])`,
+				`{"b":` +
+					` 1}`,
+			},
+			{
+				"copy",
+				`patch_json({"a": 1}, [{"op": "copy", "from": "/a", ` +
+					`"path": "/b"}])`,
+				`{"a": 1, "b": 1}`,
+			},
+			{
+				"test that passes leaves the document",
+				`patch_json({"a":` +
+					` 1}, [{"op": "test", "path": "/a", "value": 1}])`,
+				`{"a": 1}`,
+			},
+			{
+				"move onto itself changes nothing",
+				`patch_json({"a": {"b": 1}}, [{"op": "move", "from": "/a", ` +
+					`"path": ` +
+					`"/a"}])`,
+				`{"a": {"b": 1}}`,
+			},
+			{
+				"move" +
+					" the whole document onto itself",
+				`patch_json({"a": 1}, [{"op": "move", "from": "", "path": ""}])`,
+				`{"a": 1}`,
+			},
+			{
+				"move onto itself keeps the member's place",
+				`patch_json({"a":` +
+					` 1, "b": 2}, [{"op": "move", "from": "/a", ` +
+					`"path": ` +
+					`"/a"}])`,
+				`{"a": 1, "b": 2}`,
+			},
+			{
+				"operations apply in order",
+				`patch_json({"a": 1}, [{"op": "add", "path": "/b", "value": 2},` +
+					`{"op": ` +
+					`"remove", "path": "/a"}])`,
+				`{"b": 2}`,
+			},
 		},
-		{
-			"add inserts into a list",
-			`patch_json({"a": [1, 3]}, [{"op": "add", "path": "/a/1", "value": 2}])`,
-			`{"a": [1, 2, 3]}`,
-		},
-		{
-			"add appends with a dash",
-			`patch_json({"a": [1]}, [{"op": "add", "path": "/a/-", "value": 2}])`,
-			`{"a": [1, 2]}`,
-		},
-		{
-			"replace a member",
-			`patch_json({"a": 1}, [{"op": "replace", "path": "/a", "value": 2}])`,
-			`{"a": 2}`,
-		},
-		{
-			"remove a member",
-			`patch_json({"a": 1, "b": 2}, [{"op": "remove", "path": "/b"}])`,
-			`{"a": 1}`,
-		},
-		{
-			"remove an element",
-			`patch_json({"a": [1, 2, 3]}, [{"op": "remove", "path": "/a/1"}])`,
-			`{"a": [1, 3]}`,
-		},
-		{
-			"move",
-			`patch_json({"a": 1}, [{"op": "move", "from": "/a", "path": "/b"}])`,
-			`{"b": 1}`,
-		},
-		{
-			"copy",
-			`patch_json({"a": 1}, [{"op": "copy", "from": "/a", "path": "/b"}])`,
-			`{"a": 1, "b": 1}`,
-		},
-		{
-			"test that passes leaves the document",
-			`patch_json({"a": 1}, [{"op": "test", "path": "/a", "value": 1}])`,
-			`{"a": 1}`,
-		},
-		{
-			"move onto itself changes nothing",
-			`patch_json({"a": {"b": 1}}, [{"op": "move", "from": "/a", "path": ` +
-				`"/a"}])`,
-			`{"a": {"b": 1}}`,
-		},
-		{
-			"move the whole document onto itself",
-			`patch_json({"a": 1}, [{"op": "move", "from": "", "path": ""}])`,
-			`{"a": 1}`,
-		},
-		{
-			"move onto itself keeps the member's place",
-			`patch_json({"a": 1, "b": 2}, [{"op": "move", "from": "/a", "path": ` +
-				`"/a"}])`,
-			`{"a": 1, "b": 2}`,
-		},
-		{
-			"operations apply in order",
-			`patch_json({"a": 1}, [{"op": "add", "path": "/b", "value": 2}, {"op": ` +
-				`"remove", "path": "/a"}])`,
-			`{"b": 2}`,
-		},
-	})
+	)
 }
 
 // TestPatch_RefusesWhatTheSpecificationRefuses covers the error cases §10.7
@@ -199,7 +285,11 @@ func TestPatch_RefusesWhatTheSpecificationRefuses(t *testing.T) {
 			`patch_json({}, [{"op": "invent", "path": "/a"}])`,
 			"unknown patch operation",
 		},
-		{"missing path", `patch_json({}, [{"op": "remove"}])`, "missing a field"},
+		{
+			"missing path",
+			`patch_json({}, [{"op": "remove"}])`,
+			"missing a field",
+		},
 		{
 			"missing value",
 			`patch_json({}, [{"op": "add", "path": "/a"}])`,
@@ -234,17 +324,33 @@ func TestPatch_RefusesWhatTheSpecificationRefuses(t *testing.T) {
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			_, err := _Eval(t, item.expression)
-			if err == nil {
-				t.Fatalf("%s was accepted", item.expression)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					item.expression,
+				)
+				if err == nil {
+					t.Fatalf(
+						"%s was accepted",
+						item.expression,
+					)
+				}
 
-			if !strings.Contains(err.Error(), item.carries) {
-				t.Fatalf("%s failed with %v, want it to mention %q",
-					item.expression, err, item.carries)
-			}
-		})
+				if !strings.Contains(
+					err.Error(),
+					item.carries,
+				) {
+					t.Fatalf(
+						"%s failed with %v, want it to mention %q",
+						item.expression,
+						err,
+						item.carries,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -255,33 +361,47 @@ func TestPatch_RefusesWhatTheSpecificationRefuses(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:31: initial creation
 func TestPatch_LeavesTheInputAlone(t *testing.T) {
-	const source = `
+	const SOURCE = `
 before = {"a": [1, 2]}
 after = patch_json(before, [{"op": "add", "path": "/a/-", "value": 3}])
 `
 
 	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	globals, err := starlark.ExecFileOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT},
+		&starlark.Thread{
+			Name: SCRIPT,
+		},
 		SCRIPT,
-		[]byte(source),
+		[]byte(SOURCE),
 		env,
 	)
 	if err != nil {
-		t.Fatalf("execute: %v", err)
+		t.Fatalf(
+			"execute: %v",
+			err,
+		)
 	}
 
 	if globals["before"].String() != `{"a": [1, 2]}` {
-		t.Fatalf("the input was changed: %s", globals["before"].String())
+		t.Fatalf(
+			"the input was changed: %s",
+			globals["before"].String(),
+		)
 	}
 
 	if globals["after"].String() != `{"a": [1, 2, 3]}` {
-		t.Fatalf("the result is %s", globals["after"].String())
+		t.Fatalf(
+			"the result is %s",
+			globals["after"].String(),
+		)
 	}
 }
 
@@ -291,27 +411,58 @@ after = patch_json(before, [{"op": "add", "path": "/a/-", "value": 3}])
 // Revisions:
 //   - 2026-09-20 01:32: initial creation
 func TestQueries_AnswerQuestionsRatherThanFail(t *testing.T) {
-	const doc = `{"a": {"b": [1, 2, 3]}, "deep": {"nested": {"id": "found"}}, "text": "abcd"}`
+	const DOC = `{"a": {"b": [1, 2, 3]}, "deep": {"nested": {"id": "found"}}, "text": "abcd"}`
 
-	_Check(t, []struct{ name, expression, want string }{
-		{"match", `match_json(` + doc + `, "/a/b/0", 1)`, `True`},
-		{
-			"match is false, not an error, when missing",
-			`match_json(` + doc + `, "/nope", 1)`,
-			`False`,
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"match",
+				`match_json(` + DOC + `, "/a/b/0", 1)`,
+				`True`,
+			},
+			{
+				"match is false, not an error, when missing",
+				`match_json(` + DOC + `, "/nope", 1)`,
+				`False`,
+			},
+			{
+				"match compares 1 and 1.0 as equal",
+				`match_json(` + DOC + `, "/a/b/0", 1.0)`,
+				`True`,
+			},
+			{
+				"length of a list",
+				`len_json(` + DOC + `, "/a/b")`,
+				`3`,
+			},
+			{
+				"length of a string",
+				`len_json(` + DOC + `, "/text")`,
+				`4`,
+			},
+			{
+				"length of a dict",
+				`len_json(` + DOC + `, "/a")`,
+				`1`,
+			},
+			{
+				"length of what is missing is zero",
+				`len_json(` + DOC + `, "/nope")`,
+				`0`,
+			},
+			{
+				"find a key at depth",
+				`find_key(` + DOC + `, "id")`,
+				`"found"`,
+			},
+			{
+				"find what is not there",
+				`find_key(` + DOC + `, "absent")`,
+				`None`,
+			},
 		},
-		{
-			"match compares 1 and 1.0 as equal",
-			`match_json(` + doc + `, "/a/b/0", 1.0)`,
-			`True`,
-		},
-		{"length of a list", `len_json(` + doc + `, "/a/b")`, `3`},
-		{"length of a string", `len_json(` + doc + `, "/text")`, `4`},
-		{"length of a dict", `len_json(` + doc + `, "/a")`, `1`},
-		{"length of what is missing is zero", `len_json(` + doc + `, "/nope")`, `0`},
-		{"find a key at depth", `find_key(` + doc + `, "id")`, `"found"`},
-		{"find what is not there", `find_key(` + doc + `, "absent")`, `None`},
-	})
+	)
 }
 
 // _Global runs a script and returns one of the names it bound.
@@ -322,17 +473,26 @@ func TestQueries_AnswerQuestionsRatherThanFail(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-24 16:15: initial creation
-func _Global(t *testing.T, script string, name string) (string, error) {
+func _Global(
+	t *testing.T,
+	script string,
+	name string,
+) (string, error) {
 	t.Helper()
 
 	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	globals, err := starlark.ExecFileOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT},
+		&starlark.Thread{
+			Name: SCRIPT,
+		},
 		SCRIPT,
 		script,
 		env,
@@ -370,22 +530,53 @@ out["b"]["x"].append(2)
 `
 
 	cases := []struct{ name, script, read, want string }{
-		{"the original is untouched", FLAT, "doc", `{"a": [1]}`},
-		{"and the copy is its own list", FLAT, "out", `{"a": [1], "b": [1, 2]}`},
-		{"a nested container is copied too", NESTED, "doc", `{"a": {"x": [1]}}`},
+		{
+			"the original is untouched",
+			FLAT,
+			"doc",
+			`{"a": [1]}`,
+		},
+		{
+			"and the copy is its own list",
+			FLAT,
+			"out",
+			`{"a": [1], "b": [1, 2]}`,
+		},
+		{
+			"a nested container is copied too",
+			NESTED,
+			"doc",
+			`{"a": {"x": [1]}}`,
+		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Global(t, item.script, item.read)
-			if err != nil {
-				t.Fatalf("%s: %v", item.read, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Global(
+					t,
+					item.script,
+					item.read,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.read,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s was %s, want %s", item.read, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s was %s, want %s",
+						item.read,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -435,28 +626,59 @@ out = patch_json(doc, [
 	)
 
 	cases := []struct{ name, script, read, want string }{
-		{"the input is untouched", MANY, "doc", UNTOUCHED},
-		{"every operation lands, the copy apart from its source", MANY, "out", LANDED},
+		{
+			"the input is untouched",
+			MANY,
+			"doc",
+			UNTOUCHED,
+		},
+		{
+			"every operation lands, the copy apart from its source",
+			MANY,
+			"out",
+			LANDED,
+		},
 		{
 			"a container still the caller's is copied",
 			SIBLING,
 			"doc",
 			`{"x": {"y": 1}, "z": {"w": 1}}`,
 		},
-		{"and written", SIBLING, "out", `{"x": {"y": 2}, "z": {"w": 2}}`},
+		{
+			"and written",
+			SIBLING,
+			"out",
+			`{"x": {"y": 2}, "z": {"w": 2}}`,
+		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Global(t, item.script, item.read)
-			if err != nil {
-				t.Fatalf("%s: %v", item.read, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Global(
+					t,
+					item.script,
+					item.read,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.read,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s was %s, want %s", item.read, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s was %s, want %s",
+						item.read,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -475,7 +697,10 @@ func TestPatch_AMoveKeepsTheValueItTook(t *testing.T) {
 	}
 
 	if got != `{"b": [1]}` {
-		t.Fatalf("got %s, want the value moved", got)
+		t.Fatalf(
+			"got %s, want the value moved",
+			got,
+		)
 	}
 }
 
@@ -511,9 +736,24 @@ out["b"].append(2)
 `
 
 	cases := []struct{ name, script, read, want string }{
-		{"add leaves the document alone", ADDED, "doc", `{"a": [1]}`},
-		{"and the addition is its own list", ADDED, "out", `{"a": [1], "b": [1, 2]}`},
-		{"replace leaves it alone too", REPLACED, "doc", `{"a": [1], "b": [9]}`},
+		{
+			"add leaves the document alone",
+			ADDED,
+			"doc",
+			`{"a": [1]}`,
+		},
+		{
+			"and the addition is its own list",
+			ADDED,
+			"out",
+			`{"a": [1], "b": [1, 2]}`,
+		},
+		{
+			"replace leaves it alone too",
+			REPLACED,
+			"doc",
+			`{"a": [1], "b": [9]}`,
+		},
 		{
 			"a value the caller still holds is not theirs to be changed",
 			OWNED,
@@ -523,15 +763,31 @@ out["b"].append(2)
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Global(t, item.script, item.read)
-			if err != nil {
-				t.Fatalf("%s: %v", item.read, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Global(
+					t,
+					item.script,
+					item.read,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.read,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s was %s, want %s", item.read, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s was %s, want %s",
+						item.read,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }

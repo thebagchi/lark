@@ -34,8 +34,14 @@ type _Files struct {
 //
 // Revisions:
 //   - 2026-09-19 21:44: initial creation
-func (f *_Files) Resolve(from string, target string) (string, error) {
-	return path.Join(path.Dir(from), target), nil
+func (f *_Files) Resolve(
+	from string,
+	target string,
+) (string, error) {
+	return path.Join(
+		path.Dir(from),
+		target,
+	), nil
 }
 
 // Load reads the fixture at name, counting the read.
@@ -45,9 +51,16 @@ func (f *_Files) Resolve(from string, target string) (string, error) {
 func (f *_Files) Load(name string) ([]byte, error) {
 	f.calls[name]++
 
-	src, err := os.ReadFile(filepath.Join(f.dir, name))
+	src, err := os.ReadFile(filepath.Join(
+		f.dir,
+		name,
+	))
 	if err != nil {
-		return nil, fmt.Errorf("read fixture %s: %w", name, err)
+		return nil, fmt.Errorf(
+			"read fixture %s: %w",
+			name,
+			err,
+		)
 	}
 
 	return src, nil
@@ -68,12 +81,22 @@ func _Loader() *_Files {
 //
 // Revisions:
 //   - 2026-09-19 21:44: initial creation
-func _Fixture(t *testing.T, name string) []byte {
+func _Fixture(
+	t *testing.T,
+	name string,
+) []byte {
 	t.Helper()
 
-	src, err := os.ReadFile(filepath.Join(FIXTURE_DIR, name))
+	src, err := os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		name,
+	))
 	if err != nil {
-		t.Fatalf("read fixture %s: %v", name, err)
+		t.Fatalf(
+			"read fixture %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return src
@@ -86,12 +109,18 @@ func _Fixture(t *testing.T, name string) []byte {
 //   - 2026-09-19 21:45: initial creation
 func TestCompile_AllowsAModuleWithoutAnEntryPoint(t *testing.T) {
 	_, err := artifact.Compile(&script.Source{
-		Entry:  LIB_FIXTURE,
-		Text:   _Fixture(t, LIB_FIXTURE),
+		Entry: LIB_FIXTURE,
+		Text: _Fixture(
+			t,
+			LIB_FIXTURE,
+		),
 		Loader: _Loader(),
 	})
 	if err != nil {
-		t.Fatalf("compiling a library: %v", err)
+		t.Fatalf(
+			"compiling a library: %v",
+			err,
+		)
 	}
 }
 
@@ -102,27 +131,47 @@ func TestCompile_AllowsAModuleWithoutAnEntryPoint(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 21:45: initial creation
 func TestCompile_RefusesACycleWithoutRunningAnything(t *testing.T) {
-	loader := _Loader()
+	var loader = _Loader()
 
 	_, err := artifact.Compile(&script.Source{
-		Entry:  CYCLE_A_FIXTURE,
-		Text:   _Fixture(t, CYCLE_A_FIXTURE),
+		Entry: CYCLE_A_FIXTURE,
+		Text: _Fixture(
+			t,
+			CYCLE_A_FIXTURE,
+		),
 		Loader: loader,
 	})
-	if !errors.Is(err, artifact.ERR_CYCLE) {
-		t.Fatalf("compiling a cycle gave %v, want ERR_CYCLE", err)
+	if !errors.Is(
+		err,
+		artifact.ErrCycle,
+	) {
+		t.Fatalf(
+			"compiling a cycle gave %v, want ErrCycle",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), EXPECTED_RING) {
-		t.Fatalf("refusal does not name the ring: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		EXPECTED_RING,
+	) {
+		t.Fatalf(
+			"refusal does not name the ring: %v",
+			err,
+		)
 	}
 
 	if loader.calls[CYCLE_A_FIXTURE] != 0 {
-		t.Fatalf("the module closing the cycle was fetched %d times",
-			loader.calls[CYCLE_A_FIXTURE])
+		t.Fatalf(
+			"the module closing the cycle was fetched %d times",
+			loader.calls[CYCLE_A_FIXTURE],
+		)
 	}
 
-	t.Logf("refused: %v", err)
+	t.Logf(
+		"refused: %v",
+		err,
+	)
 }
 
 // TestCompile_FetchesEachModuleOnce proves two routes to one module produce one
@@ -131,21 +180,31 @@ func TestCompile_RefusesACycleWithoutRunningAnything(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 21:46: initial creation
 func TestCompile_FetchesEachModuleOnce(t *testing.T) {
-	loader := _Loader()
+	var loader = _Loader()
 
 	_, err := artifact.Compile(&script.Source{
-		Entry:  APP_FIXTURE,
-		Text:   _Fixture(t, APP_FIXTURE),
+		Entry: APP_FIXTURE,
+		Text: _Fixture(
+			t,
+			APP_FIXTURE,
+		),
 		Loader: loader,
 	})
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
 	for _, name := range []string{LIB_FIXTURE, HELPER_FIXTURE} {
 		if loader.calls[name] != EXPECTED_FETCH {
-			t.Fatalf("%s was fetched %d times, want %d",
-				name, loader.calls[name], EXPECTED_FETCH)
+			t.Fatalf(
+				"%s was fetched %d times, want %d",
+				name,
+				loader.calls[name],
+				EXPECTED_FETCH,
+			)
 		}
 	}
 }
@@ -160,10 +219,19 @@ func TestCompile_FetchesEachModuleOnce(t *testing.T) {
 //     there being no compile without a loader to refuse
 func TestCompile_ReadsModulesBesideTheScriptByDefault(t *testing.T) {
 	_, err := artifact.Compile(&script.Source{
-		Entry: filepath.Join(FIXTURE_DIR, APP_FIXTURE),
-		Text:  _Fixture(t, APP_FIXTURE),
+		Entry: filepath.Join(
+			FIXTURE_DIR,
+			APP_FIXTURE,
+		),
+		Text: _Fixture(
+			t,
+			APP_FIXTURE,
+		),
 	})
 	if err != nil {
-		t.Fatalf("compiling with modules beside the script: %v", err)
+		t.Fatalf(
+			"compiling with modules beside the script: %v",
+			err,
+		)
 	}
 }

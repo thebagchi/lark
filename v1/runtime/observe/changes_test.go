@@ -44,14 +44,28 @@ func TestChanges_PatchAnEmptyGraphIntoTheRunsOwn(t *testing.T) {
 		guard.Lock()
 		defer guard.Unlock()
 
-		changes = append(changes, change)
+		changes = append(
+			changes,
+			change,
+		)
 	}
 
-	run := observe.Start(t.Context(), _Compile(t, WATCHED), artifact.WithChanges(watch))
-
-	_, err := run.Wait()
+	var (
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				WATCHED,
+			),
+			artifact.WithChanges(watch),
+		)
+		_, err = run.Wait()
+	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	guard.Lock()
@@ -60,12 +74,26 @@ func TestChanges_PatchAnEmptyGraphIntoTheRunsOwn(t *testing.T) {
 	var held any = map[string]any{}
 
 	for _, change := range changes {
-		held = _Folded(t, held, change)
+		held = _Folded(
+			t,
+			held,
+			change,
+		)
 	}
 
-	want := _Decoded(t, run.Status())
-	if !reflect.DeepEqual(held, want) {
-		t.Fatalf("patched into\n%v\nwant\n%v", held, want)
+	want := _Decoded(
+		t,
+		run.Status(),
+	)
+	if !reflect.DeepEqual(
+		held,
+		want,
+	) {
+		t.Fatalf(
+			"patched into\n%v\nwant\n%v",
+			held,
+			want,
+		)
 	}
 }
 
@@ -92,26 +120,46 @@ func TestStatus_FromInsideAChangeIsTheGraphItMade(t *testing.T) {
 		guard.Lock()
 		defer guard.Unlock()
 
-		changes = append(changes, change)
+		changes = append(
+			changes,
+			change,
+		)
 
 		// The first is told inside Start, before there is a run to ask.
 		if len(changes) == 1 {
-			asked = append(asked, nil)
+			asked = append(
+				asked,
+				nil,
+			)
 
 			return
 		}
 
 		<-ready
 
-		asked = append(asked, run.Status())
+		asked = append(
+			asked,
+			run.Status(),
+		)
 	}
 
-	run = observe.Start(t.Context(), _Compile(t, WATCHED), artifact.WithChanges(watch))
+	run = observe.Start(
+		t.Context(),
+		_Compile(
+			t,
+			WATCHED,
+		),
+		artifact.WithChanges(watch),
+	)
+
 	close(ready)
 
 	_, err := run.Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	guard.Lock()
@@ -120,15 +168,30 @@ func TestStatus_FromInsideAChangeIsTheGraphItMade(t *testing.T) {
 	var held any = map[string]any{}
 
 	for idx, change := range changes {
-		held = _Folded(t, held, change)
+		held = _Folded(
+			t,
+			held,
+			change,
+		)
 
 		if asked[idx] == nil {
 			continue
 		}
 
-		want := _Decoded(t, asked[idx])
-		if !reflect.DeepEqual(held, want) {
-			t.Fatalf("change %d patched into\n%v\nStatus said\n%v", idx, held, want)
+		want := _Decoded(
+			t,
+			asked[idx],
+		)
+		if !reflect.DeepEqual(
+			held,
+			want,
+		) {
+			t.Fatalf(
+				"change %d patched into\n%v\nStatus said\n%v",
+				idx,
+				held,
+				want,
+			)
 		}
 	}
 }
@@ -137,12 +200,24 @@ func TestStatus_FromInsideAChangeIsTheGraphItMade(t *testing.T) {
 //
 // Revisions:
 //   - 2026-10-02 16:45: initial creation
-func _Folded(t *testing.T, doc any, change *workflowpb.Change) any {
+func _Folded(
+	t *testing.T,
+	doc any,
+	change *workflowpb.Change,
+) any {
 	t.Helper()
 
 	for _, op := range change.GetOperations() {
-		parts := strings.Split(op.GetPath(), "/")[1:]
-		doc = _Applied(t, doc, parts, op)
+		parts := strings.Split(
+			op.GetPath(),
+			"/",
+		)[1:]
+		doc = _Applied(
+			t,
+			doc,
+			parts,
+			op,
+		)
 	}
 
 	return doc
@@ -153,7 +228,10 @@ func _Folded(t *testing.T, doc any, change *workflowpb.Change) any {
 //
 // Revisions:
 //   - 2026-10-02 16:45: initial creation
-func _Decoded(t *testing.T, graph *workflowpb.Graph) any {
+func _Decoded(
+	t *testing.T,
+	graph *workflowpb.Graph,
+) any {
 	t.Helper()
 
 	raw, err := protojson.Marshal(graph)
@@ -163,7 +241,10 @@ func _Decoded(t *testing.T, graph *workflowpb.Graph) any {
 
 	var decoded any
 
-	err = json.Unmarshal(raw, &decoded)
+	err = json.Unmarshal(
+		raw,
+		&decoded,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +258,12 @@ func _Decoded(t *testing.T, graph *workflowpb.Graph) any {
 //
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
-func _Applied(t *testing.T, doc any, parts []string, op *patchpb.Operation) any {
+func _Applied(
+	t *testing.T,
+	doc any,
+	parts []string,
+	op *patchpb.Operation,
+) any {
 	t.Helper()
 
 	last := len(parts) == 1
@@ -185,13 +271,21 @@ func _Applied(t *testing.T, doc any, parts []string, op *patchpb.Operation) any 
 	switch held := doc.(type) {
 	case map[string]any:
 		if !last {
-			held[parts[0]] = _Applied(t, held[parts[0]], parts[1:], op)
+			held[parts[0]] = _Applied(
+				t,
+				held[parts[0]],
+				parts[1:],
+				op,
+			)
 
 			return held
 		}
 
 		if op.GetOp() == REMOVE {
-			delete(held, parts[0])
+			delete(
+				held,
+				parts[0],
+			)
 
 			return held
 		}
@@ -201,28 +295,52 @@ func _Applied(t *testing.T, doc any, parts []string, op *patchpb.Operation) any 
 		return held
 	case []any:
 		if last && parts[0] == APPEND {
-			return append(held, op.GetValue().AsInterface())
+			return append(
+				held,
+				op.GetValue().AsInterface(),
+			)
 		}
 
 		idx, err := strconv.Atoi(parts[0])
 		if err != nil {
-			t.Fatalf("path %s: %v", op.GetPath(), err)
+			t.Fatalf(
+				"path %s: %v",
+				op.GetPath(),
+				err,
+			)
 		}
 
 		if !last {
-			held[idx] = _Applied(t, held[idx], parts[1:], op)
+			held[idx] = _Applied(
+				t,
+				held[idx],
+				parts[1:],
+				op,
+			)
 
 			return held
 		}
 
 		if op.GetOp() == REMOVE {
-			return slices.Delete(held, idx, idx+1)
+			return slices.Delete(
+				held,
+				idx,
+				idx+1,
+			)
 		}
 
-		return slices.Insert(held, idx, op.GetValue().AsInterface())
+		return slices.Insert(
+			held,
+			idx,
+			op.GetValue().AsInterface(),
+		)
 	}
 
-	t.Fatalf("path %s: nothing to apply it to at %s", op.GetPath(), parts[0])
+	t.Fatalf(
+		"path %s: nothing to apply it to at %s",
+		op.GetPath(),
+		parts[0],
+	)
 
 	return nil
 }

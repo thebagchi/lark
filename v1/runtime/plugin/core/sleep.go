@@ -10,8 +10,10 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// ERR_INTERRUPTED is returned when a sleep is cut short by a cancelled run.
-var ERR_INTERRUPTED = errors.New("sleep was interrupted")
+// ErrInterrupted is returned when a sleep is cut short by a cancelled run.
+var (
+	ErrInterrupted = errors.New("sleep was interrupted")
+)
 
 // _Sleep pauses this evaluation for the given number of milliseconds.
 //
@@ -25,7 +27,7 @@ var ERR_INTERRUPTED = errors.New("sleep was interrupted")
 // The argument is milliseconds, the unit the schema stores. A sleep is a line
 // of the thread that sleeps, reported around the wait.
 //
-// Returns ERR_INTERRUPTED when the evaluation ends first, so a script can tell
+// Returns ErrInterrupted when the evaluation ends first, so a script can tell
 // a sleep that finished from one that was cut short.
 //
 // Revisions:
@@ -39,11 +41,25 @@ func _Sleep(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	scheduler.Open(thread, &scheduler.Line{Builtin: SLEEP})
+	scheduler.Open(
+		thread,
+		&scheduler.Line{
+			Builtin: SLEEP,
+		},
+	)
 
-	value, err := _Slept(thread, fn, args, kwargs)
+	value, err := _Slept(
+		thread,
+		fn,
+		args,
+		kwargs,
+	)
 
-	scheduler.Close(thread, "", err)
+	scheduler.Close(
+		thread,
+		"",
+		err,
+	)
 
 	return value, err
 }
@@ -59,21 +75,38 @@ func _Slept(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	var given starlark.Value
-
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &given)
+	pause, err := _Pause(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, err
 	}
 
-	pause, err := scheduler.Duration(given)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
-	}
+	return _Paused(
+		thread,
+		fn,
+		pause,
+	)
+}
 
+// _Paused sleeps for pause, and stops when the caller's run is cancelled.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Paused(
+	thread *starlark.Thread,
+	fn *starlark.Builtin,
+	pause time.Duration,
+) (starlark.Value, error) {
 	ctx, err := scheduler.Context(thread)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	timer := time.NewTimer(pause)
@@ -84,6 +117,49 @@ func _Slept(
 		return starlark.None, nil
 
 	case <-ctx.Done():
-		return nil, fmt.Errorf("%s: %w: %w", fn.Name(), ERR_INTERRUPTED, ctx.Err())
+		return nil, fmt.Errorf(
+			"%s: %w: %w",
+			fn.Name(),
+			ErrInterrupted,
+			ctx.Err(),
+		)
 	}
+}
+
+// _Pause reads the milliseconds a sleep was given.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Pause(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (time.Duration, error) {
+	var given starlark.Value
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&given,
+	)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	pause, err := scheduler.Duration(given)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	return pause, nil
 }

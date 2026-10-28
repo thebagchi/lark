@@ -18,6 +18,7 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
+// NAME is the module, and the names it holds.
 const (
 	NAME   = "state"
 	SET    = "set"
@@ -96,9 +97,18 @@ func (s *_State) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				SET:    starlark.NewBuiltin(NAME+"."+SET, _Set),
-				GET:    starlark.NewBuiltin(NAME+"."+GET, _Get),
-				UPDATE: starlark.NewBuiltin(NAME+"."+UPDATE, _Update),
+				SET: starlark.NewBuiltin(
+					NAME+"."+SET,
+					_Set,
+				),
+				GET: starlark.NewBuiltin(
+					NAME+"."+GET,
+					_Get,
+				),
+				UPDATE: starlark.NewBuiltin(
+					NAME+"."+UPDATE,
+					_Update,
+				),
 			},
 		},
 	}
@@ -112,9 +122,15 @@ func (s *_State) Values() starlark.StringDict {
 //   - 2026-09-30 21:19: one map of entries rather than a map of values and a
 //     map of charges
 func _Of(thread *starlark.Thread) (*_Store, error) {
-	return scheduler.Shared(thread, NAME, func() *_Store {
-		return &_Store{held: map[string]*_Entry{}}
-	})
+	return scheduler.Shared(
+		thread,
+		NAME,
+		func() *_Store {
+			return &_Store{
+				held: map[string]*_Entry{},
+			}
+		},
+	)
 }
 
 // _Named is the entry for name, made the first time the run uses it.
@@ -127,12 +143,15 @@ func _Of(thread *starlark.Thread) (*_Store, error) {
 // A new entry holds None, which is what a get of a name nothing has written
 // answers anyway.
 //
-// Returns ERR_MEMORY when the run cannot afford another name, having made
+// Returns ErrMemory when the run cannot afford another name, having made
 // nothing.
 //
 // Revisions:
 //   - 2026-09-30 21:19: initial creation
-func (s *_Store) _Named(budget *scheduler.Budget, name string) (*_Entry, error) {
+func (s *_Store) _Named(
+	budget *scheduler.Budget,
+	name string,
+) (*_Entry, error) {
 	s.guard.Lock()
 	defer s.guard.Unlock()
 
@@ -146,7 +165,9 @@ func (s *_Store) _Named(budget *scheduler.Budget, name string) (*_Entry, error) 
 		return nil, err
 	}
 
-	held = &_Entry{value: starlark.None}
+	held = &_Entry{
+		value: starlark.None,
+	}
 	s.held[name] = held
 
 	return held, nil
@@ -174,11 +195,11 @@ func (s *_Store) _Named(budget *scheduler.Budget, name string) (*_Entry, error) 
 // The store's own mutex could not prevent that: it is held for the read and
 // for the write, and released around the call, which is the window.
 //
-// Returns ERR_NESTED when called from inside an update, as a nested update is:
+// Returns ErrNested when called from inside an update, as a nested update is:
 // waiting there would be waiting for a lock this evaluation already holds,
 // which never ends.
 //
-// Returns ERR_MEMORY when the run cannot afford the name or the value, and keeps
+// Returns ErrMemory when the run cannot afford the name or the value, and keeps
 // nothing it could not afford.
 //
 // Revisions:
@@ -193,53 +214,189 @@ func _Set(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+	name, value, err := _SetArgs(
+		fn,
+		args,
+		kwargs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	err = _SetData(
+		thread,
+		fn,
+		name,
+		value,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return _SetKeep(
+		thread,
+		fn,
+		name,
+		value,
+	)
+}
+
+// _SetArgs reads the name and the value a set was given.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _SetArgs(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (string, starlark.Value, error) {
 	var (
 		name  string
 		value starlark.Value
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &name, &value)
+	const NEEDED = 2
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&name,
+		&value,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return "", nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
+	return name, value, nil
+}
+
+// _SetData refuses a value the store would not keep, and stops the run.
+//
+// The check is before the lock. What the value is does not depend on who
+// holds the name, and a doomed call should not wait out an update.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _SetData(
+	thread *starlark.Thread,
+	fn *starlark.Builtin,
+	name string,
+	value starlark.Value,
+) error {
+	bad, ok := deep.IsData(value)
+	if ok {
+		return nil
+	}
+
+	return scheduler.Fail(
+		thread,
+		fmt.Errorf(
+			"%s %q: %s: %w",
+			fn.Name(),
+			name,
+			bad.Type(),
+			ErrNotData,
+		),
+	)
+}
+
+// _SetKeep stores value under name, charging the run and holding the lock.
+//
+// The name is taken before the lock, because the scheduler keeps a lock for
+// every name it is asked for. The other way round, a name the run could not
+// afford would still have left its lock behind.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _SetKeep(
+	thread *starlark.Thread,
+	fn *starlark.Builtin,
+	name string,
+	value starlark.Value,
+) (starlark.Value, error) {
 	store, err := _Of(thread)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
-	// Before the lock, because what the value is does not depend on who holds
-	// the name. Taken after, a doomed call would first wait out whatever
-	// update is running - and a run cancelled during that wait would report
-	// the cancellation rather than the mistake in the script.
-	bad, ok := deep.IsData(value)
-	if !ok {
-		return nil, scheduler.Fail(thread, fmt.Errorf(
-			"%s %q: %s: %w", fn.Name(), name, bad.Type(), ERR_NOT_DATA))
-	}
-
-	budget := scheduler.Allowance(thread)
-
-	// Named before the lock, because the scheduler makes a lock for every name
-	// it is asked for and keeps it. The other way round, a name the run could
-	// not afford would still have left its lock behind.
-	held, err := store._Named(budget, name)
+	held, err := store._Named(
+		scheduler.Allowance(thread),
+		name,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
+		return nil, fmt.Errorf(
+			"%s %q: %w",
+			fn.Name(),
+			name,
+			err,
+		)
 	}
 
-	release, err := scheduler.Lock(thread, name)
+	return _Kept(
+		thread,
+		&_Keep{
+			fn:    fn,
+			held:  held,
+			name:  name,
+			value: value,
+		},
+	)
+}
+
+// _Keep is one value about to be stored under its name.
+type _Keep struct {
+	fn    *starlark.Builtin
+	held  *_Entry
+	name  string
+	value starlark.Value
+}
+
+// _Kept holds the name and stores the value.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Kept(
+	thread *starlark.Thread,
+	keep *_Keep,
+) (starlark.Value, error) {
+	release, err := scheduler.Lock(
+		thread,
+		keep.name,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
+		return nil, fmt.Errorf(
+			"%s %q: %w",
+			keep.fn.Name(),
+			keep.name,
+			err,
+		)
 	}
 
 	defer release()
 
-	value.Freeze()
+	keep.value.Freeze()
 
-	err = held._Keep(budget, value)
+	err = keep.held._Keep(
+		scheduler.Allowance(thread),
+		keep.value,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
+		return nil, fmt.Errorf(
+			"%s %q: %w",
+			keep.fn.Name(),
+			keep.name,
+			err,
+		)
 	}
 
 	return starlark.None, nil
@@ -278,14 +435,28 @@ func _Get(
 ) (starlark.Value, error) {
 	var name string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &name)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&name,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	store, err := _Of(thread)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	store.guard.RLock()
@@ -298,7 +469,11 @@ func _Get(
 
 	copied, err := deep.Copy(held._Value())
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	return copied, nil
@@ -321,12 +496,12 @@ func _Get(
 // must return the new one. It runs while the name is locked, so it should do
 // little: every other thread updating that name waits for it.
 //
-// Returns scheduler.ERR_NESTED when called from inside an update, on this
+// Returns scheduler.ErrNested when called from inside an update, on this
 // thread or on any thread that update started. Two threads updating two names
 // in opposite orders would deadlock, and a script cannot be asked to take
 // locks in an order it cannot see - so nesting is refused rather than ordered.
 //
-// Returns ERR_MEMORY when the run cannot afford the name or what fn returned.
+// Returns ErrMemory when the run cannot afford the name or what fn returned.
 //
 // Revisions:
 //   - 2026-09-20 00:41: initial creation
@@ -340,38 +515,128 @@ func _Update(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+	name, change, err := _UpdateArgs(
+		fn,
+		args,
+		kwargs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	store, err := _Of(thread)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	// Named before the lock, as a set is, so a name the run cannot afford
+	// leaves no lock behind.
+	held, err := store._Named(
+		scheduler.Allowance(thread),
+		name,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%s %q: %w",
+			fn.Name(),
+			name,
+			err,
+		)
+	}
+
+	return _Updated(
+		thread,
+		&_Change{
+			fn:     fn,
+			name:   name,
+			held:   held,
+			change: change,
+		},
+	)
+}
+
+// _Change is one function about to run under its name's lock.
+type _Change struct {
+	fn     *starlark.Builtin
+	name   string
+	held   *_Entry
+	change starlark.Callable
+}
+
+// _UpdateArgs reads the name and the function an update was given.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _UpdateArgs(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (string, starlark.Callable, error) {
 	var (
 		name   string
 		change starlark.Callable
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &name, &change)
+	const NEEDED = 2
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&name,
+		&change,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return "", nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
-	store, err := _Of(thread)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
-	}
+	return name, change, nil
+}
 
-	// Named before the lock, as a set is, so a name the run cannot afford
-	// leaves no lock behind.
-	held, err := store._Named(scheduler.Allowance(thread), name)
+// _Updated holds the name and applies the change.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Updated(
+	thread *starlark.Thread,
+	change *_Change,
+) (starlark.Value, error) {
+	release, err := scheduler.Lock(
+		thread,
+		change.name,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
-	}
-
-	release, err := scheduler.Lock(thread, name)
-	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
+		return nil, fmt.Errorf(
+			"%s %q: %w",
+			change.fn.Name(),
+			change.name,
+			err,
+		)
 	}
 
 	defer release()
 
-	updated, err := held._Apply(thread, name, change)
+	updated, err := change.held._Apply(
+		thread,
+		change.name,
+		change.change,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", fn.Name(), name, err)
+		return nil, fmt.Errorf(
+			"%s %q: %w",
+			change.fn.Name(),
+			change.name,
+			err,
+		)
 	}
 
 	return updated, nil
@@ -403,7 +668,12 @@ func (e *_Entry) _Apply(
 		return nil, err
 	}
 
-	updated, err := starlark.Call(thread, change, starlark.Tuple{current}, nil)
+	updated, err := starlark.Call(
+		thread,
+		change,
+		starlark.Tuple{current},
+		nil,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -413,13 +683,25 @@ func (e *_Entry) _Apply(
 	// function returns is known when it returns.
 	bad, ok := deep.IsData(updated)
 	if !ok {
-		return nil, scheduler.Fail(thread, fmt.Errorf(
-			"%s.%s %q: %s: %w", NAME, UPDATE, name, bad.Type(), ERR_NOT_DATA))
+		return nil, scheduler.Fail(
+			thread,
+			fmt.Errorf(
+				"%s.%s %q: %s: %w",
+				NAME,
+				UPDATE,
+				name,
+				bad.Type(),
+				ErrNotData,
+			),
+		)
 	}
 
 	updated.Freeze()
 
-	err = e._Keep(scheduler.Allowance(thread), updated)
+	err = e._Keep(
+		scheduler.Allowance(thread),
+		updated,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +733,7 @@ func (e *_Entry) _Value() starlark.Value {
 // of them costs. What was charged is remembered in the entry, so the old value
 // is not walked again.
 //
-// Returns ERR_MEMORY when the run cannot afford the increase, and keeps nothing
+// Returns ErrMemory when the run cannot afford the increase, and keeps nothing
 // in that case - the value a script has is unchanged, which is the only answer
 // that leaves the store consistent.
 //
@@ -459,7 +741,10 @@ func (e *_Entry) _Value() starlark.Value {
 //   - 2026-09-27 01:26: initial creation
 //   - 2026-09-30 21:19: the entry's, charged to the budget it is handed rather
 //     than looking one up
-func (e *_Entry) _Keep(budget *scheduler.Budget, value starlark.Value) error {
+func (e *_Entry) _Keep(
+	budget *scheduler.Budget,
+	value starlark.Value,
+) error {
 	size := deep.Size(value)
 
 	e.guard.Lock()

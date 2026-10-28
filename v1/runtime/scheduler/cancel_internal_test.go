@@ -24,34 +24,46 @@ func TestCancelOn_ReleasesAgain(t *testing.T) {
 		name      string
 		cancelled bool
 	}{
-		{"never cancelled", false},
-		{"cancelled first", true},
+		{
+			"never cancelled",
+			false,
+		},
+		{
+			"cancelled first",
+			true,
+		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			ctx, stop := context.WithCancel(t.Context())
-			defer stop()
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				ctx, stop := context.WithCancel(t.Context())
+				defer stop()
 
-			release := _CancelOn(ctx, &starlark.Thread{})
+				release := _CancelOn(
+					ctx,
+					&starlark.Thread{},
+				)
 
-			if item.cancelled {
-				stop()
-			}
+				if item.cancelled {
+					stop()
+				}
 
-			released := make(chan struct{})
+				released := make(chan struct{})
 
-			go func() {
-				release()
-				release()
-				close(released)
-			}()
+				go func() {
+					release()
+					release()
+					close(released)
+				}()
 
-			select {
-			case <-released:
-			case <-time.After(CANCEL_LIMIT):
-				t.Fatal("a second release did not return")
-			}
-		})
+				select {
+				case <-released:
+				case <-time.After(CANCEL_LIMIT):
+					t.Fatal("a second release did not return")
+				}
+			},
+		)
 	}
 }

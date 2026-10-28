@@ -4,9 +4,9 @@ import (
 	"go.starlark.net/starlark"
 )
 
+// CALLER is how deep a builtin's caller sits on the interpreter's call
+// stack: depth 0 is the builtin itself.
 const (
-	// CALLER is how deep a builtin's caller sits on the interpreter's call
-	// stack: depth 0 is the builtin itself.
 	CALLER = 1
 
 	// ATTR_THREAD and ATTR_FUNCTION are the attributes a printed line is logged

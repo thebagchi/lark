@@ -43,21 +43,45 @@ func TestSample_SaysWhatItGenerates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	commented, code, found := strings.Cut(string(text), GENERATED)
+	commented, code, found := strings.Cut(
+		string(text),
+		GENERATED,
+	)
 	if !found {
-		t.Fatalf("want %q in the sample", GENERATED)
+		t.Fatalf(
+			"want %q in the sample",
+			GENERATED,
+		)
 	}
 
-	_, graphed, found := strings.Cut(commented, MARK)
+	_, graphed, found := strings.Cut(
+		commented,
+		MARK,
+	)
 	if !found {
-		t.Fatalf("want %q in the sample", MARK)
+		t.Fatalf(
+			"want %q in the sample",
+			MARK,
+		)
 	}
 
 	var lines []string
 
-	for _, line := range strings.Split(graphed, "\n") {
-		if strings.HasPrefix(line, PREFIX) || line == "#" {
-			lines = append(lines, strings.TrimPrefix(line, PREFIX))
+	for _, line := range strings.Split(
+		graphed,
+		"\n",
+	) {
+		if strings.HasPrefix(
+			line,
+			PREFIX,
+		) || line == "#" {
+			lines = append(
+				lines,
+				strings.TrimPrefix(
+					line,
+					PREFIX,
+				),
+			)
 		}
 	}
 
@@ -65,14 +89,26 @@ func TestSample_SaysWhatItGenerates(t *testing.T) {
 	// broken comment fails here rather than as a confusing proto error.
 	var tidy bytes.Buffer
 
-	err = json.Compact(&tidy, []byte(strings.Join(lines, "\n")))
+	err = json.Compact(
+		&tidy,
+		[]byte(strings.Join(
+			lines,
+			"\n",
+		)),
+	)
 	if err != nil {
-		t.Fatalf("the commented flow is not json: %v", err)
+		t.Fatalf(
+			"the commented flow is not json: %v",
+			err,
+		)
 	}
 
 	var declared workflowpb.Flow
 
-	err = protojson.Unmarshal(tidy.Bytes(), &declared)
+	err = protojson.Unmarshal(
+		tidy.Bytes(),
+		&declared,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +119,10 @@ func TestSample_SaysWhatItGenerates(t *testing.T) {
 	}
 
 	if strings.TrimSpace(string(out)) != strings.TrimSpace(code) {
-		t.Fatalf("the sample's code is not what its flow generates\nwant\n%s\ngot\n%s",
-			out, code)
+		t.Fatalf(
+			"the sample's code is not what its flow generates\nwant\n%s\ngot\n%s",
+			out,
+			code,
+		)
 	}
 }

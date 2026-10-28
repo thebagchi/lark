@@ -7,9 +7,11 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// ERR_NESTED is returned when an evaluation inside an update, or anything that
+// ErrNested is returned when an evaluation inside an update, or anything that
 // evaluation started, begins another.
-var ERR_NESTED = errors.New("an update cannot start another")
+var (
+	ErrNested = errors.New("an update cannot start another")
+)
 
 // Lock takes the run's lock for name on behalf of the evaluation on thread, and
 // returns the function that releases it.
@@ -18,11 +20,11 @@ var ERR_NESTED = errors.New("an update cannot start another")
 // sync.Mutex cannot: a run cancelled while a thread waits for a name another
 // thread holds must end, not hang.
 //
-// Returns ERR_NESTED when the evaluation, or the evaluation that started it, is
+// Returns ErrNested when the evaluation, or the evaluation that started it, is
 // already inside an update - so a nested update is refused through a spawn or
 // a timeout as surely as on the thread that started it. Two threads updating
 // two names in opposite orders would deadlock, and a script cannot be asked to
-// take locks in an order it cannot see. Returns ERR_CANCELLED wrapping the
+// take locks in an order it cannot see. Returns ErrCancelled wrapping the
 // context's error when the wait is cancelled.
 //
 // **A thread spawned inside an update cannot lock for the rest of its life.**
@@ -43,21 +45,28 @@ var ERR_NESTED = errors.New("an update cannot start another")
 //   - 2026-09-21 08:09: initial creation
 //   - 2026-09-21 09:46: the name held is one string, since there is never a
 //     second
-func Lock(thread *starlark.Thread, name string) (func(), error) {
+func Lock(
+	thread *starlark.Thread,
+	name string,
+) (func(), error) {
 	locals, err := _Of(thread)
 	if err != nil {
 		return nil, err
 	}
 
 	if locals.holding {
-		return nil, fmt.Errorf("already updating %q: %w", locals.inside, ERR_NESTED)
+		return nil, fmt.Errorf(
+			"already updating %q: %w",
+			locals.inside,
+			ErrNested,
+		)
 	}
 
 	if locals.inside != "" {
 		return nil, fmt.Errorf(
 			"started inside an update of %q: %w",
 			locals.inside,
-			ERR_NESTED,
+			ErrNested,
 		)
 	}
 
@@ -69,7 +78,7 @@ func Lock(thread *starlark.Thread, name string) (func(), error) {
 		return nil, fmt.Errorf(
 			"waiting for %q: %w: %w",
 			name,
-			ERR_CANCELLED,
+			ErrCancelled,
 			locals.ctx.Err(),
 		)
 	}
@@ -96,7 +105,10 @@ func (r *_Run) _Slot(name string) chan struct{} {
 
 	slot, found := r.locks[name]
 	if !found {
-		slot = make(chan struct{}, 1)
+		slot = make(
+			chan struct{},
+			1,
+		)
 		r.locks[name] = slot
 	}
 

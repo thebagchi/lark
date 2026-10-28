@@ -21,10 +21,22 @@ func TestDuration_ReadsWholeMilliseconds(t *testing.T) {
 		given starlark.Value
 		want  time.Duration
 	}{
-		"nothing at all":      {starlark.MakeInt(0), 0},
-		"a millisecond":       {starlark.MakeInt(1), time.Millisecond},
-		"a second":            {starlark.MakeInt(1000), time.Second},
-		"a second as a float": {starlark.Float(1000), time.Second},
+		"nothing at all": {
+			starlark.MakeInt(0),
+			0,
+		},
+		"a millisecond": {
+			starlark.MakeInt(1),
+			time.Millisecond,
+		},
+		"a second": {
+			starlark.MakeInt(1000),
+			time.Second,
+		},
+		"a second as a float": {
+			starlark.Float(1000),
+			time.Second,
+		},
 		"the most an int32 is": {
 			starlark.MakeInt(math.MaxInt32),
 			math.MaxInt32 * time.Millisecond,
@@ -32,16 +44,28 @@ func TestDuration_ReadsWholeMilliseconds(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			held, err := scheduler.Duration(tc.given)
-			if err != nil {
-				t.Fatalf("%v gave %v", tc.given, err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				held, err := scheduler.Duration(tc.given)
+				if err != nil {
+					t.Fatalf(
+						"%v gave %v",
+						tc.given,
+						err,
+					)
+				}
 
-			if held != tc.want {
-				t.Fatalf("%v gave %v, want %v", tc.given, held, tc.want)
-			}
-		})
+				if held != tc.want {
+					t.Fatalf(
+						"%v gave %v, want %v",
+						tc.given,
+						held,
+						tc.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -62,11 +86,21 @@ func TestDuration_RefusesWhatTheSchemaCannotHold(t *testing.T) {
 	}
 
 	for name, given := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := scheduler.Duration(given)
-			if !errors.Is(err, scheduler.ERR_DURATION) {
-				t.Fatalf("%v gave %v, want ERR_DURATION", given, err)
-			}
-		})
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := scheduler.Duration(given)
+				if !errors.Is(
+					err,
+					scheduler.ErrDuration,
+				) {
+					t.Fatalf(
+						"%v gave %v, want ErrDuration",
+						given,
+						err,
+					)
+				}
+			},
+		)
 	}
 }

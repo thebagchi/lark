@@ -44,8 +44,15 @@ type _Graph struct {
 //     afterwards
 //   - 2026-10-03 21:00: encodes into the bytes it keeps, rather than into text it
 //     then copied into bytes
-func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
-	tree, code, err := dialect.Compile(path, src, g.env.Has)
+func (g *_Graph) _Add(
+	path string,
+	src []byte,
+) (*_Unit, error) {
+	tree, code, err := dialect.Compile(
+		path,
+		src,
+		g.env.Has,
+	)
 	if err != nil {
 		// Not wrapped with the path: a parse or resolve error from the
 		// interpreter already opens with file:line:column, and repeating the
@@ -53,47 +60,118 @@ func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 		return nil, err
 	}
 
-	var encoded bytes.Buffer
-
-	err = code.Write(&encoded)
+	saved, err := _Encoded(
+		path,
+		code,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("encode %s: %w", path, err)
+		return nil, err
 	}
 
 	// Not wrapped with the path: a refusal carries the position it was
 	// written at, which opens with the file, and repeating it makes a reader
 	// scan past the same name twice.
-	err = _Checked(g.plugins, tree)
+	err = _Checked(
+		g.plugins,
+		tree,
+	)
 	if err != nil {
 		return nil, err
 	}
 
+	return g._Stored(
+		path,
+		tree,
+		code,
+		saved,
+	)
+}
+
+// _Stored keeps the unit and the modules it loads.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (g *_Graph) _Stored(
+	path string,
+	tree *syntax.File,
+	code *starlark.Program,
+	saved *artifactpb.Unit,
+) (*_Unit, error) {
 	unit := &_Unit{
-		saved: &artifactpb.Unit{
-			Name:  path,
-			Code:  encoded.Bytes(),
-			Loads: map[string]string{},
-		},
-		tree: tree,
-		code: code,
+		saved: saved,
+		tree:  tree,
+		code:  code,
 	}
 
 	g.units[path] = unit
 
-	for index := range code.NumLoads() {
-		module, _ := code.Load(index)
+	err := g._Loads(
+		path,
+		unit,
+		code,
+	)
+	if err != nil {
+		return nil, err
+	}
 
-		name, err := g._Reach(path, module)
+	g.order = append(
+		g.order,
+		path,
+	)
+
+	return unit, nil
+}
+
+// _Encoded writes the compiled program into the unit the artifact keeps.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Encoded(
+	path string,
+	code *starlark.Program,
+) (*artifactpb.Unit, error) {
+	var encoded bytes.Buffer
+
+	err := code.Write(&encoded)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"encode %s: %w",
+			path,
+			err,
+		)
+	}
+
+	return &artifactpb.Unit{
+		Name:  path,
+		Code:  encoded.Bytes(),
+		Loads: map[string]string{},
+	}, nil
+}
+
+// _Loads brings in every module this unit names.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (g *_Graph) _Loads(
+	path string,
+	unit *_Unit,
+	code *starlark.Program,
+) error {
+	for index := range code.NumLoads() {
+		var module, _ = code.Load(index)
+
+		name, err := g._Reach(
+			path,
+			module,
+		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		unit.saved.Loads[module] = name
 	}
 
-	g.order = append(g.order, path)
-
-	return unit, nil
+	return nil
 }
 
 // _Reach brings the module target, as spelled by from, into the graph if it is
@@ -122,17 +200,26 @@ func (g *_Graph) _Add(path string, src []byte) (*_Unit, error) {
 //     module and none at all for a cycle
 //   - 2026-10-03 00:10: always has a loader, a source naming none reading
 //     files beside the script
-func (g *_Graph) _Reach(from string, target string) (string, error) {
-	name, err := g.loader.Resolve(from, target)
+func (g *_Graph) _Reach(
+	from string,
+	target string,
+) (string, error) {
+	name, err := g.loader.Resolve(
+		from,
+		target,
+	)
 	if err != nil {
-		return "", fmt.Errorf("cannot resolve %q from %s: %w", target, from, err)
+		return "", fmt.Errorf(
+			"cannot resolve %q from %s: %w",
+			target,
+			from,
+			err,
+		)
 	}
 
-	start := slices.Index(g.chain, name)
-	if start >= 0 {
-		ring := append(slices.Clone(g.chain[start:]), name)
-
-		return "", fmt.Errorf("%w: %s", ERR_CYCLE, strings.Join(ring, CHAIN_ARROW))
+	err = g._Cycle(name)
+	if err != nil {
+		return "", err
 	}
 
 	_, done := g.units[name]
@@ -140,21 +227,86 @@ func (g *_Graph) _Reach(from string, target string) (string, error) {
 		return name, nil
 	}
 
-	src, err := g.loader.Load(name)
-	if err != nil {
-		// The spelling and the file that wrote it, because the loader's own
-		// error says what it tried to reach. Wrapping with the resolved name
-		// would print one path twice.
-		return "", fmt.Errorf("cannot load %q from %s: %w", target, from, err)
+	return g._Fetch(
+		from,
+		target,
+		name,
+	)
+}
+
+// _Cycle refuses name when it is already on the chain being built.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (g *_Graph) _Cycle(name string) error {
+	start := slices.Index(
+		g.chain,
+		name,
+	)
+	if start < 0 {
+		return nil
 	}
 
-	g.chain = append(g.chain, name)
+	ring := append(
+		slices.Clone(g.chain[start:]),
+		name,
+	)
+
+	return fmt.Errorf(
+		"%w: %s",
+		ErrCycle,
+		strings.Join(
+			ring,
+			CHAIN_ARROW,
+		),
+	)
+}
+
+// _Fetch reads name and compiles it, with name on the chain while that runs.
+//
+// The spelling and the file that wrote it stay in the error, because the
+// loader's own error says what it tried to reach.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+//   - 2026-10-24 20:00: refuses a chain longer than MAX_DEPTH
+func (g *_Graph) _Fetch(
+	from string,
+	target string,
+	name string,
+) (string, error) {
+	if len(g.chain) >= MAX_DEPTH {
+		return "", fmt.Errorf(
+			"%s from %s: %w",
+			name,
+			from,
+			ErrDepth,
+		)
+	}
+
+	src, err := g.loader.Load(name)
+	if err != nil {
+		return "", fmt.Errorf(
+			"cannot load %q from %s: %w",
+			target,
+			from,
+			err,
+		)
+	}
+
+	g.chain = append(
+		g.chain,
+		name,
+	)
 
 	defer func() {
 		g.chain = g.chain[:len(g.chain)-1]
 	}()
 
-	_, err = g._Add(name, src)
+	_, err = g._Add(
+		name,
+		src,
+	)
 
 	return name, err
 }
@@ -183,11 +335,18 @@ func _Link(
 ) *Artifact {
 	message := &artifactpb.Artifact{
 		Entry: entry,
-		Units: make([]*artifactpb.Unit, 0, len(order)),
+		Units: make(
+			[]*artifactpb.Unit,
+			0,
+			len(order),
+		),
 	}
 
 	for _, name := range order {
-		message.Units = append(message.Units, units[name].saved)
+		message.Units = append(
+			message.Units,
+			units[name].saved,
+		)
 	}
 
 	return &Artifact{
@@ -229,7 +388,10 @@ func (a *Artifact) _Initialise(
 ) (starlark.StringDict, error) {
 	built := map[string]starlark.StringDict{}
 
-	_Bind(thread, supplied)
+	_Bind(
+		thread,
+		supplied,
+	)
 
 	defer func() {
 		_Unbind(thread)
@@ -238,31 +400,63 @@ func (a *Artifact) _Initialise(
 	}()
 
 	for _, path := range a.order {
-		unit := a.units[path]
-
-		thread.Load = func(
-			_ *starlark.Thread,
-			spelling string,
-		) (starlark.StringDict, error) {
-			globals, found := built[unit.saved.GetLoads()[spelling]]
-			if !found {
-				return nil, fmt.Errorf("%s: %w", spelling, ERR_NO_UNIT)
-			}
-
-			return globals, nil
-		}
-
-		globals, err := unit.code.Init(thread, a.env)
+		globals, err := a._InitUnit(
+			thread,
+			path,
+			a.units[path],
+			built,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("initialise %s: %w", path, err)
+			return nil, err
 		}
-
-		globals.Freeze()
 
 		built[path] = globals
 	}
 
 	return built[a.saved.GetEntry()], nil
+}
+
+// _InitUnit runs one unit, loading the units it names from built.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (a *Artifact) _InitUnit(
+	thread *starlark.Thread,
+	path string,
+	unit *_Unit,
+	built map[string]starlark.StringDict,
+) (starlark.StringDict, error) {
+	thread.Load = func(
+		_ *starlark.Thread,
+		spelling string,
+	) (starlark.StringDict, error) {
+		globals, found := built[unit.saved.GetLoads()[spelling]]
+		if !found {
+			return nil, fmt.Errorf(
+				"%s: %w",
+				spelling,
+				ErrNoUnit,
+			)
+		}
+
+		return globals, nil
+	}
+
+	globals, err := unit.code.Init(
+		thread,
+		a.env,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"initialise %s: %w",
+			path,
+			err,
+		)
+	}
+
+	globals.Freeze()
+
+	return globals, nil
 }
 
 // _Checked lets every plugin that wants to refuse a use of its own names read
@@ -275,7 +469,10 @@ func (a *Artifact) _Initialise(
 // Revisions:
 //   - 2026-09-24 17:40: initial creation
 //   - 2026-10-03 08:27: takes the plugins, a list
-func _Checked(plugins []plugin.Plugin, tree *syntax.File) error {
+func _Checked(
+	plugins []plugin.Plugin,
+	tree *syntax.File,
+) error {
 	bound := _Bound(tree)
 
 	for _, installed := range plugins {
@@ -284,7 +481,10 @@ func _Checked(plugins []plugin.Plugin, tree *syntax.File) error {
 			continue
 		}
 
-		if _Shadowed(installed, bound) {
+		if _Shadowed(
+			installed,
+			bound,
+		) {
 			continue
 		}
 
@@ -321,7 +521,10 @@ func _Checked(plugins []plugin.Plugin, tree *syntax.File) error {
 func _Bound(tree *syntax.File) map[string]bool {
 	bound := map[string]bool{}
 
-	dialect.Bound(tree.Stmts, bound)
+	dialect.Bound(
+		tree.Stmts,
+		bound,
+	)
 
 	return bound
 }
@@ -342,7 +545,10 @@ func _Bound(tree *syntax.File) map[string]bool {
 //
 // Revisions:
 //   - 2026-09-24 20:46: initial creation
-func _Shadowed(installed plugin.Plugin, bound map[string]bool) bool {
+func _Shadowed(
+	installed plugin.Plugin,
+	bound map[string]bool,
+) bool {
 	for name := range installed.Values() {
 		if bound[name] {
 			return true

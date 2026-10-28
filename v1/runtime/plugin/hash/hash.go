@@ -40,12 +40,14 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
-// ERR_ALGORITHM is returned for a keyed digest asked for under a name this does
+// ErrAlgorithm is returned for a keyed digest asked for under a name this does
 // not know.
-var ERR_ALGORITHM = errors.New("no such algorithm")
+var (
+	ErrAlgorithm = errors.New("no such algorithm")
+)
 
+// NAME is the module, and the names it holds.
 const (
-	// NAME is the module, and the names it holds.
 	NAME   = "hash"
 	MD5    = "md5"
 	SHA1   = "sha1"
@@ -98,8 +100,14 @@ func (h *_Hash) Values() starlark.StringDict {
 				SHA1:   _Digest(SHA1),
 				SHA256: _Digest(SHA256),
 				SHA512: _Digest(SHA512),
-				HMAC:   starlark.NewBuiltin(NAME+"."+HMAC, _HMAC),
-				CRC32:  starlark.NewBuiltin(NAME+"."+CRC32, _CRC32),
+				HMAC: starlark.NewBuiltin(
+					NAME+"."+HMAC,
+					_HMAC,
+				),
+				CRC32: starlark.NewBuiltin(
+					NAME+"."+CRC32,
+					_CRC32,
+				),
 			},
 		},
 	}
@@ -114,24 +122,39 @@ func (h *_Hash) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
 func _Digest(name string) *starlark.Builtin {
-	return starlark.NewBuiltin(NAME+"."+name, func(
-		thread *starlark.Thread,
-		fn *starlark.Builtin,
-		args starlark.Tuple,
-		kwargs []starlark.Tuple,
-	) (starlark.Value, error) {
-		data, err := unpack.Data(fn, args, kwargs)
-		if err != nil {
-			return nil, err
-		}
+	return starlark.NewBuiltin(
+		NAME+"."+name,
+		func(
+			thread *starlark.Thread,
+			fn *starlark.Builtin,
+			args starlark.Tuple,
+			kwargs []starlark.Tuple,
+		) (starlark.Value, error) {
+			data, err := unpack.Data(
+				fn,
+				args,
+				kwargs,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		digest, err := _Maker(name)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", fn.Name(), err)
-		}
+			digest, err := _Maker(name)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"%s: %w",
+					fn.Name(),
+					err,
+				)
+			}
 
-		return _Sum(fn.Name(), digest(), data)
-	})
+			return _Sum(
+				fn.Name(),
+				digest(),
+				data,
+			)
+		},
+	)
 }
 
 // _HMAC is the keyed digest: hmac(algorithm, key, data).
@@ -140,7 +163,7 @@ func _Digest(name string) *starlark.Builtin {
 // because a script choosing between them chooses a string and a table of five
 // near-identical names would be read as five different things.
 //
-// Returns ERR_ALGORITHM for a name this does not know.
+// Returns ErrAlgorithm for a name this does not know.
 //
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
@@ -150,34 +173,102 @@ func _HMAC(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	var (
-		algorithm string
-		key       starlark.Value
-		data      starlark.Value
+	algorithm, key, data, err := _HMACArgs(
+		fn,
+		args,
+		kwargs,
 	)
-
-	err := starlark.UnpackArgs(fn.Name(), args, kwargs,
-		ALGORITHM, &algorithm, KEY, &key, DATA, &data)
 	if err != nil {
 		return nil, err
 	}
 
-	secret, err := unpack.Bytes(fn.Name(), key)
-	if err != nil {
-		return nil, err
-	}
-
-	message, err := unpack.Bytes(fn.Name(), data)
+	secret, message, err := _HMACBytes(
+		fn,
+		key,
+		data,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	digest, err := _Maker(algorithm)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
-	return _Sum(fn.Name(), hmac.New(digest, secret), message)
+	return _Sum(
+		fn.Name(),
+		hmac.New(
+			digest,
+			secret,
+		),
+		message,
+	)
+}
+
+// _HMACArgs reads the algorithm, the key, and the message.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _HMACArgs(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (string, starlark.Value, starlark.Value, error) {
+	var (
+		algorithm string
+		key       starlark.Value
+		data      starlark.Value
+	)
+
+	err := starlark.UnpackArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		ALGORITHM,
+		&algorithm,
+		KEY,
+		&key,
+		DATA,
+		&data,
+	)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	return algorithm, key, data, nil
+}
+
+// _HMACBytes reads the key and the message as bytes.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _HMACBytes(
+	fn *starlark.Builtin,
+	key starlark.Value,
+	data starlark.Value,
+) ([]byte, []byte, error) {
+	secret, err := unpack.Bytes(
+		fn.Name(),
+		key,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	message, err := unpack.Bytes(
+		fn.Name(),
+		data,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return secret, message, nil
 }
 
 // _Maker is the constructor one name asks for.
@@ -204,7 +295,11 @@ func _Maker(name string) (func() stdhash.Hash, error) {
 		return sha512.New, nil
 	}
 
-	return nil, fmt.Errorf("%q: %w", name, ERR_ALGORITHM)
+	return nil, fmt.Errorf(
+		"%q: %w",
+		name,
+		ErrAlgorithm,
+	)
 }
 
 // _Sum is data through made, as upper-case hex.
@@ -216,11 +311,22 @@ func _Maker(name string) (func() stdhash.Hash, error) {
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
 //   - 2026-10-08 18:06: upper case, as every hex the runtime writes
-func _Sum(who string, made stdhash.Hash, data []byte) (starlark.Value, error) {
+func _Sum(
+	who string,
+	made stdhash.Hash,
+	data []byte,
+) (starlark.Value, error) {
 	_, err := made.Write(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", who, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			who,
+			err,
+		)
 	}
 
-	return starlark.String(fmt.Sprintf("%X", made.Sum(nil))), nil
+	return starlark.String(fmt.Sprintf(
+		"%X",
+		made.Sum(nil),
+	)), nil
 }

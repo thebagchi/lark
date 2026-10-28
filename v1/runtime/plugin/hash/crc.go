@@ -25,7 +25,7 @@ import (
 //   - 2026-09-21 15:25: initial creation, as codec's crc32
 //   - 2026-09-24 16:08: refuses a seed too wide to be a checksum, rather than
 //     truncating it
-//   - 2026-10-08 17:47: a member of the hash module, refusing with unpack's ERR_RANGE
+//   - 2026-10-08 17:47: a member of the hash module, refusing with unpack's ErrRange
 func _CRC32(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -37,12 +37,26 @@ func _CRC32(
 		seed  = starlark.MakeInt(NO_SEED)
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &given, &seed)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&given,
+		&seed,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
-	data, err := unpack.Bytes(fn.Name(), given)
+	data, err := unpack.Bytes(
+		fn.Name(),
+		given,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -53,9 +67,13 @@ func _CRC32(
 			"%s got %s to continue: %w",
 			fn.Name(),
 			seed,
-			unpack.ERR_RANGE,
+			unpack.ErrRange,
 		)
 	}
 
-	return starlark.MakeUint64(uint64(crc32.Update(uint32(held), crc32.IEEETable, data))), nil
+	return starlark.MakeUint64(uint64(crc32.Update(
+		uint32(held),
+		crc32.IEEETable,
+		data,
+	))), nil
 }

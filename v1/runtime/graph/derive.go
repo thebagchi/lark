@@ -15,36 +15,44 @@ import (
 )
 
 var (
-	// ERR_NO_MAIN is returned for a script defining no entry point. Such a file
+	// ErrNoMain is returned for a script defining no entry point. Such a file
 	// is a module - something else loads it - and a module is not a workflow.
 	// spelling's, so it is the value a run refuses one with.
-	ERR_NO_MAIN = spelling.ERR_NO_MAIN
+	ErrNoMain = spelling.ErrNoMain
 
-	// ERR_CYCLE is returned for modules that load each other: one reached while
+	// ErrCycle is returned for modules that load each other: one reached while
 	// it is still being read. spelling's, so it is the value a compile refuses
 	// the same ring with.
-	ERR_CYCLE = spelling.ERR_CYCLE
+	ErrCycle = spelling.ErrCycle
 
-	// ERR_CONSTANT is returned for a module-level value a flow cannot carry,
+	// ErrDepth is returned for a chain of loads longer than MAX_DEPTH.
+	ErrDepth = spelling.ErrDepth
+
+	// ErrConstant is returned for a module-level value a flow cannot carry,
 	// and by Check for constants that name each other in a cycle.
 	//
 	// A giving-up rather than a classification, unlike an argument that states
 	// no value. There is nowhere for a constant to ride along: dropping it
 	// leaves every function that reads it failing with undefined, which is the
 	// bug Flow.constants exists to fix.
-	ERR_CONSTANT = errors.New("constant cannot be carried")
+	ErrConstant = errors.New("constant cannot be carried")
 
-	// ERR_SIGNATURE is returned for a def whose signature a flow cannot carry:
+	// ErrSignature is returned for a def whose signature a flow cannot carry:
 	// a default, a *args or a **kwargs. Function.params is a list of names,
 	// and emitting the bare names would generate a program the script was
 	// not - a call relying on the default would fail with an undefined name.
-	ERR_SIGNATURE = errors.New("signature cannot be carried")
+	ErrSignature = errors.New("signature cannot be carried")
 )
 
+// MAX_DEPTH is spelling's, so both sides refuse the same length.
 const (
-	// The vocabulary a script and a flow share, from the one package that
-	// holds it. SUBJECT is the local a match evaluates its expression into,
-	// the one name the walk reads as a match; the flow does not store it.
+	MAX_DEPTH = spelling.MAX_DEPTH
+)
+
+// The vocabulary a script and a flow share, from the one package that
+// holds it. SUBJECT is the local a match evaluates its expression into,
+// the one name the walk reads as a match; the flow does not store it.
+const (
 	ENTRY   = spelling.ENTRY
 	SPAWN   = spelling.SPAWN
 	JOIN    = spelling.JOIN
@@ -93,9 +101,9 @@ type _Reading struct {
 // walk cannot model makes the whole of it text. Parsing goes through
 // dialect.OPTIONS, so this uses the dialect decision rather than owning one.
 //
-// Returns ERR_NO_MAIN for a module or a nil source, ERR_CONSTANT, ERR_NOT_CARRIED
-// and ERR_SIGNATURE for what the flow cannot carry, ERR_COLLISION and ERR_ALIAS
-// for loads it cannot inline, and ERR_CYCLE for modules that load each other.
+// Returns ErrNoMain for a module or a nil source, ErrConstant, ErrNotCarried
+// and ErrSignature for what the flow cannot carry, ErrCollision and ErrAlias
+// for loads it cannot inline, and ErrCycle for modules that load each other.
 //
 // Revisions:
 //   - 2026-09-21 01:17: initial creation
@@ -107,12 +115,20 @@ type _Reading struct {
 //     rather than reporting it beside the flow, and takes script's Source
 func Of(source *script.Source) (*workflowpb.Flow, error) {
 	if source == nil {
-		return nil, ERR_NO_MAIN
+		return nil, ErrNoMain
 	}
 
-	tree, err := dialect.OPTIONS.Parse(source.Entry, source.Text, 0)
+	tree, err := dialect.OPTIONS.Parse(
+		source.Entry,
+		source.Text,
+		0,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", source.Entry, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			source.Entry,
+			err,
+		)
 	}
 
 	reading := &_Reading{
@@ -126,13 +142,25 @@ func Of(source *script.Source) (*workflowpb.Flow, error) {
 		loading:   []string{source.Entry},
 	}
 
-	err = reading._Read(tree, source.Entry, string(source.Text))
+	err = reading._Read(
+		tree,
+		source.Entry,
+		string(source.Text),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", source.Entry, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			source.Entry,
+			err,
+		)
 	}
 
 	if reading.defs[ENTRY] == nil {
-		return nil, fmt.Errorf("%s: %w", source.Entry, ERR_NO_MAIN)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			source.Entry,
+			ErrNoMain,
+		)
 	}
 
 	return reading._Flow(), nil
@@ -155,7 +183,10 @@ func Of(source *script.Source) (*workflowpb.Flow, error) {
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-09-22 22:41: sorts an argument declaration into args, leaving the
 //     rest to be carried as constants
-func (r *_Reading) _Constants(tree *syntax.File, module string) error {
+func (r *_Reading) _Constants(
+	tree *syntax.File,
+	module string,
+) error {
 	for _, stmt := range tree.Stmts {
 		assign, ok := stmt.(*syntax.AssignStmt)
 		if !ok {
@@ -164,35 +195,73 @@ func (r *_Reading) _Constants(tree *syntax.File, module string) error {
 
 		name, ok := assign.LHS.(*syntax.Ident)
 		if !ok || assign.Op != syntax.EQ {
-			return fmt.Errorf("%s: %w", module, ERR_CONSTANT)
+			return fmt.Errorf(
+				"%s: %w",
+				module,
+				ErrConstant,
+			)
 		}
 
 		owner, known := r.owner[name.Name]
 		if known && owner != module {
-			return fmt.Errorf("%s in %s and %s: %w",
-				name.Name, owner, module, ERR_COLLISION)
+			return fmt.Errorf(
+				"%s in %s and %s: %w",
+				name.Name,
+				owner,
+				module,
+				ErrCollision,
+			)
 		}
 
-		declared, err := r._Declared(assign.RHS)
+		err := r._Bound(
+			module,
+			name.Name,
+			assign.RHS,
+		)
 		if err != nil {
-			return fmt.Errorf("%s: %w", name.Name, err)
+			return err
 		}
-
-		if declared != nil {
-			r.args[name.Name] = declared
-			r.owner[name.Name] = module
-
-			continue
-		}
-
-		held, err := r._Held(assign.RHS)
-		if err != nil {
-			return fmt.Errorf("%s: %w", name.Name, err)
-		}
-
-		r.constants[name.Name] = held
-		r.owner[name.Name] = module
 	}
+
+	return nil
+}
+
+// _Bound records one assignment as an argument or as a constant.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (r *_Reading) _Bound(
+	module string,
+	name string,
+	expr syntax.Expr,
+) error {
+	declared, err := r._Declared(expr)
+	if err != nil {
+		return fmt.Errorf(
+			"%s: %w",
+			name,
+			err,
+		)
+	}
+
+	if declared != nil {
+		r.args[name] = declared
+		r.owner[name] = module
+
+		return nil
+	}
+
+	held, err := r._Held(expr)
+	if err != nil {
+		return fmt.Errorf(
+			"%s: %w",
+			name,
+			err,
+		)
+	}
+
+	r.constants[name] = held
+	r.owner[name] = module
 
 	return nil
 }
@@ -211,21 +280,30 @@ func (r *_Reading) _Held(expr syntax.Expr) (*workflowpb.Constant, error) {
 	value, ok := _Arg(expr)
 	if ok {
 		return &workflowpb.Constant{
-			Kind: &workflowpb.Constant_Value{Value: value},
+			Kind: &workflowpb.Constant_Value{
+				Value: value,
+			},
 		}, nil
 	}
 
 	call, ok := expr.(*syntax.CallExpr)
 	if !ok {
-		return nil, ERR_CONSTANT
+		return nil, ErrConstant
 	}
 
-	held, ok := r._Call(call, r._Top())
+	held, ok := r._Call(
+		call,
+		r._Top(),
+	)
 	if !ok {
-		return nil, ERR_CONSTANT
+		return nil, ErrConstant
 	}
 
-	return &workflowpb.Constant{Kind: &workflowpb.Constant_Call{Call: held}}, nil
+	return &workflowpb.Constant{
+		Kind: &workflowpb.Constant_Call{
+			Call: held,
+		},
+	}, nil
 }
 
 // _Prior reports whether a constant's call may pass name: a constant declared
@@ -260,7 +338,10 @@ func (r *_Reading) _Flow() *workflowpb.Flow {
 			continue
 		}
 
-		flow.Functions = append(flow.Functions, r._Function(r.defs[name]))
+		flow.Functions = append(
+			flow.Functions,
+			r._Function(r.defs[name]),
+		)
 	}
 
 	if len(r.constants) > 0 {
@@ -291,20 +372,34 @@ func (r *_Reading) _Flow() *workflowpb.Flow {
 //     one never gets this far
 //   - 2026-10-01 23:57: carries the def's own statements, or its text
 func (r *_Reading) _Function(def *syntax.DefStmt) *workflowpb.Function {
-	params, _ := _Params(def)
+	var params, _ = _Params(def)
 
-	fn := &workflowpb.Function{Name: def.Name.Name, Params: params}
-
-	stmts, ok := r._Modelled(def, params)
+	var (
+		fn = &workflowpb.Function{
+			Name:   def.Name.Name,
+			Params: params,
+		}
+		stmts, ok = r._Modelled(
+			def,
+			params,
+		)
+	)
 	if ok {
 		fn.Code = &workflowpb.Function_Statements{
-			Statements: &workflowpb.Statements{Statement: stmts},
+			Statements: &workflowpb.Statements{
+				Statement: stmts,
+			},
 		}
 
 		return fn
 	}
 
-	fn.Code = &workflowpb.Function_Body{Body: _Body(r.text[def.Name.Name], def)}
+	fn.Code = &workflowpb.Function_Body{
+		Body: _Body(
+			r.text[def.Name.Name],
+			def,
+		),
+	}
 
 	return fn
 }
@@ -315,18 +410,28 @@ func (r *_Reading) _Function(def *syntax.DefStmt) *workflowpb.Function {
 // Revisions:
 //   - 2026-10-01 23:57: initial creation
 func (r *_Reading) _Spine(flow *workflowpb.Flow) {
-	def := r.defs[ENTRY]
+	var def = r.defs[ENTRY]
 
-	stmts, ok := r._Modelled(def, nil)
+	stmts, ok := r._Modelled(
+		def,
+		nil,
+	)
 	if ok {
 		flow.Spine = &workflowpb.Flow_Main{
-			Main: &workflowpb.Statements{Statement: stmts},
+			Main: &workflowpb.Statements{
+				Statement: stmts,
+			},
 		}
 
 		return
 	}
 
-	flow.Spine = &workflowpb.Flow_Text{Text: _Body(r.text[ENTRY], def)}
+	flow.Spine = &workflowpb.Flow_Text{
+		Text: _Body(
+			r.text[ENTRY],
+			def,
+		),
+	}
 }
 
 // _Listed reports whether name is a function the flow lists, which is what a
@@ -346,8 +451,10 @@ func (r *_Reading) _Listed(name string) bool {
 // Revisions:
 //   - 2026-10-01 23:57: initial creation
 func (r *_Reading) _Builtin(name string) bool {
-	_, constant := r.constants[name]
-	_, arg := r.args[name]
+	var (
+		_, constant = r.constants[name]
+		_, arg      = r.args[name]
+	)
 
 	return r.defs[name] == nil && !constant && !arg
 }

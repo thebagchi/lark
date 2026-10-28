@@ -8,7 +8,10 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 )
 
-const NAME = "json"
+// NAME is the module.
+const (
+	NAME = "json"
+)
 
 // init registers this plugin, so that a host importing this package for its
 // side effect is the whole of enabling it.

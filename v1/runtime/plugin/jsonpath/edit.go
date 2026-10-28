@@ -27,7 +27,9 @@ type _Edit struct {
 // Revisions:
 //   - 2026-10-03 16:48: initial creation
 func _NewEdit() *_Edit {
-	return &_Edit{made: map[starlark.Value]bool{}}
+	return &_Edit{
+		made: map[starlark.Value]bool{},
+	}
 }
 
 // _Insert returns doc with value added at steps: a new member of a dict, or
@@ -46,7 +48,12 @@ func (e *_Edit) _Insert(
 	steps []string,
 	value starlark.Value,
 ) (starlark.Value, error) {
-	return e._Descend(doc, steps, value, e._PlaceNew)
+	return e._Descend(
+		doc,
+		steps,
+		value,
+		e._PlaceNew,
+	)
 }
 
 // _Replace returns doc with the value at steps replaced. The path must exist,
@@ -60,7 +67,12 @@ func (e *_Edit) _Replace(
 	steps []string,
 	value starlark.Value,
 ) (starlark.Value, error) {
-	return e._Descend(doc, steps, value, e._PlaceOver)
+	return e._Descend(
+		doc,
+		steps,
+		value,
+		e._PlaceOver,
+	)
 }
 
 // _Descend makes the containers along steps this edit's and lets place decide
@@ -75,7 +87,11 @@ func (e *_Edit) _Descend(
 	doc starlark.Value,
 	steps []string,
 	value starlark.Value,
-	place func(starlark.Value, string, starlark.Value) (starlark.Value, error),
+	place func(
+		starlark.Value,
+		string,
+		starlark.Value,
+	) (starlark.Value, error),
 ) (starlark.Value, error) {
 	if len(steps) == 0 {
 		return value, nil
@@ -84,20 +100,40 @@ func (e *_Edit) _Descend(
 	step := steps[0]
 
 	if len(steps) == 1 {
-		return place(doc, step, value)
+		return place(
+			doc,
+			step,
+			value,
+		)
 	}
 
-	child, err := _Step(doc, step)
+	child, err := _Step(
+		doc,
+		step,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", step, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			step,
+			err,
+		)
 	}
 
-	replaced, err := e._Descend(child, steps[1:], value, place)
+	replaced, err := e._Descend(
+		child,
+		steps[1:],
+		value,
+		place,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return e._PlaceOver(doc, step, replaced)
+	return e._PlaceOver(
+		doc,
+		step,
+		replaced,
+	)
 }
 
 // _PlaceNew returns holder, or this edit's copy of it, with value added under
@@ -114,13 +150,25 @@ func (e *_Edit) _PlaceNew(
 ) (starlark.Value, error) {
 	switch container := holder.(type) {
 	case *starlark.Dict:
-		return e._Put(container, step, value)
+		return e._Put(
+			container,
+			step,
+			value,
+		)
 
 	case *starlark.List:
-		return e._SpliceIn(container, step, value)
+		return e._SpliceIn(
+			container,
+			step,
+			value,
+		)
 
 	default:
-		return nil, fmt.Errorf("%s %w", holder.Type(), ERR_KIND)
+		return nil, fmt.Errorf(
+			"%s %w",
+			holder.Type(),
+			ErrKind,
+		)
 	}
 }
 
@@ -137,13 +185,25 @@ func (e *_Edit) _PlaceOver(
 ) (starlark.Value, error) {
 	switch container := holder.(type) {
 	case *starlark.Dict:
-		return e._Put(container, step, value)
+		return e._Put(
+			container,
+			step,
+			value,
+		)
 
 	case *starlark.List:
-		return e._SpliceOver(container, step, value)
+		return e._SpliceOver(
+			container,
+			step,
+			value,
+		)
 
 	default:
-		return nil, fmt.Errorf("%s %w", holder.Type(), ERR_KIND)
+		return nil, fmt.Errorf(
+			"%s %w",
+			holder.Type(),
+			ErrKind,
+		)
 	}
 }
 
@@ -160,12 +220,23 @@ func (e *_Edit) _Put(
 ) (starlark.Value, error) {
 	dict, err := e._Dict(holder)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", step, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			step,
+			err,
+		)
 	}
 
-	err = dict.SetKey(starlark.String(step), value)
+	err = dict.SetKey(
+		starlark.String(step),
+		value,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", step, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			step,
+			err,
+		)
 	}
 
 	return dict, nil
@@ -188,7 +259,10 @@ func (e *_Edit) _SpliceIn(
 	index := holder.Len()
 
 	if step != APPEND {
-		at, err := _Index(step, holder.Len()+1)
+		at, err := _Index(
+			step,
+			holder.Len()+1,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -196,28 +270,71 @@ func (e *_Edit) _SpliceIn(
 		index = at
 	}
 
-	list := e._List(holder)
-
-	err := list.Append(value)
+	var (
+		list = e._List(holder)
+		err  = list.Append(value)
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", step, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			step,
+			err,
+		)
 	}
 
-	// Each element from index on moves one place along, from the end, so the
-	// one appended is overwritten rather than any that were there before.
-	for at := list.Len() - 1; at > index; at-- {
-		err = list.SetIndex(at, list.Index(at-1))
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", step, err)
-		}
-	}
-
-	err = list.SetIndex(index, value)
+	err = _Shift(
+		list,
+		index,
+		value,
+		step,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", step, err)
+		return nil, err
 	}
 
 	return list, nil
+}
+
+// _Shift moves each element from index on one place, then writes value.
+//
+// The move starts at the end, so the appended element is overwritten rather
+// than any that were there before.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Shift(
+	list *starlark.List,
+	index int,
+	value starlark.Value,
+	step string,
+) error {
+	for at := list.Len() - 1; at > index; at-- {
+		err := list.SetIndex(
+			at,
+			list.Index(at-1),
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"%s: %w",
+				step,
+				err,
+			)
+		}
+	}
+
+	err := list.SetIndex(
+		index,
+		value,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"%s: %w",
+			step,
+			err,
+		)
+	}
+
+	return nil
 }
 
 // _SpliceOver returns holder, or this edit's copy of it, with the element at
@@ -234,19 +351,33 @@ func (e *_Edit) _SpliceOver(
 	value starlark.Value,
 ) (starlark.Value, error) {
 	if step == APPEND {
-		return nil, fmt.Errorf("%q names no element: %w", APPEND, ERR_MISSING)
+		return nil, fmt.Errorf(
+			"%q names no element: %w",
+			APPEND,
+			ErrMissing,
+		)
 	}
 
-	index, err := _Index(step, holder.Len())
+	index, err := _Index(
+		step,
+		holder.Len(),
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	list := e._List(holder)
 
-	err = list.SetIndex(index, value)
+	err = list.SetIndex(
+		index,
+		value,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", step, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			step,
+			err,
+		)
 	}
 
 	return list, nil
@@ -258,24 +389,44 @@ func (e *_Edit) _SpliceOver(
 //   - 2026-09-20 01:07: initial creation
 //   - 2026-09-21 08:09: replaces the shortened child through _PlaceOver
 //   - 2026-10-03 16:48: a method of _Edit, which copies a container once per patch
-func (e *_Edit) _Delete(doc starlark.Value, steps []string) (starlark.Value, error) {
+func (e *_Edit) _Delete(
+	doc starlark.Value,
+	steps []string,
+) (starlark.Value, error) {
 	step := steps[0]
 
 	if len(steps) == 1 {
-		return e._Drop(doc, step)
+		return e._Drop(
+			doc,
+			step,
+		)
 	}
 
-	child, err := _Step(doc, step)
+	child, err := _Step(
+		doc,
+		step,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", step, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			step,
+			err,
+		)
 	}
 
-	shortened, err := e._Delete(child, steps[1:])
+	shortened, err := e._Delete(
+		child,
+		steps[1:],
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return e._PlaceOver(doc, step, shortened)
+	return e._PlaceOver(
+		doc,
+		step,
+		shortened,
+	)
 }
 
 // _Drop returns holder without step, which the caller has checked is there: a
@@ -287,45 +438,84 @@ func (e *_Edit) _Delete(doc starlark.Value, steps []string) (starlark.Value, err
 //   - 2026-09-20 01:08: initial creation
 //   - 2026-10-03 16:48: a method of _Edit, deleting in place from a dict this edit
 //     made
-func (e *_Edit) _Drop(holder starlark.Value, step string) (starlark.Value, error) {
+func (e *_Edit) _Drop(
+	holder starlark.Value,
+	step string,
+) (starlark.Value, error) {
 	switch container := holder.(type) {
 	case *starlark.Dict:
 		dict, err := e._Dict(container)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", step, err)
+			return nil, fmt.Errorf(
+				"%s: %w",
+				step,
+				err,
+			)
 		}
 
 		_, _, err = dict.Delete(starlark.String(step))
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", step, err)
+			return nil, fmt.Errorf(
+				"%s: %w",
+				step,
+				err,
+			)
 		}
 
 		return dict, nil
 
 	case *starlark.List:
-		index, err := _Index(step, container.Len())
-		if err != nil {
-			return nil, err
-		}
-
-		elements := make([]starlark.Value, 0, container.Len()-1)
-
-		for at := range container.Len() {
-			if at == index {
-				continue
-			}
-
-			elements = append(elements, container.Index(at))
-		}
-
-		list := starlark.NewList(elements)
-		e.made[list] = true
-
-		return list, nil
+		return e._DropList(
+			container,
+			step,
+		)
 
 	default:
-		return nil, fmt.Errorf("%s %w", holder.Type(), ERR_KIND)
+		return nil, fmt.Errorf(
+			"%s %w",
+			holder.Type(),
+			ErrKind,
+		)
 	}
+}
+
+// _DropList returns the list without the element step names.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (e *_Edit) _DropList(
+	container *starlark.List,
+	step string,
+) (starlark.Value, error) {
+	index, err := _Index(
+		step,
+		container.Len(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	elements := make(
+		[]starlark.Value,
+		0,
+		container.Len()-1,
+	)
+
+	for at := range container.Len() {
+		if at == index {
+			continue
+		}
+
+		elements = append(
+			elements,
+			container.Index(at),
+		)
+	}
+
+	list := starlark.NewList(elements)
+	e.made[list] = true
+
+	return list, nil
 }
 
 // _Dict is holder when this edit made it, and otherwise a copy of it, which
@@ -343,7 +533,10 @@ func (e *_Edit) _Dict(holder *starlark.Dict) (*starlark.Dict, error) {
 	// Entries rather than Items: Items builds a slice of every pair first,
 	// which on a large dict is a third of what the copy allocates.
 	for key, value := range holder.Entries() {
-		err := dict.SetKey(key, value)
+		err := dict.SetKey(
+			key,
+			value,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -375,10 +568,17 @@ func (e *_Edit) _List(holder *starlark.List) *starlark.List {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func _Elements(holder *starlark.List) []starlark.Value {
-	elements := make([]starlark.Value, 0, holder.Len()+1)
+	elements := make(
+		[]starlark.Value,
+		0,
+		holder.Len()+1,
+	)
 
 	for index := range holder.Len() {
-		elements = append(elements, holder.Index(index))
+		elements = append(
+			elements,
+			holder.Index(index),
+		)
 	}
 
 	return elements
@@ -394,6 +594,13 @@ func _Elements(holder *starlark.List) []starlark.Value {
 // Revisions:
 //   - 2026-09-20 01:09: initial creation
 //   - 2026-09-21 08:09: the interpreter's equality alone
-func _Equal(left starlark.Value, right starlark.Value) (bool, error) {
-	return starlark.EqualDepth(left, right, starlark.CompareLimit)
+func _Equal(
+	left starlark.Value,
+	right starlark.Value,
+) (bool, error) {
+	return starlark.EqualDepth(
+		left,
+		right,
+		starlark.CompareLimit,
+	)
 }

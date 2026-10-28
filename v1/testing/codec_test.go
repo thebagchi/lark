@@ -22,15 +22,21 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
-// _MEGABYTE is what lark -m 1 gives a run.
-const _MEGABYTE = 1 << 20
+// MEGABYTE is what lark -m 1 gives a run.
+const (
+	MEGABYTE = 1 << 20
+)
 
 // _Value compiles src and runs it. A compile error comes back as the error, so
 // a caller can tell a refusal at compile from a refusal at run.
 //
 // Revisions:
 //   - 2026-10-08 21:55: initial creation
-func _Value(t *testing.T, src string, opts ...runtime.RunOption) (starlark.Value, error) {
+func _Value(
+	t *testing.T,
+	src string,
+	opts ...runtime.RunOption,
+) (starlark.Value, error) {
 	t.Helper()
 
 	built, err := runtime.Compile(&runtime.Source{
@@ -41,7 +47,11 @@ func _Value(t *testing.T, src string, opts ...runtime.RunOption) (starlark.Value
 		return nil, err
 	}
 
-	return runtime.Start(t.Context(), built, opts...).Wait()
+	return runtime.Start(
+		t.Context(),
+		built,
+		opts...,
+	).Wait()
 }
 
 // _Loaded compiles main, which loads lib.star from the same directory, and
@@ -49,25 +59,43 @@ func _Value(t *testing.T, src string, opts ...runtime.RunOption) (starlark.Value
 //
 // Revisions:
 //   - 2026-10-08 21:55: initial creation
-func _Loaded(t *testing.T, lib string, main string) (starlark.Value, error) {
+func _Loaded(
+	t *testing.T,
+	lib string,
+	main string,
+) (starlark.Value, error) {
 	t.Helper()
 
-	dir := t.TempDir()
-
-	err := os.WriteFile(filepath.Join(dir, "lib.star"), []byte(lib), 0o644)
+	var (
+		dir = t.TempDir()
+		err = os.WriteFile(
+			filepath.Join(
+				dir,
+				"lib.star",
+			),
+			[]byte(lib),
+			0o644,
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	built, err := runtime.Compile(&runtime.Source{
-		Entry: filepath.Join(dir, "main.star"),
-		Text:  []byte(main),
+		Entry: filepath.Join(
+			dir,
+			"main.star",
+		),
+		Text: []byte(main),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return runtime.Start(t.Context(), built).Wait()
+	return runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 }
 
 // TestArity_AnOperationIsOneArgument checks the operations the arity note
@@ -136,7 +164,7 @@ func TestArity_AnOperationIsOneArgument(t *testing.T) {
 		{
 			name: "keyword only, by position",
 			src:  "def only(*, x):\n  return x\ndef main():\n  return only(1 + 2)\n",
-			fail: runtime.ERR_ARITY,
+			fail: runtime.ErrArity,
 		},
 		{
 			name: "kwargs takes a named operation",
@@ -147,31 +175,51 @@ func TestArity_AnOperationIsOneArgument(t *testing.T) {
 		{
 			name: "kwargs does not take a second position",
 			src:  "def k(x, **more):\n  pass\ndef main():\n  n = 1\n  k(1, n + 1)\n",
-			fail: runtime.ERR_ARITY,
+			fail: runtime.ErrArity,
 		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			got, err := _Value(t, item.src)
-			if item.fail != nil {
-				if !errors.Is(err, item.fail) {
-					t.Fatalf("got %v, want %v", err, item.fail)
+				got, err := _Value(
+					t,
+					item.src,
+				)
+				if item.fail != nil {
+					if !errors.Is(
+						err,
+						item.fail,
+					) {
+						t.Fatalf(
+							"got %v, want %v",
+							err,
+							item.fail,
+						)
+					}
+
+					return
 				}
 
-				return
-			}
+				if err != nil {
+					t.Fatalf(
+						"run: %v",
+						err,
+					)
+				}
 
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
-
-			if got.String() != item.want {
-				t.Fatalf("got %s, want %s", got.String(), item.want)
-			}
-		})
+				if got.String() != item.want {
+					t.Fatalf(
+						"got %s, want %s",
+						got.String(),
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -183,7 +231,7 @@ func TestArity_AnOperationIsOneArgument(t *testing.T) {
 func TestArity_ALoadedFunctionTakesAnOperation(t *testing.T) {
 	t.Parallel()
 
-	const lib = "def g(x):\n  return x\n"
+	const LIB = "def g(x):\n  return x\n"
 
 	cases := []struct {
 		name string
@@ -204,31 +252,52 @@ func TestArity_ALoadedFunctionTakesAnOperation(t *testing.T) {
 		{
 			name: "nothing",
 			main: "load(\"lib.star\", \"g\")\ndef main():\n  g()\n",
-			fail: runtime.ERR_ARITY,
+			fail: runtime.ErrArity,
 		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			got, err := _Loaded(t, lib, item.main)
-			if item.fail != nil {
-				if !errors.Is(err, item.fail) {
-					t.Fatalf("got %v, want %v", err, item.fail)
+				got, err := _Loaded(
+					t,
+					LIB,
+					item.main,
+				)
+				if item.fail != nil {
+					if !errors.Is(
+						err,
+						item.fail,
+					) {
+						t.Fatalf(
+							"got %v, want %v",
+							err,
+							item.fail,
+						)
+					}
+
+					return
 				}
 
-				return
-			}
+				if err != nil {
+					t.Fatalf(
+						"run: %v",
+						err,
+					)
+				}
 
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
-
-			if got.String() != item.want {
-				t.Fatalf("got %s, want %s", got.String(), item.want)
-			}
-		})
+				if got.String() != item.want {
+					t.Fatalf(
+						"got %s, want %s",
+						got.String(),
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -263,7 +332,7 @@ def main():
     b = buf.new()
     b.write_uint64(18446744073709551616)
 `,
-			fail: unpack.ERR_RANGE,
+			fail: unpack.ErrRange,
 		},
 		{
 			name: "int64 at its top",
@@ -282,7 +351,7 @@ def main():
     b = buf.new()
     b.write_int64(9223372036854775808)
 `,
-			fail: unpack.ERR_RANGE,
+			fail: unpack.ErrRange,
 		},
 		{
 			name: "int64 at its bottom",
@@ -301,7 +370,7 @@ def main():
     b = buf.new()
     b.write_int64(-9223372036854775809)
 `,
-			fail: unpack.ERR_RANGE,
+			fail: unpack.ErrRange,
 		},
 		{
 			name: "a width of zero",
@@ -310,7 +379,7 @@ def main():
     b = buf.new()
     b.write_uint(1, 0)
 `,
-			fail: unpack.ERR_RANGE,
+			fail: unpack.ErrRange,
 		},
 		{
 			name: "a width below zero",
@@ -319,7 +388,7 @@ def main():
     b = buf.new()
     b.write_int(1, -1)
 `,
-			fail: unpack.ERR_RANGE,
+			fail: unpack.ErrRange,
 		},
 		{
 			name: "a width past the run",
@@ -328,31 +397,51 @@ def main():
     b = buf.new()
     b.write_uint(0, 1 << 40)
 `,
-			fail: runtime.ERR_MEMORY,
+			fail: runtime.ErrMemory,
 		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			got, err := _Value(t, item.src)
-			if item.fail != nil {
-				if !errors.Is(err, item.fail) {
-					t.Fatalf("got %v, want %v", err, item.fail)
+				got, err := _Value(
+					t,
+					item.src,
+				)
+				if item.fail != nil {
+					if !errors.Is(
+						err,
+						item.fail,
+					) {
+						t.Fatalf(
+							"got %v, want %v",
+							err,
+							item.fail,
+						)
+					}
+
+					return
 				}
 
-				return
-			}
+				if err != nil {
+					t.Fatalf(
+						"run: %v",
+						err,
+					)
+				}
 
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
-
-			if got.String() != item.want {
-				t.Fatalf("got %s, want %s", got.String(), item.want)
-			}
-		})
+				if got.String() != item.want {
+					t.Fatalf(
+						"got %s, want %s",
+						got.String(),
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -365,59 +454,115 @@ def main():
 func TestBuf_AcrossThreads(t *testing.T) {
 	t.Parallel()
 
-	t.Run("a list in the store", func(t *testing.T) {
-		t.Parallel()
+	t.Run(
+		"a list in the store",
+		func(t *testing.T) {
+			t.Parallel()
 
-		_, err := _Value(t, `
+			_, err := _Value(
+				t,
+				`
 def main():
     state.set("k", [buf.new()])
-`)
-		if !errors.Is(err, state.ERR_NOT_DATA) {
-			t.Fatalf("got %v, want %v", err, state.ERR_NOT_DATA)
-		}
-	})
+`,
+			)
+			if !errors.Is(
+				err,
+				state.ErrNotData,
+			) {
+				t.Fatalf(
+					"got %v, want %v",
+					err,
+					state.ErrNotData,
+				)
+			}
+		},
+	)
 
-	t.Run("a dict in the store", func(t *testing.T) {
-		t.Parallel()
+	t.Run(
+		"a dict in the store",
+		func(t *testing.T) {
+			t.Parallel()
 
-		_, err := _Value(t, `
+			_, err := _Value(
+				t,
+				`
 def main():
     state.set("k", {"a": buf.new()})
-`)
-		if !errors.Is(err, state.ERR_NOT_DATA) {
-			t.Fatalf("got %v, want %v", err, state.ERR_NOT_DATA)
-		}
-	})
+`,
+			)
+			if !errors.Is(
+				err,
+				state.ErrNotData,
+			) {
+				t.Fatalf(
+					"got %v, want %v",
+					err,
+					state.ErrNotData,
+				)
+			}
+		},
+	)
 
-	t.Run("a post of a list", func(t *testing.T) {
-		t.Parallel()
+	t.Run(
+		"a post of a list",
+		func(t *testing.T) {
+			t.Parallel()
 
-		_, err := _Value(t, `
+			_, err := _Value(
+				t,
+				`
 def main():
     event.post("k", [buf.reader(b"ab")])
-`)
-		if !errors.Is(err, event.ERR_NOT_DATA) {
-			t.Fatalf("got %v, want %v", err, event.ERR_NOT_DATA)
-		}
-	})
+`,
+			)
+			if !errors.Is(
+				err,
+				event.ErrNotData,
+			) {
+				t.Fatalf(
+					"got %v, want %v",
+					err,
+					event.ErrNotData,
+				)
+			}
+		},
+	)
 
-	t.Run("a reader handed to a spawn", func(t *testing.T) {
-		t.Parallel()
+	t.Run(
+		"a reader handed to a spawn",
+		func(t *testing.T) {
+			t.Parallel()
 
-		_, err := _Value(t, `
+			_, err := _Value(
+				t,
+				`
 def main():
     reader = buf.reader(b"abcd")
     join(spawn(lambda: reader.read_bytes(1)))
-`)
-		if !errors.Is(err, buf.ERR_FROZEN) {
-			t.Fatalf("got %v, want %v", err, buf.ERR_FROZEN)
-		}
-	})
+`,
+			)
+			if !errors.Is(
+				err,
+				buf.ErrFrozen,
+			) {
+				t.Fatalf(
+					"got %v, want %v",
+					err,
+					buf.ErrFrozen,
+				)
+			}
+		},
+	)
 
-	t.Run("a buffer a thread returns", func(t *testing.T) {
-		t.Parallel()
+	t.Run(
+		"a buffer a thread returns",
+		func(t *testing.T) {
+			t.Parallel()
 
-		got, err := _Value(t, `
+			got, err := _Value(
+				t,
+				`
 def child():
     buffer = buf.new()
     buffer.write_bytes("ab")
@@ -427,15 +572,23 @@ def main():
     buffer = join(spawn(child))[0]
     buffer.write_bytes("c")
     return buffer.bytes()
-`)
-		if err != nil {
-			t.Fatalf("run: %v", err)
-		}
+`,
+			)
+			if err != nil {
+				t.Fatalf(
+					"run: %v",
+					err,
+				)
+			}
 
-		if got.String() != `b"abc"` {
-			t.Fatalf("got %s, want b\"abc\"", got.String())
-		}
-	})
+			if got.String() != `b"abc"` {
+				t.Fatalf(
+					"got %s, want b\"abc\"",
+					got.String(),
+				)
+			}
+		},
+	)
 }
 
 // TestHex_APrefix checks the prefix shapes the note names, and the same shapes
@@ -465,32 +618,32 @@ func TestHex_APrefix(t *testing.T) {
 		{
 			name: "0x alone is not an integer",
 			src:  "def main():\n  return hex.to_int(\"0x\")\n",
-			fail: codechex.ERR_HEX,
+			fail: codechex.ErrHex,
 		},
 		{
 			name: "0X alone is not an integer",
 			src:  "def main():\n  return hex.to_int(\"0X\")\n",
-			fail: codechex.ERR_HEX,
+			fail: codechex.ErrHex,
 		},
 		{
 			name: "a second prefix stays",
 			src:  "def main():\n  return hex.to_bytes(\"0X0x41\")\n",
-			fail: codechex.ERR_HEX,
+			fail: codechex.ErrHex,
 		},
 		{
 			name: "odd digits after a prefix",
 			src:  "def main():\n  return hex.to_bytes(\"0xabc\")\n",
-			fail: codechex.ERR_HEX,
+			fail: codechex.ErrHex,
 		},
 		{
 			name: "a space before a prefix",
 			src:  "def main():\n  return hex.to_bytes(\" 0x41\")\n",
-			fail: codechex.ERR_HEX,
+			fail: codechex.ErrHex,
 		},
 		{
 			name: "a space before a bit prefix",
 			src:  "def main():\n  return binary.to_int(\" 0b101\")\n",
-			fail: binary.ERR_BITS,
+			fail: binary.ErrBits,
 		},
 		{
 			name: "0x is read",
@@ -510,31 +663,51 @@ func TestHex_APrefix(t *testing.T) {
 		{
 			name: "0b alone is not an integer",
 			src:  "def main():\n  return binary.to_int(\"0b\")\n",
-			fail: binary.ERR_BITS,
+			fail: binary.ErrBits,
 		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			got, err := _Value(t, item.src)
-			if item.fail != nil {
-				if !errors.Is(err, item.fail) {
-					t.Fatalf("got %v, want %v", err, item.fail)
+				got, err := _Value(
+					t,
+					item.src,
+				)
+				if item.fail != nil {
+					if !errors.Is(
+						err,
+						item.fail,
+					) {
+						t.Fatalf(
+							"got %v, want %v",
+							err,
+							item.fail,
+						)
+					}
+
+					return
 				}
 
-				return
-			}
+				if err != nil {
+					t.Fatalf(
+						"run: %v",
+						err,
+					)
+				}
 
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
-
-			if got.String() != item.want {
-				t.Fatalf("got %s, want %s", got.String(), item.want)
-			}
-		})
+				if got.String() != item.want {
+					t.Fatalf(
+						"got %s, want %s",
+						got.String(),
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -579,18 +752,32 @@ def main():
 	}
 
 	for _, item := range small {
-		t.Run(item.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			got, err := _Value(t, item.src, runtime.WithMemory(_MEGABYTE))
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
+				got, err := _Value(
+					t,
+					item.src,
+					runtime.WithMemory(MEGABYTE),
+				)
+				if err != nil {
+					t.Fatalf(
+						"run: %v",
+						err,
+					)
+				}
 
-			if got.String() != item.want {
-				t.Fatalf("got %s, want %s", got.String(), item.want)
-			}
-		})
+				if got.String() != item.want {
+					t.Fatalf(
+						"got %s, want %s",
+						got.String(),
+						item.want,
+					)
+				}
+			},
+		)
 	}
 
 	whole := []struct {
@@ -613,18 +800,31 @@ def main():
 	}
 
 	for _, item := range whole {
-		t.Run(item.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			got, err := _Value(t, item.src, runtime.WithMemory(_MEGABYTE))
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
+				got, err := _Value(
+					t,
+					item.src,
+					runtime.WithMemory(MEGABYTE),
+				)
+				if err != nil {
+					t.Fatalf(
+						"run: %v",
+						err,
+					)
+				}
 
-			if got.String() != "1048576" {
-				t.Fatalf("got %s, want the whole ceiling", got.String())
-			}
-		})
+				if got.String() != "1048576" {
+					t.Fatalf(
+						"got %s, want the whole ceiling",
+						got.String(),
+					)
+				}
+			},
+		)
 	}
 
 	wide := []struct {
@@ -650,18 +850,37 @@ def main():
 	}
 
 	for _, item := range wide {
-		t.Run(item.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			_, err := _Value(t, item.src, runtime.WithMemory(_MEGABYTE))
-			if err == nil || !errors.Is(err, runtime.ERR_MEMORY) {
-				t.Fatalf("got %v, want the one megabyte ceiling", err)
-			}
+				_, err := _Value(
+					t,
+					item.src,
+					runtime.WithMemory(MEGABYTE),
+				)
+				if err == nil || !errors.Is(
+					err,
+					runtime.ErrMemory,
+				) {
+					t.Fatalf(
+						"got %v, want the one megabyte ceiling",
+						err,
+					)
+				}
 
-			if !strings.Contains(err.Error(), "1048576 of 1048576") {
-				t.Fatalf("got %v, want the ceiling named", err)
-			}
-		})
+				if !strings.Contains(
+					err.Error(),
+					"1048576 of 1048576",
+				) {
+					t.Fatalf(
+						"got %v, want the ceiling named",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -697,24 +916,37 @@ func TestFromInt_AWideWidthIsTheDigits(t *testing.T) {
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				t.Parallel()
 
-			got, err := _Value(t, item.src)
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
-
-			text, ok := got.(starlark.String)
-			if !ok || len(text) != item.width {
-				shown := got.String()
-				if len(shown) > 80 {
-					shown = shown[:80]
+				got, err := _Value(
+					t,
+					item.src,
+				)
+				if err != nil {
+					t.Fatalf(
+						"run: %v",
+						err,
+					)
 				}
 
-				t.Fatalf("got %s, want %d digits", shown, item.width)
-			}
-		})
+				text, ok := got.(starlark.String)
+				if !ok || len(text) != item.width {
+					shown := got.String()
+					if len(shown) > 80 {
+						shown = shown[:80]
+					}
+
+					t.Fatalf(
+						"got %s, want %d digits",
+						shown,
+						item.width,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -726,20 +958,41 @@ func TestFromInt_AWideWidthIsTheDigits(t *testing.T) {
 func TestCodec_AFlatNameIsUndefined(t *testing.T) {
 	t.Parallel()
 
-	_, err := _Value(t, "def main():\n  return bytes2hex(b\"A\")\n")
-	if err == nil || !strings.Contains(err.Error(), "undefined: bytes2hex") {
-		t.Fatalf("got %v, want bytes2hex undefined", err)
+	_, err := _Value(
+		t,
+		"def main():\n  return bytes2hex(b\"A\")\n",
+	)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"undefined: bytes2hex",
+	) {
+		t.Fatalf(
+			"got %v, want bytes2hex undefined",
+			err,
+		)
 	}
 
-	sum := sha256.Sum256([]byte("abc"))
-	want := strings.ToUpper(hex.EncodeToString(sum[:]))
+	var (
+		sum  = sha256.Sum256([]byte("abc"))
+		want = strings.ToUpper(hex.EncodeToString(sum[:]))
+	)
 
-	got, err := _Value(t, "def main():\n  return hash.sha256(\"abc\")\n")
+	got, err := _Value(
+		t,
+		"def main():\n  return hash.sha256(\"abc\")\n",
+	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if got.String() != `"`+want+`"` {
-		t.Fatalf("got %s, want %s", got.String(), want)
+		t.Fatalf(
+			"got %s, want %s",
+			got.String(),
+			want,
+		)
 	}
 }

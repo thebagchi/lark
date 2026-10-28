@@ -61,17 +61,38 @@ import (
 // a run, since a bare Option on a package this wide would not say what it is
 // an option of.
 type (
-	Artifact      = artifact.Artifact
-	Loader        = script.Loader
+	// Artifact is a compiled script and every module it loads.
+	Artifact = artifact.Artifact
+
+	// Loader reads a module a script loads.
+	Loader = script.Loader
+
+	// CompileOption sets one thing on a compile.
 	CompileOption = artifact.Option
-	RunOption     = artifact.RunOption
-	Handle        = scheduler.Handle
-	Plugin        = plugin.Plugin
-	Execution     = observe.Execution
-	Flow          = workflowpb.Flow
-	Graph         = workflowpb.Graph
-	Change        = workflowpb.Change
-	Source        = script.Source
+
+	// RunOption sets one thing on a run.
+	RunOption = artifact.RunOption
+
+	// Handle is a spawned thread a script can hold.
+	Handle = scheduler.Handle
+
+	// Plugin is a set of names a script is given.
+	Plugin = plugin.Plugin
+
+	// Execution is a run a host can watch.
+	Execution = observe.Execution
+
+	// Flow is the graph a script declares.
+	Flow = workflowpb.Flow
+
+	// Graph is the observed graph of a run.
+	Graph = workflowpb.Graph
+
+	// Change is one edit a run makes to its graph.
+	Change = workflowpb.Change
+
+	// Source is a script and the modules it can load.
+	Source = script.Source
 )
 
 // The failures a host can act on. Each is the subpackage's own value, so
@@ -79,37 +100,37 @@ type (
 // the one that raised it.
 //
 // The rule for what is here: every sentinel a call through this package can
-// return. A flow's ERR_ARITY and ERR_NO_MAIN are the compiler's own values, so
+// return. A flow's ErrArity and ErrNoMain are the compiler's own values, so
 // each is here once. A plugin a host chooses to import - flow, state, jsonpath
 // - keeps its own, because the host already names that package.
 var (
-	ERR_ARITY           = artifact.ERR_ARITY
-	ERR_CYCLE           = artifact.ERR_CYCLE
-	ERR_NO_MAIN         = artifact.ERR_NO_MAIN
-	ERR_NO_UNIT         = artifact.ERR_NO_UNIT
-	ERR_NOT_JSON        = artifact.ERR_NOT_JSON
-	ERR_ASSERT          = core.ERR_ASSERT
-	ERR_NOT_A_CONDITION = core.ERR_NOT_A_CONDITION
-	ERR_NOT_A_HANDLE    = core.ERR_NOT_A_HANDLE
-	ERR_NOT_A_NAME      = core.ERR_NOT_A_NAME
-	ERR_CAPTURES        = core.ERR_CAPTURES
-	ERR_INTERRUPTED     = core.ERR_INTERRUPTED
-	ERR_CANCELLED       = scheduler.ERR_CANCELLED
-	ERR_NESTED          = scheduler.ERR_NESTED
-	ERR_DURATION        = scheduler.ERR_DURATION
-	ERR_MEMORY          = scheduler.ERR_MEMORY
-	ERR_CONFLICT        = plugin.ERR_CONFLICT
-	ERR_DUPLICATE       = graph.ERR_DUPLICATE
-	ERR_ARGUMENTS       = graph.ERR_ARGUMENTS
-	ERR_CONSTANT        = graph.ERR_CONSTANT
-	ERR_NOT_FORKED      = graph.ERR_NOT_FORKED
-	ERR_UNRESOLVED      = graph.ERR_UNRESOLVED
-	ERR_NO_BODY         = graph.ERR_NO_BODY
-	ERR_FORM            = graph.ERR_FORM
-	ERR_NOT_CARRIED     = graph.ERR_NOT_CARRIED
-	ERR_SIGNATURE       = graph.ERR_SIGNATURE
-	ERR_COLLISION       = graph.ERR_COLLISION
-	ERR_ALIAS           = graph.ERR_ALIAS
+	ErrArity         = artifact.ErrArity
+	ErrCycle         = artifact.ErrCycle
+	ErrNoMain        = artifact.ErrNoMain
+	ErrNoUnit        = artifact.ErrNoUnit
+	ErrNotJSON       = artifact.ErrNotJSON
+	ErrAssert        = core.ErrAssert
+	ErrNotACondition = core.ErrNotACondition
+	ErrNotAHandle    = core.ErrNotAHandle
+	ErrNotAName      = core.ErrNotAName
+	ErrCaptures      = core.ErrCaptures
+	ErrInterrupted   = core.ErrInterrupted
+	ErrCancelled     = scheduler.ErrCancelled
+	ErrNested        = scheduler.ErrNested
+	ErrDuration      = scheduler.ErrDuration
+	ErrMemory        = scheduler.ErrMemory
+	ErrConflict      = plugin.ErrConflict
+	ErrDuplicate     = graph.ErrDuplicate
+	ErrArguments     = graph.ErrArguments
+	ErrConstant      = graph.ErrConstant
+	ErrNotForked     = graph.ErrNotForked
+	ErrUnresolved    = graph.ErrUnresolved
+	ErrNoBody        = graph.ErrNoBody
+	ErrForm          = graph.ErrForm
+	ErrNotCarried    = graph.ErrNotCarried
+	ErrSignature     = graph.ErrSignature
+	ErrCollision     = graph.ErrCollision
+	ErrAlias         = graph.ErrAlias
 )
 
 // Compile builds source, and every module it loads, into an artifact, without
@@ -122,8 +143,14 @@ var (
 // Revisions:
 //   - 2026-10-03 00:12: initial creation, replacing NewCompiler, which held a
 //     loader the source now names itself
-func Compile(source *Source, opts ...CompileOption) (*Artifact, error) {
-	return artifact.Compile(source, opts...)
+func Compile(
+	source *Source,
+	opts ...CompileOption,
+) (*Artifact, error) {
+	return artifact.Compile(
+		source,
+		opts...,
+	)
 }
 
 // Load reads back a bundle Artifact.Save wrote, as an artifact Start runs, so
@@ -133,13 +160,19 @@ func Compile(source *Source, opts ...CompileOption) (*Artifact, error) {
 // calls: a bundle compiled with plugins of the host's is loaded with them too.
 // The runtime's own are always there, as they are for Compile.
 //
-// Returns ERR_NO_UNIT for a bundle that does not hold every module it loads,
+// Returns ErrNoUnit for a bundle that does not hold every module it loads,
 // and a wrapped error for bytes that are not a bundle.
 //
 // Revisions:
 //   - 2026-10-03 00:26: initial creation
-func Load(bundle []byte, opts ...CompileOption) (*Artifact, error) {
-	return artifact.Load(bundle, opts...)
+func Load(
+	bundle []byte,
+	opts ...CompileOption,
+) (*Artifact, error) {
+	return artifact.Load(
+		bundle,
+		opts...,
+	)
 }
 
 // WithPlugins makes a compile give its script the names plugins supply, as
@@ -170,9 +203,9 @@ func WithPlugins(plugins ...Plugin) CompileOption {
 // cannot travel at all is refused. Its modules come from the source, as they
 // do for Compile.
 //
-// Returns ERR_NO_MAIN for a module, ERR_CONSTANT, ERR_NOT_CARRIED and
-// ERR_SIGNATURE for what a flow cannot carry, ERR_COLLISION and ERR_ALIAS for a
-// load it cannot inline, and ERR_CYCLE for modules that load each other.
+// Returns ErrNoMain for a module, ErrConstant, ErrNotCarried and
+// ErrSignature for what a flow cannot carry, ErrCollision and ErrAlias for a
+// load it cannot inline, and ErrCycle for modules that load each other.
 //
 // Revisions:
 //   - 2026-10-02 23:51: initial creation
@@ -204,7 +237,7 @@ func Check(flow *Flow) error {
 // call, and is refused with what Check returns when it could not become one.
 // It does not compile what it writes, so a body that is not Starlark is a
 // compile error with a line number. A statement it has no form for is
-// ERR_FORM, and a function with no body is ERR_NO_BODY.
+// ErrForm, and a function with no body is ErrNoBody.
 //
 // Revisions:
 //   - 2026-10-02 23:31: initial creation
@@ -224,7 +257,7 @@ func Emit(flow *Flow) ([]byte, error) {
 // so every run option means the same on every run.
 //
 // Cancelling ctx is the one way to stop the run, and Wait then returns
-// ERR_CANCELLED.
+// ErrCancelled.
 //
 // Nothing holds the run on the caller's behalf. What is worth keeping about a
 // finished run, and for how long, is the host's decision - so the run is the
@@ -245,8 +278,16 @@ func Emit(flow *Flow) ([]byte, error) {
 //     them
 //   - 2026-10-03 00:21: the one way to run, an artifact having no Run or Invoke of its
 //     own, and stopped by its context alone
-func Start(ctx context.Context, art *Artifact, opts ...RunOption) *Execution {
-	return observe.Start(ctx, art, opts...)
+func Start(
+	ctx context.Context,
+	art *Artifact,
+	opts ...RunOption,
+) *Execution {
+	return observe.Start(
+		ctx,
+		art,
+		opts...,
+	)
 }
 
 // Run compiles source with the runtime's own plugins, runs its main, and
@@ -262,13 +303,21 @@ func Start(ctx context.Context, art *Artifact, opts ...RunOption) *Execution {
 //
 // Revisions:
 //   - 2026-10-03 16:31: initial creation
-func Run(ctx context.Context, source *Source, opts ...RunOption) (starlark.Value, error) {
+func Run(
+	ctx context.Context,
+	source *Source,
+	opts ...RunOption,
+) (starlark.Value, error) {
 	art, err := Compile(source)
 	if err != nil {
 		return nil, err
 	}
 
-	return Start(ctx, art, opts...).Wait()
+	return Start(
+		ctx,
+		art,
+		opts...,
+	).Wait()
 }
 
 // WithArgs supplies a run's script with its arguments, each field of args the
@@ -281,7 +330,7 @@ func Run(ctx context.Context, source *Source, opts ...RunOption) (starlark.Value
 //
 // A map of Go values, so a host imports nothing to supply them, and JSON it
 // holds is one json.Unmarshal into the map away. Each must be a value JSON can
-// hold; one that is not fails the run when it starts, with ERR_NOT_JSON.
+// hold; one that is not fails the run when it starts, with ErrNotJSON.
 //
 // Revisions:
 //   - 2026-09-22 22:24: initial creation

@@ -17,13 +17,15 @@ const (
 	LINES_TYPE = "lines"
 )
 
-// ERR_WALKED is returned for reading a file that has already been read.
+// ErrWalked is returned for reading a file that has already been read.
 //
 // A walk is one pass over one file, as a file object is in Python. Reading it
 // twice would quietly start again from the beginning, which is not what
 // anyone holding it a second time meant - and if two threads hold it, not
 // something either of them could have predicted.
-var ERR_WALKED = errors.New("already read")
+var (
+	ErrWalked = errors.New("already read")
+)
 
 // _Reading is a file a script walks one line at a time.
 //
@@ -47,19 +49,32 @@ func _Reading(
 ) (starlark.Value, error) {
 	var named string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &named)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = _Sized(fn.Name(), named)
+	_, err = _Sized(
+		fn.Name(),
+		named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	budget := scheduler.Allowance(thread)
 
-	return &_Lines{thread: thread, named: named, budget: budget}, nil
+	return &_Lines{
+		thread: thread,
+		named:  named,
+		budget: budget,
+	}, nil
 }
 
 // _Lines is the value lines hands back.
@@ -79,7 +94,11 @@ type _Lines struct {
 // Revisions:
 //   - 2026-09-24 22:58: initial creation
 func (l *_Lines) String() string {
-	return fmt.Sprintf("<%s %s>", LINES_TYPE, l.named)
+	return fmt.Sprintf(
+		"<%s %s>",
+		LINES_TYPE,
+		l.named,
+	)
 }
 
 // Type is what a script's type() reports.
@@ -114,7 +133,10 @@ func (l *_Lines) Truth() starlark.Bool {
 // Revisions:
 //   - 2026-09-24 22:58: initial creation
 func (l *_Lines) Hash() (uint32, error) {
-	return 0, fmt.Errorf("unhashable: %s", LINES_TYPE)
+	return 0, fmt.Errorf(
+		"unhashable: %s",
+		LINES_TYPE,
+	)
 }
 
 // Iterate opens the file and walks it, once.
@@ -130,19 +152,35 @@ func (l *_Lines) Hash() (uint32, error) {
 // Revisions:
 //   - 2026-09-24 22:58: initial creation
 func (l *_Lines) Iterate() starlark.Iterator {
-	if !l.walked.CompareAndSwap(false, true) {
-		return &_Walk{lines: l, failed: ERR_WALKED}
+	if !l.walked.CompareAndSwap(
+		false,
+		true,
+	) {
+		return &_Walk{
+			lines:  l,
+			failed: ErrWalked,
+		}
 	}
 
 	held, err := os.Open(l.named)
 	if err != nil {
-		return &_Walk{lines: l, failed: err}
+		return &_Walk{
+			lines:  l,
+			failed: err,
+		}
 	}
 
 	reader := bufio.NewScanner(held)
-	reader.Buffer(nil, int(l.budget.Left()))
+	reader.Buffer(
+		nil,
+		int(l.budget.Left()),
+	)
 
-	return &_Walk{lines: l, file: held, reader: reader}
+	return &_Walk{
+		lines:  l,
+		file:   held,
+		reader: reader,
+	}
 }
 
 // _Walk is one pass over one file.
@@ -164,17 +202,21 @@ func (w *_Walk) Next(p *starlark.Value) bool {
 	}
 
 	if !w.reader.Scan() {
-		w.failed = _Why(w.reader.Err(), w.lines.budget)
+		w.failed = _Why(
+			w.reader.Err(),
+			w.lines.budget,
+		)
 
 		return false
 	}
 
-	held := w.reader.Text()
-
 	// Charged before the line before it is given back, so the reserve never
 	// dips below what is actually held. That costs one line's headroom, which
 	// is the thing being bounded anyway.
-	err := w.lines.budget.Charge(int64(len(held)))
+	var (
+		held = w.reader.Text()
+		err  = w.lines.budget.Charge(int64(len(held)))
+	)
 	if err != nil {
 		w.failed = err
 
@@ -214,12 +256,19 @@ func (w *_Walk) Done() {
 		return
 	}
 
-	cause := _Rejected(NAME+"."+LINES, w.lines.named, w.failed)
+	cause := _Rejected(
+		NAME+"."+LINES,
+		w.lines.named,
+		w.failed,
+	)
 
 	// Fail returns its cause so a builtin can raise it. Done has nothing to
 	// raise to, so what comes back is kept as the reason this walk stopped:
 	// the walk is the only thing left that can still be asked.
-	w.failed = scheduler.Fail(w.lines.thread, cause)
+	w.failed = scheduler.Fail(
+		w.lines.thread,
+		cause,
+	)
 }
 
 // _Why is what stopped a scan, said in the terms the caller set it in.
@@ -230,11 +279,20 @@ func (w *_Walk) Done() {
 //
 // Revisions:
 //   - 2026-09-24 22:58: initial creation
-func _Why(failed error, budget *scheduler.Budget) error {
-	if !errors.Is(failed, bufio.ErrTooLong) {
+func _Why(
+	failed error,
+	budget *scheduler.Budget,
+) error {
+	if !errors.Is(
+		failed,
+		bufio.ErrTooLong,
+	) {
 		return failed
 	}
 
-	return fmt.Errorf("a line longer than the %d bytes left: %w",
-		budget.Left(), scheduler.ERR_MEMORY)
+	return fmt.Errorf(
+		"a line longer than the %d bytes left: %w",
+		budget.Left(),
+		scheduler.ErrMemory,
+	)
 }

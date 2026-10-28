@@ -59,7 +59,10 @@ const (
 //
 // Revisions:
 //   - 2026-09-20 01:37: initial creation
-func _Compile(t *testing.T, path string) *artifact.Artifact {
+func _Compile(
+	t *testing.T,
+	path string,
+) *artifact.Artifact {
 	t.Helper()
 
 	src, err := os.ReadFile(path)
@@ -67,7 +70,10 @@ func _Compile(t *testing.T, path string) *artifact.Artifact {
 		t.Fatal(err)
 	}
 
-	built, err := artifact.Compile(&script.Source{Entry: path, Text: src})
+	built, err := artifact.Compile(&script.Source{
+		Entry: path,
+		Text:  src,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,12 +93,23 @@ func TestStart_ReturnsBeforeTheRunDoes(t *testing.T) {
 	ctx, stop := context.WithCancel(t.Context())
 	defer stop()
 
-	begun := time.Now()
-	run := observe.Start(ctx, _Compile(t, SLOW))
-	taken := time.Since(begun)
+	var (
+		begun = time.Now()
+		run   = observe.Start(
+			ctx,
+			_Compile(
+				t,
+				SLOW,
+			),
+		)
+		taken = time.Since(begun)
+	)
 
 	if taken > PROMPT {
-		t.Fatalf("starting a 30 second script took %s", taken)
+		t.Fatalf(
+			"starting a 30 second script took %s",
+			taken,
+		)
 	}
 
 	if run == nil {
@@ -110,13 +127,23 @@ func TestStatus_ReportsRunning(t *testing.T) {
 	ctx, stop := context.WithCancel(t.Context())
 	defer stop()
 
-	run := observe.Start(ctx, _Compile(t, SLOW))
+	run := observe.Start(
+		ctx,
+		_Compile(
+			t,
+			SLOW,
+		),
+	)
 
 	for i := range POLLS {
 		snap := run.Status()
 
 		if snap.GetStatus() != workflowpb.Status_STATUS_RUNNING {
-			t.Fatalf("poll %d: want running, got %v", i, snap.GetStatus())
+			t.Fatalf(
+				"poll %d: want running, got %v",
+				i,
+				snap.GetStatus(),
+			)
 		}
 	}
 }
@@ -131,22 +158,35 @@ func TestStatus_ReportsRunning(t *testing.T) {
 //   - 2026-09-20 12:04: inverted, Status having stopped forgetting
 //   - 2026-09-23 23:28: there is nothing left that could forget
 func TestStatus_KeepsAnsweringAfterTheRunEnded(t *testing.T) {
-	run := observe.Start(t.Context(), _Compile(t, QUICK))
-
-	_, err := run.Wait()
+	var (
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				QUICK,
+			),
+		)
+		_, err = run.Wait()
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	first := run.Status()
 	if first.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want succeeded, got %v", first.GetStatus())
+		t.Fatalf(
+			"want succeeded, got %v",
+			first.GetStatus(),
+		)
 	}
 
 	second := run.Status()
 	if second.GetStatus() != first.GetStatus() {
-		t.Fatalf("want the same answer twice, got %v then %v",
-			first.GetStatus(), second.GetStatus())
+		t.Fatalf(
+			"want the same answer twice, got %v then %v",
+			first.GetStatus(),
+			second.GetStatus(),
+		)
 	}
 }
 
@@ -156,15 +196,25 @@ func TestStatus_KeepsAnsweringAfterTheRunEnded(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:36: initial creation
 func TestStatus_CarriesAFailedEnding(t *testing.T) {
-	run := observe.Start(t.Context(), _Compile(t, FAILING))
-
-	_, err := run.Wait()
+	var (
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				FAILING,
+			),
+		)
+		_, err = run.Wait()
+	)
 	if err == nil {
 		t.Fatal("want the assertion reported")
 	}
 
 	if run.Status().GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want failed, got %v", run.Status().GetStatus())
+		t.Fatalf(
+			"want failed, got %v",
+			run.Status().GetStatus(),
+		)
 	}
 }
 
@@ -182,20 +232,34 @@ func TestStatus_CarriesAFailedEnding(t *testing.T) {
 //   - 2026-09-20 12:04: inverted; every caller is told, where one was
 //   - 2026-09-23 23:28: asks the run rather than a store
 func TestStatus_AnswersEveryCallerAtOnce(t *testing.T) {
-	built := _Compile(t, QUICK)
+	built := _Compile(
+		t,
+		QUICK,
+	)
 
 	for round := range ROUNDS {
-		run := observe.Start(t.Context(), built)
-
-		_, err := run.Wait()
+		var (
+			run = observe.Start(
+				t.Context(),
+				built,
+			)
+			_, err = run.Wait()
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		seen := _Poll(t, run)
+		seen := _Poll(
+			t,
+			run,
+		)
 		if seen != POLLERS {
-			t.Fatalf("round %d: want all %d callers told the ending, got %d",
-				round, POLLERS, seen)
+			t.Fatalf(
+				"round %d: want all %d callers told the ending, got %d",
+				round,
+				POLLERS,
+				seen,
+			)
 		}
 	}
 }
@@ -205,7 +269,10 @@ func TestStatus_AnswersEveryCallerAtOnce(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-20 01:36: initial creation
-func _Poll(t *testing.T, run *observe.Execution) int {
+func _Poll(
+	t *testing.T,
+	run *observe.Execution,
+) int {
 	t.Helper()
 
 	var (
@@ -226,7 +293,10 @@ func _Poll(t *testing.T, run *observe.Execution) int {
 			snap := run.Status()
 
 			if snap.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-				t.Errorf("want the ending, got %v", snap.GetStatus())
+				t.Errorf(
+					"want the ending, got %v",
+					snap.GetStatus(),
+				)
 
 				return
 			}
@@ -248,9 +318,16 @@ func _Poll(t *testing.T, run *observe.Execution) int {
 //   - 2026-09-20 01:36: initial creation
 //   - 2026-09-23 23:28: nothing forgets, so there is no size to check
 func TestWait_IsIdempotent(t *testing.T) {
-	run := observe.Start(t.Context(), _Compile(t, QUICK))
-
-	first, err := run.Wait()
+	var (
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				QUICK,
+			),
+		)
+		first, err = run.Wait()
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +338,12 @@ func TestWait_IsIdempotent(t *testing.T) {
 	}
 
 	if first.String() != RESULT || second.String() != RESULT {
-		t.Fatalf("want %s twice, got %s and %s", RESULT, first, second)
+		t.Fatalf(
+			"want %s twice, got %s and %s",
+			RESULT,
+			first,
+			second,
+		)
 	}
 }
 
@@ -271,11 +353,25 @@ func TestWait_IsIdempotent(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:36: initial creation
 func TestWait_CarriesTheRunsOwnFailure(t *testing.T) {
-	run := observe.Start(t.Context(), _Compile(t, FAILING))
+	var (
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				FAILING,
+			),
+		)
+		_, err = run.Wait()
+	)
 
-	_, err := run.Wait()
-	if !errors.Is(err, core.ERR_ASSERT) {
-		t.Fatalf("want an assertion, got %v", err)
+	if !errors.Is(
+		err,
+		core.ErrAssert,
+	) {
+		t.Fatalf(
+			"want an assertion, got %v",
+			err,
+		)
 	}
 }
 
@@ -295,7 +391,13 @@ func TestDone_LetsACallerGiveUpWithoutStoppingTheRun(t *testing.T) {
 	ctx, stop := context.WithCancel(t.Context())
 	defer stop()
 
-	run := observe.Start(ctx, _Compile(t, SLOW))
+	run := observe.Start(
+		ctx,
+		_Compile(
+			t,
+			SLOW,
+		),
+	)
 
 	select {
 	case <-run.Done():
@@ -322,8 +424,16 @@ func TestDone_LetsACallerGiveUpWithoutStoppingTheRun(t *testing.T) {
 //   - 2026-09-23 23:28: stops the run it holds
 //   - 2026-10-03 00:22: stops the run by cancelling its context, the one way to stop one
 func TestCancel_ReachesASpawnedSleep(t *testing.T) {
-	ctx, stop := context.WithCancel(t.Context())
-	run := observe.Start(ctx, _Compile(t, SLOW))
+	var (
+		ctx, stop = context.WithCancel(t.Context())
+		run       = observe.Start(
+			ctx,
+			_Compile(
+				t,
+				SLOW,
+			),
+		)
+	)
 
 	stop()
 
@@ -339,7 +449,10 @@ func TestCancel_ReachesASpawnedSleep(t *testing.T) {
 	}
 
 	if run.Status().GetStatus() != workflowpb.Status_STATUS_CANCELLED {
-		t.Fatalf("want cancelled, got %v", run.Status().GetStatus())
+		t.Fatalf(
+			"want cancelled, got %v",
+			run.Status().GetStatus(),
+		)
 	}
 }
 
@@ -352,10 +465,17 @@ func TestCancel_ReachesASpawnedSleep(t *testing.T) {
 //   - 2026-09-23 23:28: stops the run it holds
 //   - 2026-10-03 00:22: cancels the run's context, the one way to stop one
 func TestCancel_ForgivesAFinishedRun(t *testing.T) {
-	ctx, stop := context.WithCancel(t.Context())
-	run := observe.Start(ctx, _Compile(t, QUICK))
-
-	got, err := run.Wait()
+	var (
+		ctx, stop = context.WithCancel(t.Context())
+		run       = observe.Start(
+			ctx,
+			_Compile(
+				t,
+				QUICK,
+			),
+		)
+		got, err = run.Wait()
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,12 +483,19 @@ func TestCancel_ForgivesAFinishedRun(t *testing.T) {
 	stop()
 
 	if run.Status().GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("stopping a finished run changed it to %v", run.Status().GetStatus())
+		t.Fatalf(
+			"stopping a finished run changed it to %v",
+			run.Status().GetStatus(),
+		)
 	}
 
 	again, err := run.Wait()
 	if err != nil || again.String() != got.String() {
-		t.Fatalf("after stopping got %v, %v; want the value unchanged", again, err)
+		t.Fatalf(
+			"after stopping got %v, %v; want the value unchanged",
+			again,
+			err,
+		)
 	}
 }
 
@@ -383,43 +510,113 @@ func TestCancel_ForgivesAFinishedRun(t *testing.T) {
 func TestStart_LogsWhatItsScriptPrints(t *testing.T) {
 	var out bytes.Buffer
 
-	logger := slog.New(slog.NewJSONHandler(&out, nil))
-
-	run := observe.Start(t.Context(), _Compile(t, PRINTS), artifact.WithLogger(logger))
-
-	_, err := run.Wait()
+	var (
+		logger = slog.New(slog.NewJSONHandler(
+			&out,
+			nil,
+		))
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				PRINTS,
+			),
+			artifact.WithLogger(logger),
+		)
+		_, err = run.Wait()
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Who prints what in the fixture.
-	speakers := map[string]string{
-		"from the spine": ENTRY,
-		"from alpha":     "alpha",
-		"from beta":      "beta",
-	}
-
-	lanes := make(map[string]bool)
+	var (
+		speakers = map[string]string{
+			"from the spine": ENTRY,
+			"from alpha":     "alpha",
+			"from beta":      "beta",
+		}
+		lanes = make(map[string]bool)
+	)
 
 	for line := range strings.Lines(out.String()) {
 		record := map[string]any{}
 
-		err = json.Unmarshal([]byte(line), &record)
+		err = json.Unmarshal(
+			[]byte(line),
+			&record,
+		)
 		if err != nil {
-			t.Fatalf("record %q: %v", line, err)
+			t.Fatalf(
+				"record %q: %v",
+				line,
+				err,
+			)
 		}
 
-		said := fmt.Sprint(record[slog.MessageKey])
-		name := fmt.Sprint(record[scheduler.ATTR_FUNCTION])
+		var (
+			said = fmt.Sprint(record[slog.MessageKey])
+			name = fmt.Sprint(record[scheduler.ATTR_FUNCTION])
+		)
 
 		if speakers[said] != name {
-			t.Fatalf("want %q printed by %s, got %q", said, speakers[said], name)
+			t.Fatalf(
+				"want %q printed by %s, got %q",
+				said,
+				speakers[said],
+				name,
+			)
 		}
 
 		lanes[fmt.Sprint(record[scheduler.ATTR_THREAD])] = true
 	}
 
 	if len(lanes) != SPEAKERS {
-		t.Fatalf("want a line from each of %d threads, got %v", SPEAKERS, lanes)
+		t.Fatalf(
+			"want a line from each of %d threads, got %v",
+			SPEAKERS,
+			lanes,
+		)
+	}
+}
+
+// TestRegression_Watcher checks that a panic in the change callback does not
+// crash the process. The run must end with an error that carries the panic
+// text, and the process must stay up.
+//
+// _Began calls the watcher on the caller's goroutine, before the run's own
+// goroutine. _Finished calls it after WithRecover, outside any recovery.
+// Neither call went through anything that contained the panic.
+//
+// Revisions:
+//   - 2026-10-24 16:05: initial creation
+func TestRegression_Watcher(t *testing.T) {
+	watch := func(change *workflowpb.Change) {
+		panic("watcher broke")
+	}
+
+	var (
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				QUICK,
+			),
+			artifact.WithChanges(watch),
+		)
+		_, err = run.Wait()
+	)
+	if err == nil {
+		t.Fatal("want the panic reported as an error")
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		"watcher broke",
+	) {
+		t.Fatalf(
+			"want the panic text in the error, got %v",
+			err,
+		)
 	}
 }

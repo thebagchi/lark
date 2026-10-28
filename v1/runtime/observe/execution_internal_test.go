@@ -25,18 +25,26 @@ import (
 //   - 2026-09-23 23:28: reads the run a caller now holds, the entry a store
 //     held having gone with the store
 func TestExecution_HoldsNoContext(t *testing.T) {
-	kind := reflect.TypeOf((*context.Context)(nil)).Elem()
-	held := reflect.TypeOf(Execution{})
+	var (
+		kind = reflect.TypeOf((*context.Context)(nil)).Elem()
+		held = reflect.TypeOf(Execution{})
+	)
 
 	for i := range held.NumField() {
 		field := held.Field(i)
 
 		if field.Type == kind {
-			t.Fatalf("%s is a context, which this package must not hold", field.Name)
+			t.Fatalf(
+				"%s is a context, which this package must not hold",
+				field.Name,
+			)
 		}
 
 		if field.Type.Implements(kind) {
-			t.Fatalf("%s implements context.Context", field.Name)
+			t.Fatalf(
+				"%s implements context.Context",
+				field.Name,
+			)
 		}
 	}
 }
@@ -55,14 +63,21 @@ func TestExecution_HoldsNoContext(t *testing.T) {
 //   - 2026-09-23 23:28: reads the run's own ending, there being no store to
 //     look an entry up in
 func TestStart_SurvivesSomethingThatIsNotAnArtifact(t *testing.T) {
-	run := Start(t.Context(), nil)
-
-	_, err := run.Wait()
+	var (
+		run = Start(
+			t.Context(),
+			nil,
+		)
+		_, err = run.Wait()
+	)
 	if err == nil {
 		t.Fatal("want the run to have failed")
 	}
 
 	if _Became(run.err) != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want it reported failed, got %v", _Became(run.err))
+		t.Fatalf(
+			"want it reported failed, got %v",
+			_Became(run.err),
+		)
 	}
 }

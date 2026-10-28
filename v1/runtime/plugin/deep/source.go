@@ -25,7 +25,11 @@ import (
 //   - 2026-09-24 20:10: initial creation, as state's Check
 //   - 2026-09-30 22:41: a question any plugin can ask of its own call, rather than
 //     state's
-func ShowsCode(tree *syntax.File, module string, member string) (*syntax.CallExpr, string) {
+func ShowsCode(
+	tree *syntax.File,
+	module string,
+	member string,
+) (*syntax.CallExpr, string) {
 	declared := map[string]bool{}
 
 	for _, stmt := range tree.Stmts {
@@ -40,23 +44,33 @@ func ShowsCode(tree *syntax.File, module string, member string) (*syntax.CallExp
 		named string
 	)
 
-	syntax.Walk(tree, func(node syntax.Node) bool {
-		if found != nil {
-			return false
-		}
+	syntax.Walk(
+		tree,
+		func(node syntax.Node) bool {
+			if found != nil {
+				return false
+			}
 
-		call, ok := node.(*syntax.CallExpr)
-		if !ok || len(call.Args) != 2 || !_Calls(call, module, member) {
-			return true
-		}
+			call, ok := node.(*syntax.CallExpr)
+			if !ok || len(call.Args) != 2 || !_Calls(
+				call,
+				module,
+				member,
+			) {
+				return true
+			}
 
-		named = _Names(call.Args[1], declared)
-		if named != "" {
-			found = call
-		}
+			named = _Names(
+				call.Args[1],
+				declared,
+			)
+			if named != "" {
+				found = call
+			}
 
-		return found == nil
-	})
+			return found == nil
+		},
+	)
 
 	return found, named
 }
@@ -66,7 +80,11 @@ func ShowsCode(tree *syntax.File, module string, member string) (*syntax.CallExp
 // Revisions:
 //   - 2026-09-24 20:10: initial creation, as state's _Stores
 //   - 2026-09-30 22:41: names the call it looks for, rather than state.set
-func _Calls(call *syntax.CallExpr, module string, member string) bool {
+func _Calls(
+	call *syntax.CallExpr,
+	module string,
+	member string,
+) bool {
 	dotted, ok := call.Fn.(*syntax.DotExpr)
 	if !ok || dotted.Name.Name != member {
 		return false
@@ -82,7 +100,10 @@ func _Calls(call *syntax.CallExpr, module string, member string) bool {
 //
 // Revisions:
 //   - 2026-09-24 20:10: initial creation, in state
-func _Names(arg syntax.Expr, declared map[string]bool) string {
+func _Names(
+	arg syntax.Expr,
+	declared map[string]bool,
+) string {
 	switch held := _Bare(arg).(type) {
 	case *syntax.LambdaExpr:
 		return "a lambda"

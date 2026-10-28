@@ -35,21 +35,52 @@ import (
 //     gives a script by itself
 //   - 2026-10-08 17:55: hash.crc32, where crc32 moved
 func TestScript_ExistsCRCCopyAndSetTogether(t *testing.T) {
-	dir := t.TempDir()
-	secret := filepath.Join(dir, "secret")
-	if err := os.Mkdir(secret, 0o755); err != nil {
+	var (
+		dir    = t.TempDir()
+		secret = filepath.Join(
+			dir,
+			"secret",
+		)
+	)
+	if err := os.Mkdir(
+		secret,
+		0o755,
+	); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(secret, "note"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(secret, 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(secret, 0o755) })
 
-	note := filepath.Join(secret, "note")
-	src := fmt.Sprintf(`
+	if err := os.WriteFile(
+		filepath.Join(
+			secret,
+			"note",
+		),
+		[]byte("x"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(
+		secret,
+		0,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		_ = os.Chmod(
+			secret,
+			0o755,
+		)
+	})
+
+	var (
+		note = filepath.Join(
+			secret,
+			"note",
+		)
+		src = fmt.Sprintf(
+			`
 def main():
     hidden = file.exists(%q)
     seed = hash.crc32(b"abc", 4294967296)
@@ -70,20 +101,32 @@ def main():
     state.update("n", slow)
     join(handle)
     return [hidden, seed == plain, doc["a"], state.get("n")]
-`, note)
+`, note,
+		)
+	)
 
 	built, err := runtime.Compile(
-		&runtime.Source{Entry: "probe.star", Text: []byte(src)},
+		&runtime.Source{
+			Entry: "probe.star",
+			Text:  []byte(src),
+		},
 		runtime.WithPlugins(&larkfile.Plugin{}),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err := runtime.Start(context.Background(), built).Wait()
+
+	value, err := runtime.Start(
+		context.Background(),
+		built,
+	).Wait()
 	if err != nil {
 		// file.exists is first. After the fix it refuses an unsearchable
 		// directory, so this script stops there. That refusal is the pass.
-		if !errors.Is(err, os.ErrPermission) {
+		if !errors.Is(
+			err,
+			os.ErrPermission,
+		) {
 			t.Fatal(err)
 		}
 
@@ -91,41 +134,88 @@ def main():
 	}
 
 	// Seen twice on 2026-09-24, before the fix: [False, True, [1, 2], "from-update"].
-	const seen = `[False, True, [1, 2], "from-update"]`
-	if value.String() == seen {
-		t.Errorf("reproduced file.exists, crc32, patch copy, and state.set: %s", seen)
+	const SEEN = `[False, True, [1, 2], "from-update"]`
+	if value.String() == SEEN {
+		t.Errorf(
+			"reproduced file.exists, crc32, patch copy, and state.set: %s",
+			SEEN,
+		)
 	}
 }
 
+// TestExists_BehindAClosedDirectory checks that exists refuses a path behind
+// a directory the process may not search.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestExists_BehindAClosedDirectory(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root can search a mode 000 directory")
 	}
 
-	dir := t.TempDir()
-	secret := filepath.Join(dir, "secret")
-	if err := os.Mkdir(secret, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	note := filepath.Join(secret, "note")
-	if err := os.WriteFile(note, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(secret, 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(secret, 0o755) })
+	var (
+		dir    = t.TempDir()
+		secret = filepath.Join(
+			dir,
+			"secret",
+		)
+	)
+	if err := os.Mkdir(
+		secret,
 
-	_, err := _Run(t, `
+		0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	note := filepath.Join(
+		secret,
+		"note",
+	)
+	if err := os.WriteFile(
+		note,
+
+		[]byte("x"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(
+		secret,
+		0,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		_ = os.Chmod(
+			secret,
+			0o755,
+		)
+	})
+
+	_, err := _Run(
+		t,
+		`
 def main():
+
     file.exists("`+note+`")
     return "reached"
-`)
+`,
+	)
 	if err == nil {
 		t.Fatal("exists on an unsearchable path returned instead of refusing")
 	}
-	if !errors.Is(err, os.ErrPermission) {
-		t.Fatalf("got %v, want a permission refusal", err)
+
+	if !errors.Is(
+		err,
+		os.ErrPermission,
+	) {
+		t.Fatalf(
+			"got %v, want a permission refusal",
+			err,
+		)
 	}
 }
 
@@ -137,7 +227,9 @@ def main():
 //   - 2026-09-24 17:26: initial creation
 //   - 2026-10-08 17:55: hash.crc32, where crc32 moved
 func TestScript_CRCAndCopyAndSet(t *testing.T) {
-	value, err := _Run(t, `
+	value, err := _Run(
+		t,
+		`
 def main():
     wide = "refused"
     caught = ""
@@ -156,86 +248,155 @@ def main():
         state.set("n", "from-set")
 
     handle = spawn(writer)
+
     state.update("n", slow)
     join(handle)
     return [doc["a"], state.get("n"), hash.crc32(b"abc", 4294967295) != hash.crc32(b"abc", 0)]
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != `[[1], "from-set", True]` {
-		t.Fatalf("got %s", value.String())
+		t.Fatalf(
+			"got %s",
+			value.String(),
+		)
 	}
 
-	_, err = _Run(t, `
+	_, err = _Run(
+		t,
+		`
 def main():
     return hash.crc32(b"abc", 4294967296)
-`)
+`,
+	)
 	if err == nil {
 		t.Fatal("a 2**32 seed was accepted")
 	}
 }
 
+// TestRandomInt_FullRange checks random.int over the full int64 range.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestRandomInt_FullRange(t *testing.T) {
-	value, err := _Run(t, `
+	value, err := _Run(
+		t,
+		`
 def main():
     random.seed(1)
     return random.int(0, 9223372036854775807)
-`)
+`,
+	)
 	if err != nil {
-		if strings.Contains(err.Error(), "recovered") {
-			t.Fatalf("recovered panic, want a number or ERR_RANGE: %v", err)
+		if strings.Contains(
+			err.Error(),
+			"recovered",
+		) {
+			t.Fatalf(
+				"recovered panic, want a number or ErrRange: %v",
+
+				err,
+			)
 		}
-		if !errors.Is(err, larkrandom.ERR_RANGE) {
+
+		if !errors.Is(
+			err,
+			larkrandom.ErrRange,
+		) {
 			t.Fatal(err)
 		}
+
 		return
 	}
 
 	number, ok := value.(starlark.Int)
 	if !ok {
-		t.Fatalf("got %T", value)
-	}
-	held, exact := number.Int64()
-	if !exact || held < 0 {
-		t.Fatalf("got %s, want a number inside the range", value.String())
+		t.Fatalf(
+			"got %T",
+			value,
+		)
 	}
 
-	_, err = _Run(t, `
+	held, exact := number.Int64()
+	if !exact || held < 0 {
+		t.Fatalf(
+			"got %s, want a number inside the range",
+			value.String(),
+		)
+	}
+
+	_, err = _Run(
+		t,
+		`
 def main():
     random.seed(1)
     return random.int(-9223372036854775808, 9223372036854775807)
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("the whole int64 range: %v", err)
+		t.Fatalf(
+			"the whole int64 range: %v",
+			err,
+		)
 	}
 }
 
+// TestRandomInt_Edges checks the edge cases: equal bounds give that value,
+// and an inverted range is refused.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestRandomInt_Edges(t *testing.T) {
-	value, err := _Run(t, `
+	value, err := _Run(
+		t,
+		`
 def main():
     random.seed(1)
     return random.int(0, 0)
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != "0" {
-		t.Fatalf("got %s, want 0", value.String())
+		t.Fatalf(
+			"got %s, want 0",
+			value.String(),
+		)
 	}
 
-	_, err = _Run(t, `
+	_, err = _Run(
+		t,
+		`
 def main():
     random.seed(1)
     return random.int(3, 1)
-`)
-	if !errors.Is(err, larkrandom.ERR_RANGE) {
-		t.Fatalf("got %v, want ERR_RANGE", err)
+`,
+	)
+	if !errors.Is(
+		err,
+		larkrandom.ErrRange,
+	) {
+		t.Fatalf(
+			"got %v, want ErrRange",
+			err,
+		)
 	}
 }
 
+// TestRandomInt_ThreadsShareOneSequence checks that eight threads drawing
+// from one seeded sequence give the same bag as one thread drawing the same count.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestRandomInt_ThreadsShareOneSequence(t *testing.T) {
-	parallel, err := _Run(t, `
+	parallel, err := _Run(
+		t,
+		`
 def draw():
     out = []
     for _ in range(200):
@@ -251,28 +412,44 @@ def main():
         for n in part:
             bag.append(n)
     return bag
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	alone, err := _Run(t, `
+	alone, err := _Run(
+		t,
+		`
 def main():
     random.seed(1)
     out = []
     for _ in range(1600):
         out.append(random.int(0, 9))
     return out
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got := _Ints(t, parallel)
-	want := _Ints(t, alone)
+	var (
+		got = _Ints(
+			t,
+			parallel,
+		)
+		want = _Ints(
+			t,
+			alone,
+		)
+	)
 	sort.Ints(got)
 	sort.Ints(want)
-	if len(got) != 1600 || !_SlicesEqual(got, want) {
+
+	if len(got) != 1600 || !_SlicesEqual(
+		got,
+		want,
+	) {
 		t.Fatalf(
 			"parallel bag differs from one thread drawing 1600 times, len %d",
 			len(got),
@@ -280,90 +457,214 @@ def main():
 	}
 }
 
+// TestFile_SymlinkAndDirectory checks symlinks, directory reads, and write
+// through a file acting as a directory component.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestFile_SymlinkAndDirectory(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "target.txt")
-	if err := os.WriteFile(target, []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(dir, "link.txt")
-	if err := os.Symlink(target, link); err != nil {
+	var (
+		dir    = t.TempDir()
+		target = filepath.Join(
+			dir,
+			"target.txt",
+		)
+	)
+	if err := os.WriteFile(
+		target,
+		[]byte("hello"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
-	value, err := _Run(t, fmt.Sprintf(`
+	link := filepath.Join(
+		dir,
+		"link.txt",
+	)
+	if err := os.Symlink(
+		target,
+		link,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := _Run(
+		t,
+		fmt.Sprintf(
+			`
 def main():
     return [file.exists(%q), file.read(%q)]
-`, link, link))
+`, link,
+			link,
+		),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != `[True, "hello"]` {
-		t.Fatalf("symlink: %s", value.String())
+		t.Fatalf(
+			"symlink: %s",
+			value.String(),
+		)
 	}
 
-	_, err = _Run(t, fmt.Sprintf(`
+	_, err = _Run(
+		t,
+		fmt.Sprintf(
+
+			`
 def main():
     file.remove(%q)
     return None
-`, link))
+`, link,
+		),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if _, err := os.Lstat(link); !os.IsNotExist(err) {
-		t.Fatalf("link still there: %v", err)
+		t.Fatalf(
+			"link still there: %v",
+			err,
+		)
 	}
+
 	body, err := os.ReadFile(target)
 	if err != nil || string(body) != "hello" {
-		t.Fatalf("target after removing the link: %q %v", body, err)
+		t.Fatalf(
+			"target after removing the link: %q %v",
+
+			body,
+			err,
+		)
 	}
 
-	broken := filepath.Join(dir, "broken")
-	if err := os.Symlink(filepath.Join(dir, "missing"), broken); err != nil {
+	broken := filepath.Join(
+		dir,
+		"broken",
+	)
+	if err := os.Symlink(
+		filepath.Join(
+			dir,
+
+			"missing",
+		),
+		broken,
+	); err != nil {
 		t.Fatal(err)
 	}
-	value, err = _Run(t, fmt.Sprintf(`
+
+	value, err = _Run(
+		t,
+		fmt.Sprintf(
+			`
 def main():
     return file.exists(%q)
-`, broken))
+`, broken,
+		),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != "False" {
-		t.Fatalf("broken symlink exists: %s", value.String())
+		t.Fatalf(
+			"broken symlink exists: %s",
+			value.String(),
+		)
 	}
 
-	_, err = _Run(t, fmt.Sprintf(`
+	_, err = _Run(
+		t,
+		fmt.Sprintf(
+			`
 def main():
     return file.read(%q)
-`, dir))
-	if !errors.Is(err, larkfile.ERR_FILE) {
-		t.Fatalf("read directory: %v", err)
+`, dir,
+		),
+	)
+	if !errors.Is(
+
+		err,
+		larkfile.ErrFile,
+	) {
+		t.Fatalf(
+
+			"read directory: %v",
+			err,
+		)
 	}
 
-	parent := filepath.Join(dir, "not-a-dir")
-	if err := os.WriteFile(parent, []byte("stay"), 0o644); err != nil {
+	parent := filepath.Join(
+		dir,
+		"not-a-dir",
+	)
+	if err := os.WriteFile(
+		parent,
+		[]byte("stay"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
-	child := filepath.Join(parent, "child.txt")
-	_, err = _Run(t, fmt.Sprintf(`
+
+	child := filepath.Join(
+		parent,
+
+		"child.txt",
+	)
+
+	_, err = _Run(
+		t,
+		fmt.Sprintf(
+			`
 def main():
     file.write(%q, "x")
     return None
-`, child))
-	if !errors.Is(err, larkfile.ERR_FILE) {
-		t.Fatalf("write through a file: %v", err)
+`, child,
+		),
+	)
+	if !errors.Is(
+		err,
+		larkfile.ErrFile,
+	) {
+		t.Fatalf(
+			"write through a file: %v",
+			err,
+		)
 	}
+
 	body, err = os.ReadFile(parent)
 	if err != nil || string(body) != "stay" {
-		t.Fatalf("parent changed: %q %v", body, err)
+		t.Fatalf(
+			"parent changed: %q %v",
+			body,
+			err,
+		)
 	}
 }
 
+// TestFile_AppendsStayWhole checks that concurrent appends from two threads
+// each produce complete lines with no interleaving within a single line.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestFile_AppendsStayWhole(t *testing.T) {
-	dir := t.TempDir()
-	named := filepath.Join(dir, "log.txt")
-	_, err := _Run(t, fmt.Sprintf(`
+	var (
+		dir   = t.TempDir()
+		named = filepath.Join(
+			dir,
+			"log.txt",
+		)
+	)
+
+	_, err := _Run(
+		t,
+		fmt.Sprintf(
+			`
+
 def left():
     for _ in range(80):
         file.append(%q, "AAAAAAAAAA\n")
@@ -375,7 +676,12 @@ def right():
 def main():
     join(spawn(left), spawn(right))
     return file.read(%q)
-`, named, named, named))
+`, named,
+			named,
+
+			named,
+		),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,19 +690,40 @@ def main():
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimSuffix(string(text), "\n"), "\n")
+
+	lines := strings.Split(
+		strings.TrimSuffix(
+			string(text),
+			"\n",
+		),
+		"\n",
+	)
 	if len(lines) != 160 {
-		t.Fatalf("got %d lines", len(lines))
+		t.Fatalf(
+			"got %d lines",
+			len(lines),
+		)
 	}
+
 	for _, line := range lines {
 		if line != "AAAAAAAAAA" && line != "BBBBBBBBBB" {
-			t.Fatalf("interleaved line %q", line)
+			t.Fatalf(
+				"interleaved line %q",
+				line,
+			)
 		}
 	}
 }
 
+// TestRegexp_LogLineOffsetsSplitAndCount checks regexp operations: match
+// groups, byte offsets, split, and sub with a count.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestRegexp_LogLineOffsetsSplitAndCount(t *testing.T) {
-	value, err := _Run(t, `
+	value, err := _Run(
+		t,
+		`
 def main():
     line = '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326'
     found = regexp.search(r'^(\S+) (\S+) (\S+) \[([^\]]+)\] "(\S+) (\S+) [^"]+" (\d+) (\S+)', line)
@@ -409,28 +736,44 @@ def main():
         regexp.sub(r"a", "-", "banana", count = 0),
         regexp.sub(r"a", "-", "banana", count = -1),
     ]
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	want := `["127.0.0.1", "GET", "/apache_pb.gif", "200", "é", 3, 5, "é", ["a", "b", "c"], ` +
 		`"b-n-n-", "b-n-n-"]`
 	if value.String() != want {
-		t.Fatalf("got %s\nwant %s", value.String(), want)
+		t.Fatalf(
+			"got %s\nwant %s",
+			value.String(),
+			want,
+		)
 	}
 }
 
+// TestAdd_GivesTheWrittenListItsOwnContainers checks that patch add copies
+// the value, so a mutation of the written path does not affect the source.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestAdd_GivesTheWrittenListItsOwnContainers(t *testing.T) {
-	value, err := _Run(t, `
+	value, err := _Run(
+		t,
+		`
+
 def main():
     doc = {"a": [1]}
     out = patch_json(doc, [{"op": "add", "path": "/b", "value": doc["a"]}])
     out["b"].append(2)
     return [doc["a"], out["b"]]
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != "[[1], [1, 2]]" {
 		t.Fatalf(
 			"got %s, want the original left at [1] and the added list its own",
@@ -439,39 +782,84 @@ def main():
 	}
 }
 
-func _Ints(t *testing.T, value starlark.Value) []int {
+// _Ints unwraps a starlark list of integers into a Go slice.
+//
+
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
+func _Ints(
+	t *testing.T,
+
+	value starlark.Value,
+) []int {
 	t.Helper()
+
 	list, ok := value.(*starlark.List)
+
 	if !ok {
-		t.Fatalf("got %T", value)
+		t.Fatalf(
+			"got %T",
+			value,
+		)
 	}
-	out := make([]int, 0, list.Len())
+
+	out := make(
+		[]int,
+		0,
+		list.Len(),
+	)
 	for i := range list.Len() {
 		number, ok := list.Index(i).(starlark.Int)
 		if !ok {
-			t.Fatalf("element %d is %s", i, list.Index(i).Type())
+			t.Fatalf(
+				"element %d is %s",
+				i,
+				list.Index(i).Type(),
+			)
 		}
+
 		held, err := starlark.AsInt32(number)
 		if err != nil {
 			t.Fatal(err)
 		}
-		out = append(out, held)
+
+		out = append(
+			out,
+			held,
+		)
 	}
+
 	return out
 }
 
-func _SlicesEqual(left []int, right []int) bool {
+// _SlicesEqual reports whether two integer slices contain the same elements
+// in the same order.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
+func _SlicesEqual(
+	left []int,
+	right []int,
+) bool {
 	if len(left) != len(right) {
 		return false
 	}
+
 	for i := range left {
 		if left[i] != right[i] {
 			return false
 		}
 	}
+
 	return true
 }
 
+// TestPatch_MovesInsideOneList checks move within a list, add at length,
+
+// and the cases that must be refused.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestPatch_MovesInsideOneList(t *testing.T) {
 	cases := []struct{ name, expression, want string }{
 		{
@@ -493,104 +881,180 @@ func TestPatch_MovesInsideOneList(t *testing.T) {
 		},
 	}
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			value, err := _Run(t, "def main():\n    return "+item.expression+"\n")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if value.String() != item.want {
-				t.Fatalf("got %s, want %s", value.String(), item.want)
-			}
-		})
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				value, err := _Run(
+					t,
+					"def main():\n    return "+item.expression+"\n",
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if value.String() != item.want {
+					t.Fatalf(
+						"got %s, want %s",
+						value.String(),
+						item.want,
+					)
+				}
+			},
+		)
 	}
 
-	_, err := _Run(t, `
+	_, err := _Run(
+		t,
+		`
 def main():
     return patch_json({"a": ["x"]}, [{"op": "add", "path": "/a/2", "value": "y"}])
-`)
+`,
+	)
 	if err == nil {
 		t.Fatal("add one past the end was accepted")
 	}
 
-	_, err = _Run(t, `
+	_, err = _Run(
+		t,
+		`
 def main():
     return patch_json({"a": ["x"]}, [{"op": "replace", "path": "/a/-", "value": "y"}])
-`)
+`,
+	)
 	if err == nil {
 		t.Fatal("replace of - was accepted")
 	}
 }
 
+// TestNumbers_AtTheEdge checks math at extremes: log of negative, log of zero,
+// huge integers in ceil and floor, sleep precision, timeout at zero, and repeat
+// cancellation.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestNumbers_AtTheEdge(t *testing.T) {
-	value, err := _Run(t, `
+	value, err := _Run(
+		t,
+		`
 def main():
     huge = 1208925819614629174706176
+
     return [
         math.isnan(math.log(-1)),
         math.isinf(math.log(0)),
         math.ceil(huge) == huge,
         math.floor(huge) == huge,
     ]
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != "[True, True, True, True]" {
-		t.Fatalf("got %s", value.String())
+		t.Fatalf(
+			"got %s",
+			value.String(),
+		)
 	}
 
 	started := time.Now()
-	value, err = _Run(t, `
+
+	value, err = _Run(
+		t,
+		`
 def main():
     sleep(1)
+
     return "done"
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != `"done"` {
-		t.Fatalf("sleep: %s", value.String())
-	}
-	if time.Since(started) > time.Second {
-		t.Fatalf("sleep(1) took %s", time.Since(started))
+		t.Fatalf(
+			"sleep: %s",
+			value.String(),
+		)
 	}
 
-	wins, timeouts := 0, 0
-	script := `
+	if time.Since(started) > time.Second {
+		t.Fatalf(
+			"sleep(1) took %s",
+			time.Since(started),
+		)
+	}
+
+	var (
+		wins, timeouts = 0, 0
+		script         = `
 def ok():
     return 1
 
+
 def main():
     return timeout(0, ok)
+
 `
+	)
 	for range 20 {
-		_, err := _Run(t, script)
+		_, err := _Run(
+			t,
+			script,
+		)
 		if err == nil {
 			wins++
 			continue
 		}
+
 		timeouts++
 	}
-	t.Logf("timeout(0): %d returned 1, %d timed out", wins, timeouts)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	t.Logf(
+		"timeout(0): %d returned 1, %d timed out",
+		wins,
+		timeouts,
+	)
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		2*time.Second,
+	)
 	defer cancel()
+
 	started = time.Now()
-	_, err = _RunCtx(t, ctx, `
+	_, err = _RunCtx(
+		ctx,
+		t,
+		`
 def step():
     return 1
 
 def main():
     return repeat(1099511627776, step)
-`)
+`,
+	)
 	elapsed := time.Since(started)
+
 	if err == nil {
 		t.Fatal("repeat of 2**40 returned a value")
 	}
+
 	if elapsed > 500*time.Millisecond {
-		t.Fatalf("repeat of 2**40 ran for %s before %v", elapsed, err)
+		t.Fatalf(
+			"repeat of 2**40 ran for %s before %v",
+			elapsed,
+			err,
+		)
 	}
-	t.Logf("repeat(2**40) after %s: %v", elapsed, err)
+
+	t.Logf(
+		"repeat(2**40) after %s: %v",
+		elapsed,
+		err,
+	)
 }
 
 // TestHMAC_EmptyAndLongKeyMatchGo checks hash.hmac against Go's own HMAC for an
@@ -603,108 +1067,251 @@ def main():
 //   - 2026-09-24 17:26: initial creation
 //   - 2026-10-08 18:06: compares in upper case, which hash now writes
 func TestHMAC_EmptyAndLongKeyMatchGo(t *testing.T) {
-	empty := strings.ToUpper(_GoHMAC(""))
-	long := strings.ToUpper(_GoHMAC(strings.Repeat("k", 80)))
-	value, err := _Run(t, fmt.Sprintf(`
+	var (
+		empty = strings.ToUpper(_GoHMAC(""))
+		long  = strings.ToUpper(_GoHMAC(strings.Repeat(
+			"k",
+			80,
+		)))
+		value, err = _Run(
+			t,
+			fmt.Sprintf(
+				`
 def main():
     return [hash.hmac("sha256", "", "abc"), hash.hmac("sha256", %q, "abc")]
-`, strings.Repeat("k", 80)))
+`, strings.Repeat(
+					"k",
+					80,
+				),
+			),
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf(`["%s", "%s"]`, empty, long)
+
+	want := fmt.Sprintf(
+		`["%s", "%s"]`,
+		empty,
+		long,
+	)
 	if value.String() != want {
-		t.Fatalf("got %s, want %s", value.String(), want)
+		t.Fatalf(
+			"got %s, want %s",
+			value.String(),
+			want,
+		)
 	}
 }
 
+// TestBase64_RefusesTheOtherAlphabet checks that decode rejects a URL-encoded
+// string, and urldecode rejects a standard-encoded string.
+//
+// The bytes are chosen so the two alphabets produce different characters,
+// making the rejection testable. A padded URL string is also accepted, because
+// urldecode strips padding.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestBase64_RefusesTheOtherAlphabet(t *testing.T) {
-	raw := []byte{0xfb, 0xef, 0xff}
-	standard := base64.StdEncoding.EncodeToString(raw)
-	url := base64.RawURLEncoding.EncodeToString(raw)
+	var (
+		raw      = []byte{0xfb, 0xef, 0xff}
+		standard = base64.StdEncoding.EncodeToString(raw)
+		url      = base64.RawURLEncoding.EncodeToString(raw)
+	)
 	if standard == url {
-		t.Fatalf("picked bytes whose alphabets match: %s", standard)
+		t.Fatalf(
+			"picked bytes whose alphabets match: %s",
+			standard,
+		)
 	}
 
-	_, err := _Run(t, fmt.Sprintf(`
+	_, err := _Run(
+		t,
+		fmt.Sprintf(
+			`
+
 def main():
     return base64.decode(%q)
-`, url))
-	if !errors.Is(err, larkbase64.ERR_ENCODED) {
-		t.Fatalf("standard decode of url text: %v", err)
+`, url,
+		),
+	)
+	if !errors.Is(
+		err,
+		larkbase64.ErrEncoded,
+	) {
+		t.Fatalf(
+			"standard decode of url text: %v",
+			err,
+		)
 	}
 
-	_, err = _Run(t, fmt.Sprintf(`
+	_, err = _Run(
+		t,
+		fmt.Sprintf(
+			`
 def main():
     return base64.urldecode(%q)
-`, standard))
-	if !errors.Is(err, larkbase64.ERR_ENCODED) {
-		t.Fatalf("url decode of standard text: %v", err)
+`, standard,
+		),
+	)
+	if !errors.Is(
+		err,
+		larkbase64.ErrEncoded,
+	) {
+		t.Fatalf(
+			"url decode of standard text: %v",
+			err,
+		)
 	}
 
-	padded := base64.URLEncoding.EncodeToString([]byte("a"))
-	value, err := _Run(t, fmt.Sprintf(`
+	var padded = base64.URLEncoding.EncodeToString([]byte("a"))
+
+	value, err := _Run(
+		t,
+		fmt.Sprintf(
+			`
 def main():
     return base64.urldecode(%q)
-`, padded))
+`, padded,
+		),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != `b"a"` {
-		t.Fatalf("padded url decode: %s", value.String())
+		t.Fatalf(
+			"padded url decode: %s",
+			value.String(),
+		)
 	}
 }
 
+// TestPath_JoinClimbsAndDirectoriesList checks that path.join resolves ".."
+// segments, and that file.list and file.size work on a directory.
+//
+// A symlink to a directory is also listed, so the caller does not need to
+// resolve the link first.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func TestPath_JoinClimbsAndDirectoriesList(t *testing.T) {
-	value, err := _Run(t, `
+	value, err := _Run(
+		t,
+		`
 def main():
     return path.join("/tmp", "..", "etc")
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != `"/etc"` {
-		t.Fatalf("join climbed to %s", value.String())
+		t.Fatalf(
+			"join climbed to %s",
+			value.String(),
+		)
 	}
 
 	dir := t.TempDir()
-	value, err = _Run(t, fmt.Sprintf(`
+
+	value, err = _Run(
+		t,
+		fmt.Sprintf(
+			`
 def main():
     return [file.size(%q), file.list(%q)]
-`, dir, dir))
+
+`, dir,
+			dir,
+		),
+	)
 	if err != nil {
 		t.Fatal(err)
-	}
-	text := value.String()
-	if !strings.HasSuffix(text, ", []]") && !strings.Contains(text, ", []") {
-		t.Fatalf("empty directory: %s", text)
 	}
 
-	held := filepath.Join(dir, "held")
-	if err := os.Mkdir(held, 0o755); err != nil {
+	text := value.String()
+	if !strings.HasSuffix(
+		text,
+		", []]",
+	) && !strings.Contains(
+		text,
+		", []",
+	) {
+		t.Fatalf(
+			"empty directory: %s",
+			text,
+		)
+	}
+
+	held := filepath.Join(
+		dir,
+		"held",
+	)
+	if err := os.Mkdir(
+		held,
+		0o755,
+	); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(held, "a.txt"), []byte("x"), 0o644); err != nil {
+
+	if err := os.WriteFile(
+		filepath.Join(
+			held,
+			"a.txt",
+		),
+		[]byte("x"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(dir, "link")
-	if err := os.Symlink(held, link); err != nil {
+
+	link := filepath.Join(
+		dir,
+		"link",
+	)
+	if err := os.Symlink(
+		held,
+		link,
+	); err != nil {
 		t.Fatal(err)
 	}
-	value, err = _Run(t, fmt.Sprintf(`
+
+	value, err = _Run(
+		t,
+		fmt.Sprintf(
+			`
 def main():
     return file.list(%q)
-`, link))
+`, link,
+		),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != `["a.txt"]` {
-		t.Fatalf("list through a symlink: %s", value.String())
+		t.Fatalf(
+			"list through a symlink: %s",
+			value.String(),
+		)
 	}
 }
 
+// _GoHMAC computes HMAC-SHA256 of the fixed message "abc" with the given key.
+//
+// This gives the Go reference value that the Lark hash.hmac result must match.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func _GoHMAC(key string) string {
-	mac := hmac.New(sha256.New, []byte(key))
+	mac := hmac.New(
+		sha256.New,
+		[]byte(key),
+	)
 	_, _ = mac.Write([]byte("abc"))
+
 	return hex.EncodeToString(mac.Sum(nil))
 }

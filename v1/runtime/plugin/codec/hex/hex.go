@@ -26,12 +26,14 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// ERR_HEX is returned for text that is not hexadecimal, or has an odd number of
+// ErrHex is returned for text that is not hexadecimal, or has an odd number of
 // digits where whole bytes are wanted.
-var ERR_HEX = errors.New("not hexadecimal")
+var (
+	ErrHex = errors.New("not hexadecimal")
+)
 
+// NAME is the module, and the six names it holds.
 const (
-	// NAME is the module, and the six names it holds.
 	NAME        = "hex"
 	FROM_BYTES  = "from_bytes"
 	TO_BYTES    = "to_bytes"
@@ -78,16 +80,37 @@ func (h *_Hex) Name() string {
 //   - 2026-10-08 17:47: initial creation
 func (h *_Hex) Values() starlark.StringDict {
 	members := starlark.StringDict{
-		FROM_BYTES:  starlark.NewBuiltin(NAME+"."+FROM_BYTES, _FromBytes),
-		TO_BYTES:    starlark.NewBuiltin(NAME+"."+TO_BYTES, _ToBytes),
-		FROM_INT:    starlark.NewBuiltin(NAME+"."+FROM_INT, _FromInt),
-		TO_INT:      starlark.NewBuiltin(NAME+"."+TO_INT, _ToInt),
-		FROM_BINARY: starlark.NewBuiltin(NAME+"."+FROM_BINARY, _FromBinary),
-		TO_BINARY:   starlark.NewBuiltin(NAME+"."+TO_BINARY, _ToBinary),
+		FROM_BYTES: starlark.NewBuiltin(
+			NAME+"."+FROM_BYTES,
+			_FromBytes,
+		),
+		TO_BYTES: starlark.NewBuiltin(
+			NAME+"."+TO_BYTES,
+			_ToBytes,
+		),
+		FROM_INT: starlark.NewBuiltin(
+			NAME+"."+FROM_INT,
+			_FromInt,
+		),
+		TO_INT: starlark.NewBuiltin(
+			NAME+"."+TO_INT,
+			_ToInt,
+		),
+		FROM_BINARY: starlark.NewBuiltin(
+			NAME+"."+FROM_BINARY,
+			_FromBinary,
+		),
+		TO_BINARY: starlark.NewBuiltin(
+			NAME+"."+TO_BINARY,
+			_ToBinary,
+		),
 	}
 
 	return starlark.StringDict{
-		NAME: &starlarkstruct.Module{Name: NAME, Members: members},
+		NAME: &starlarkstruct.Module{
+			Name:    NAME,
+			Members: members,
+		},
 	}
 }
 
@@ -102,12 +125,19 @@ func _FromBytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(fn, args, kwargs)
+	data, err := unpack.Data(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return starlark.String(fmt.Sprintf("%X", data)), nil
+	return starlark.String(fmt.Sprintf(
+		"%X",
+		data,
+	)), nil
 }
 
 // _ToBytes is the inverse, an optional 0x taken off first; an odd number of
@@ -123,14 +153,26 @@ func _ToBytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := hex.DecodeString(unpack.Unprefixed(text, PREFIX))
+	data, err := hex.DecodeString(unpack.Unprefixed(
+		text,
+		PREFIX,
+	))
 	if err != nil {
-		return nil, fmt.Errorf("%s got %q: %w", fn.Name(), text, ERR_HEX)
+		return nil, fmt.Errorf(
+			"%s got %q: %w",
+			fn.Name(),
+			text,
+			ErrHex,
+		)
 	}
 
 	return starlark.Bytes(data), nil
@@ -161,7 +203,11 @@ func _FromInt(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	number, width, err := unpack.Counted(fn, args, kwargs)
+	number, width, err := unpack.Counted(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -170,14 +216,21 @@ func _FromInt(
 
 	err = budget.Charge(int64(width))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	defer budget.Credit(int64(width))
 
 	digits := strings.ToUpper(number.Text(BASE))
 	if len(digits) < width {
-		digits = strings.Repeat(PAD, width-len(digits)) + digits
+		digits = strings.Repeat(
+			PAD,
+			width-len(digits),
+		) + digits
 	}
 
 	return starlark.String(digits), nil
@@ -197,18 +250,30 @@ func _ToInt(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := _Decode(fn.Name(), text)
+	data, err := _Decode(
+		fn.Name(),
+		text,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(data) == 0 {
-		return nil, fmt.Errorf("%s got %q: %w", fn.Name(), text, ERR_HEX)
+		return nil, fmt.Errorf(
+			"%s got %q: %w",
+			fn.Name(),
+			text,
+			ErrHex,
+		)
 	}
 
 	return starlark.MakeBigInt(new(big.Int).SetBytes(data)), nil
@@ -233,21 +298,38 @@ func _FromBinary(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	bits := unpack.Unprefixed(text, binary.PREFIX)
+	bits := unpack.Unprefixed(
+		text,
+		binary.PREFIX,
+	)
 
-	data, err := binary.Decode(fn.Name(), bits)
+	var data []byte
+
+	data, err = binary.Decode(
+		fn.Name(),
+		bits,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	// A digit for every four bits, the last perhaps short of four.
-	digits := (len(bits) + BITS_PER_DIGIT - 1) / BITS_PER_DIGIT
-	whole := fmt.Sprintf("%X", data)
+	var (
+		digits = (len(bits) + BITS_PER_DIGIT - 1) / BITS_PER_DIGIT
+		whole  = fmt.Sprintf(
+			"%X",
+			data,
+		)
+	)
 
 	return starlark.String(whole[len(whole)-digits:]), nil
 }
@@ -265,12 +347,19 @@ func _ToBinary(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := _Decode(fn.Name(), text)
+	data, err := _Decode(
+		fn.Name(),
+		text,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -290,8 +379,14 @@ func _ToBinary(
 //     each one
 //   - 2026-10-08 17:47: returns the bytes, which to_int reads as well as to_binary,
 //     and takes the prefix off once in either case
-func _Decode(who string, text string) ([]byte, error) {
-	digits := unpack.Unprefixed(text, PREFIX)
+func _Decode(
+	who string,
+	text string,
+) ([]byte, error) {
+	digits := unpack.Unprefixed(
+		text,
+		PREFIX,
+	)
 
 	if len(digits)%DIGITS_PER_BYTE != 0 {
 		digits = PAD + digits
@@ -299,7 +394,12 @@ func _Decode(who string, text string) ([]byte, error) {
 
 	data, err := hex.DecodeString(digits)
 	if err != nil {
-		return nil, fmt.Errorf("%s got %q: %w", who, text, ERR_HEX)
+		return nil, fmt.Errorf(
+			"%s got %q: %w",
+			who,
+			text,
+			ErrHex,
+		)
 	}
 
 	return data, nil

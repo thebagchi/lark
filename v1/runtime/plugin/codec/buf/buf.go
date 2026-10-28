@@ -15,7 +15,7 @@
 //
 // A buffer and a reader are not data, so a store or an event refuses one as it
 // refuses a handle. A spawn freezes either, and from then on each refuses what
-// would change it with ERR_FROZEN - for a reader, every read, since a read
+// would change it with ErrFrozen - for a reader, every read, since a read
 // moves it.
 package buf
 
@@ -30,49 +30,144 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
+// ErrFrozen is returned for a change to a buffer or a reader that a spawn
+// has frozen.
 var (
-	// ERR_FROZEN is returned for a change to a buffer or a reader that a spawn
-	// has frozen.
-	ERR_FROZEN = errors.New("frozen")
+	ErrFrozen = errors.New("frozen")
 
-	// ERR_SHORT is returned for a read of more bytes than a reader has left.
-	ERR_SHORT = errors.New("fewer bytes left than asked for")
+	// ErrShort is returned for a read of more bytes than a reader has left.
+	ErrShort = errors.New("fewer bytes left than asked for")
 
 	// BUFFER_METHODS and READER_METHODS are what the attributes of a buffer and
 	// of a reader call, each bound to the value it is read from.
 	BUFFER_METHODS = map[string]*starlark.Builtin{
-		WRITE_BYTES:  starlark.NewBuiltin(WRITE_BYTES, _WriteBytes),
-		WRITE_STRING: starlark.NewBuiltin(WRITE_STRING, _WriteString),
-		WRITE_UINT:   _Writer(WRITE_UINT, integer.Unpack, integer.Encode),
-		WRITE_INT:    _Writer(WRITE_INT, integer.Unpack, integer.EncodeSigned),
-		WRITE_UINT8:  _Writer(WRITE_UINT8, _Number(WIDTH_8), integer.Encode),
-		WRITE_UINT16: _Writer(WRITE_UINT16, _Number(WIDTH_16), integer.Encode),
-		WRITE_UINT32: _Writer(WRITE_UINT32, _Number(WIDTH_32), integer.Encode),
-		WRITE_UINT64: _Writer(WRITE_UINT64, _Number(WIDTH_64), integer.Encode),
-		WRITE_INT8:   _Writer(WRITE_INT8, _Number(WIDTH_8), integer.EncodeSigned),
-		WRITE_INT16:  _Writer(WRITE_INT16, _Number(WIDTH_16), integer.EncodeSigned),
-		WRITE_INT32:  _Writer(WRITE_INT32, _Number(WIDTH_32), integer.EncodeSigned),
-		WRITE_INT64:  _Writer(WRITE_INT64, _Number(WIDTH_64), integer.EncodeSigned),
-		BYTES:        starlark.NewBuiltin(BYTES, _Bytes),
+		WRITE_BYTES: starlark.NewBuiltin(
+			WRITE_BYTES,
+			_WriteBytes,
+		),
+		WRITE_STRING: starlark.NewBuiltin(
+			WRITE_STRING,
+			_WriteString,
+		),
+		WRITE_UINT: _Writer(
+			WRITE_UINT,
+			integer.Unpack,
+			integer.Encode,
+		),
+		WRITE_INT: _Writer(
+			WRITE_INT,
+			integer.Unpack,
+			integer.EncodeSigned,
+		),
+		WRITE_UINT8: _Writer(
+			WRITE_UINT8,
+			_Number(WIDTH_8),
+			integer.Encode,
+		),
+		WRITE_UINT16: _Writer(
+			WRITE_UINT16,
+			_Number(WIDTH_16),
+			integer.Encode,
+		),
+		WRITE_UINT32: _Writer(
+			WRITE_UINT32,
+			_Number(WIDTH_32),
+			integer.Encode,
+		),
+		WRITE_UINT64: _Writer(
+			WRITE_UINT64,
+			_Number(WIDTH_64),
+			integer.Encode,
+		),
+		WRITE_INT8: _Writer(
+			WRITE_INT8,
+			_Number(WIDTH_8),
+			integer.EncodeSigned,
+		),
+		WRITE_INT16: _Writer(
+			WRITE_INT16,
+			_Number(WIDTH_16),
+			integer.EncodeSigned,
+		),
+		WRITE_INT32: _Writer(
+			WRITE_INT32,
+			_Number(WIDTH_32),
+			integer.EncodeSigned,
+		),
+		WRITE_INT64: _Writer(
+			WRITE_INT64,
+			_Number(WIDTH_64),
+			integer.EncodeSigned,
+		),
+		BYTES: starlark.NewBuiltin(
+			BYTES,
+			_Bytes,
+		),
 	}
 	READER_METHODS = map[string]*starlark.Builtin{
-		READ_BYTES:  starlark.NewBuiltin(READ_BYTES, _ReadBytes),
-		READ_STRING: starlark.NewBuiltin(READ_STRING, _ReadString),
-		READ_UINT:   _Reading(READ_UINT, _Width, integer.Decode),
-		READ_INT:    _Reading(READ_INT, _Width, integer.DecodeSigned),
-		READ_UINT8:  _Reading(READ_UINT8, _Order(WIDTH_8), integer.Decode),
-		READ_UINT16: _Reading(READ_UINT16, _Order(WIDTH_16), integer.Decode),
-		READ_UINT32: _Reading(READ_UINT32, _Order(WIDTH_32), integer.Decode),
-		READ_UINT64: _Reading(READ_UINT64, _Order(WIDTH_64), integer.Decode),
-		READ_INT8:   _Reading(READ_INT8, _Order(WIDTH_8), integer.DecodeSigned),
-		READ_INT16:  _Reading(READ_INT16, _Order(WIDTH_16), integer.DecodeSigned),
-		READ_INT32:  _Reading(READ_INT32, _Order(WIDTH_32), integer.DecodeSigned),
-		READ_INT64:  _Reading(READ_INT64, _Order(WIDTH_64), integer.DecodeSigned),
+		READ_BYTES: starlark.NewBuiltin(
+			READ_BYTES,
+			_ReadBytes,
+		),
+		READ_STRING: starlark.NewBuiltin(
+			READ_STRING,
+			_ReadString,
+		),
+		READ_UINT: _Reading(
+			READ_UINT,
+			_Width,
+			integer.Decode,
+		),
+		READ_INT: _Reading(
+			READ_INT,
+			_Width,
+			integer.DecodeSigned,
+		),
+		READ_UINT8: _Reading(
+			READ_UINT8,
+			_Order(WIDTH_8),
+			integer.Decode,
+		),
+		READ_UINT16: _Reading(
+			READ_UINT16,
+			_Order(WIDTH_16),
+			integer.Decode,
+		),
+		READ_UINT32: _Reading(
+			READ_UINT32,
+			_Order(WIDTH_32),
+			integer.Decode,
+		),
+		READ_UINT64: _Reading(
+			READ_UINT64,
+			_Order(WIDTH_64),
+			integer.Decode,
+		),
+		READ_INT8: _Reading(
+			READ_INT8,
+			_Order(WIDTH_8),
+			integer.DecodeSigned,
+		),
+		READ_INT16: _Reading(
+			READ_INT16,
+			_Order(WIDTH_16),
+			integer.DecodeSigned,
+		),
+		READ_INT32: _Reading(
+			READ_INT32,
+			_Order(WIDTH_32),
+			integer.DecodeSigned,
+		),
+		READ_INT64: _Reading(
+			READ_INT64,
+			_Order(WIDTH_64),
+			integer.DecodeSigned,
+		),
 	}
 )
 
+// NAME is the module, and the two names it holds.
 const (
-	// NAME is the module, and the two names it holds.
 	NAME   = "buf"
 	NEW    = "new"
 	READER = "reader"
@@ -146,8 +241,14 @@ func (b *_Buf) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				NEW:    starlark.NewBuiltin(NAME+"."+NEW, _NewBuffer),
-				READER: starlark.NewBuiltin(NAME+"."+READER, _NewReader),
+				NEW: starlark.NewBuiltin(
+					NAME+"."+NEW,
+					_NewBuffer,
+				),
+				READER: starlark.NewBuiltin(
+					NAME+"."+READER,
+					_NewReader,
+				),
 			},
 		},
 	}
@@ -163,7 +264,12 @@ func _NewBuffer(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 0)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		0,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -182,10 +288,16 @@ func _NewReader(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(fn, args, kwargs)
+	data, err := unpack.Data(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Reader{data: data}, nil
+	return &Reader{
+		data: data,
+	}, nil
 }

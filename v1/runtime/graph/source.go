@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	// ERR_COLLISION is returned when two modules declare one name. It names
+	// ErrCollision is returned when two modules declare one name. It names
 	// both, because a message naming one leaves a reader looking for the
 	// other.
 	//
@@ -19,19 +19,19 @@ var (
 	// called the same thing. Renaming is not the way out - that would mean
 	// editing a body to call the renamed function, and derivation never
 	// rewrites a body.
-	ERR_COLLISION = errors.New("two modules declare one name")
+	ErrCollision = errors.New("two modules declare one name")
 
-	// ERR_ALIAS is returned for a load that renames what it binds.
+	// ErrAlias is returned for a load that renames what it binds.
 	//
 	// Flat, a name is one thing. load("strings.star", shout = "yell") means
 	// every body in that file says shout while the function is yell, and
 	// reconciling that means rewriting bodies.
-	ERR_ALIAS = errors.New("a load that renames cannot be inlined")
+	ErrAlias = errors.New("a load that renames cannot be inlined")
 
-	// ERR_MODULE is returned for a load whose module is not a string, which the
+	// ErrModule is returned for a load whose module is not a string, which the
 	// parser does not produce; it exists so the assertion has a sentinel
 	// rather than borrowing one that means something else.
-	ERR_MODULE = errors.New("a load names no module")
+	ErrModule = errors.New("a load names no module")
 )
 
 // _Module reads one loaded file, and everything it loads, into the flow being
@@ -48,48 +48,108 @@ var (
 //     interface took when Source became the struct a caller passes
 //   - 2026-10-03 00:10: refuses a module reached while it is still being read,
 //     rather than leaving it out of the flow
-func (r *_Reading) _Module(from string, target string) error {
-	name, err := r.modules.Resolve(from, target)
+func (r *_Reading) _Module(
+	from string,
+	target string,
+) error {
+	name, err := r.modules.Resolve(
+		from,
+		target,
+	)
 	if err != nil {
-		return fmt.Errorf("%s: %w", target, err)
+		return fmt.Errorf(
+			"%s: %w",
+			target,
+			err,
+		)
 	}
 
 	// The chain before the set. A module reached while it is still being read
-	// is a cycle, and the entry is on that chain too - checking what has been
-	// loaded first would answer "already have it" for a cycle that closes back
-	// onto the file the derivation started from.
-	for _, held := range r.loading {
-		if held == name {
-			return fmt.Errorf(
-				"%s is loaded while it is still being read: %w",
-				name,
-				ERR_CYCLE,
-			)
-		}
+	// is a cycle, and the entry is on that chain too.
+	err = r._Cycling(name)
+	if err != nil {
+		return err
 	}
 
 	if r.loaded[name] {
 		return nil
 	}
 
+	return r._Loaded(name)
+}
+
+// _Cycling refuses name when it is already on the chain being read.
+//
+// Checking the loaded set first would answer "already have it" for a cycle
+// that closes back onto the file the derivation started from.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (r *_Reading) _Cycling(name string) error {
+	for _, held := range r.loading {
+		if held == name {
+			return fmt.Errorf(
+				"%s is loaded while it is still being read: %w",
+				name,
+				ErrCycle,
+			)
+		}
+	}
+
+	return nil
+}
+
+// _Loaded parses name and declares what the file holds.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+//   - 2026-10-24 20:00: refuses a chain longer than MAX_DEPTH
+func (r *_Reading) _Loaded(name string) error {
+	if len(r.loading) >= MAX_DEPTH {
+		return fmt.Errorf(
+			"%s: %w",
+			name,
+			ErrDepth,
+		)
+	}
+
 	src, err := r.modules.Load(name)
 	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
+		return fmt.Errorf(
+			"%s: %w",
+			name,
+			err,
+		)
 	}
 
-	tree, err := dialect.OPTIONS.Parse(name, src, 0)
+	tree, err := dialect.OPTIONS.Parse(
+		name,
+		src,
+		0,
+	)
 	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
+		return fmt.Errorf(
+			"%s: %w",
+			name,
+			err,
+		)
 	}
 
-	r.loading = append(r.loading, name)
+	r.loading = append(
+		r.loading,
+		name,
+	)
 	defer func() {
 		r.loading = r.loading[:len(r.loading)-1]
 	}()
 
 	r.loaded[name] = true
 
-	return r._Read(tree, name, string(src))
+	return r._Read(
+		tree,
+		name,
+		string(src),
+	)
 }
 
 // _Read declares everything one parsed file holds, after whatever it loads.
@@ -97,14 +157,21 @@ func (r *_Reading) _Module(from string, target string) error {
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-10-03 20:40: finds the file's lines once, for every function it declares
-func (r *_Reading) _Read(tree *syntax.File, name string, src string) error {
+func (r *_Reading) _Read(
+	tree *syntax.File,
+	name string,
+	src string,
+) error {
 	for _, stmt := range tree.Stmts {
 		load, ok := stmt.(*syntax.LoadStmt)
 		if !ok {
 			continue
 		}
 
-		err := r._Loads(load, name)
+		err := r._Loads(
+			load,
+			name,
+		)
 		if err != nil {
 			return err
 		}
@@ -113,13 +180,20 @@ func (r *_Reading) _Read(tree *syntax.File, name string, src string) error {
 	text := _NewLines(src)
 
 	for _, def := range _Defs(tree) {
-		err := r._Declare(def, name, text)
+		err := r._Declare(
+			def,
+			name,
+			text,
+		)
 		if err != nil {
 			return err
 		}
 	}
 
-	return r._Constants(tree, name)
+	return r._Constants(
+		tree,
+		name,
+	)
 }
 
 // _Loads follows one load statement, refusing one that renames.
@@ -128,26 +202,40 @@ func (r *_Reading) _Read(tree *syntax.File, name string, src string) error {
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-09-21 08:09: names a module that is not a string with its own
 //     sentinel
-func (r *_Reading) _Loads(load *syntax.LoadStmt, from string) error {
+func (r *_Reading) _Loads(
+	load *syntax.LoadStmt,
+	from string,
+) error {
 	for idx := range load.From {
 		if load.From[idx].Name != load.To[idx].Name {
-			return fmt.Errorf("%s as %s: %w",
-				load.To[idx].Name, load.From[idx].Name, ERR_ALIAS)
+			return fmt.Errorf(
+				"%s as %s: %w",
+				load.To[idx].Name,
+				load.From[idx].Name,
+				ErrAlias,
+			)
 		}
 	}
 
 	held, ok := load.Module.Value.(string)
 	if !ok {
-		return fmt.Errorf("%s: %w", from, ERR_MODULE)
+		return fmt.Errorf(
+			"%s: %w",
+			from,
+			ErrModule,
+		)
 	}
 
-	return r._Module(from, held)
+	return r._Module(
+		from,
+		held,
+	)
 }
 
 // _Declare adds a function to the flat list, or says which other module
 // already has that name, or refuses a signature the flow cannot carry.
 //
-// Returns ERR_COLLISION naming both modules, and ERR_SIGNATURE naming the def.
+// Returns ErrCollision naming both modules, and ErrSignature naming the def.
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
@@ -155,20 +243,38 @@ func (r *_Reading) _Loads(load *syntax.LoadStmt, from string) error {
 //     a refusal is an error, rather than recording it and emitting the def
 //     without them
 //   - 2026-10-03 20:40: keeps the module as a text whose lines are found once
-func (r *_Reading) _Declare(def *syntax.DefStmt, module string, text *_Lines) error {
+func (r *_Reading) _Declare(
+	def *syntax.DefStmt,
+	module string,
+	text *_Lines,
+) error {
 	name := def.Name.Name
 
 	if _, plain := _Params(def); !plain {
-		return fmt.Errorf("%s in %s: %w", name, module, ERR_SIGNATURE)
+		return fmt.Errorf(
+			"%s in %s: %w",
+			name,
+			module,
+			ErrSignature,
+		)
 	}
 
 	owner, known := r.owner[name]
 	if known && owner != module {
-		return fmt.Errorf("%s in %s and %s: %w", name, owner, module, ERR_COLLISION)
+		return fmt.Errorf(
+			"%s in %s and %s: %w",
+			name,
+			owner,
+			module,
+			ErrCollision,
+		)
 	}
 
 	if !known {
-		r.order = append(r.order, name)
+		r.order = append(
+			r.order,
+			name,
+		)
 	}
 
 	r.defs[name] = def
@@ -189,7 +295,10 @@ func _Defs(tree *syntax.File) []*syntax.DefStmt {
 	for _, stmt := range tree.Stmts {
 		def, ok := stmt.(*syntax.DefStmt)
 		if ok {
-			defs = append(defs, def)
+			defs = append(
+				defs,
+				def,
+			)
 		}
 	}
 

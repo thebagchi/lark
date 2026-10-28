@@ -28,11 +28,13 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 )
 
-// ERR_NOT_A_PATH is returned for an argument that is not text.
-var ERR_NOT_A_PATH = errors.New("wants a path as text")
+// ErrNotAPath is returned for an argument that is not text.
+var (
+	ErrNotAPath = errors.New("wants a path as text")
+)
 
+// NAME is the module, and the names it holds.
 const (
-	// NAME is the module, and the names it holds.
 	NAME      = "path"
 	JOIN      = "join"
 	DIR       = "dir"
@@ -75,15 +77,42 @@ func (p *_Path) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				JOIN:  starlark.NewBuiltin(NAME+"."+JOIN, _Join),
-				SPLIT: starlark.NewBuiltin(NAME+"."+SPLIT, _Split),
-				PARTS: starlark.NewBuiltin(NAME+"."+PARTS, _Parts),
-				DIR:   _Reads(DIR, filepath.Dir),
-				BASE:  _Reads(BASE, filepath.Base),
-				EXT:   _Reads(EXT, filepath.Ext),
-				STEM:  _Reads(STEM, _Stem),
-				CLEAN: _Reads(CLEAN, filepath.Clean),
-				ABS:   starlark.NewBuiltin(NAME+"."+ABS, _IsAbs),
+				JOIN: starlark.NewBuiltin(
+					NAME+"."+JOIN,
+					_Join,
+				),
+				SPLIT: starlark.NewBuiltin(
+					NAME+"."+SPLIT,
+					_Split,
+				),
+				PARTS: starlark.NewBuiltin(
+					NAME+"."+PARTS,
+					_Parts,
+				),
+				DIR: _Reads(
+					DIR,
+					filepath.Dir,
+				),
+				BASE: _Reads(
+					BASE,
+					filepath.Base,
+				),
+				EXT: _Reads(
+					EXT,
+					filepath.Ext,
+				),
+				STEM: _Reads(
+					STEM,
+					_Stem,
+				),
+				CLEAN: _Reads(
+					CLEAN,
+					filepath.Clean,
+				),
+				ABS: starlark.NewBuiltin(
+					NAME+"."+ABS,
+					_IsAbs,
+				),
 			},
 		},
 	}
@@ -93,22 +122,34 @@ func (p *_Path) Values() starlark.StringDict {
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Reads(name string, fn func(string) string) *starlark.Builtin {
-	return starlark.NewBuiltin(NAME+"."+name, func(
-		thread *starlark.Thread,
-		held *starlark.Builtin,
-		args starlark.Tuple,
-		kwargs []starlark.Tuple,
-	) (starlark.Value, error) {
-		var given string
+func _Reads(
+	name string,
+	fn func(string) string,
+) *starlark.Builtin {
+	return starlark.NewBuiltin(
+		NAME+"."+name,
+		func(
+			thread *starlark.Thread,
+			held *starlark.Builtin,
+			args starlark.Tuple,
+			kwargs []starlark.Tuple,
+		) (starlark.Value, error) {
+			var given string
 
-		err := starlark.UnpackPositionalArgs(held.Name(), args, kwargs, 1, &given)
-		if err != nil {
-			return nil, err
-		}
+			err := starlark.UnpackPositionalArgs(
+				held.Name(),
+				args,
+				kwargs,
+				1,
+				&given,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		return starlark.String(fn(given)), nil
-	})
+			return starlark.String(fn(given)), nil
+		},
+	)
 }
 
 // _Join puts parts together with one separator between each.
@@ -126,18 +167,34 @@ func _Join(
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
 	if len(kwargs) > 0 {
-		return nil, starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 0)
+		return nil, starlark.UnpackPositionalArgs(
+			fn.Name(),
+			args,
+			kwargs,
+			0,
+		)
 	}
 
-	parts := make([]string, 0, len(args))
+	parts := make(
+		[]string,
+		0,
+		len(args),
+	)
 
 	for index, given := range args {
 		held, ok := starlark.AsString(given)
 		if !ok {
-			return nil, _NotAPath(fn.Name(), index, given)
+			return nil, _NotAPath(
+				fn.Name(),
+				index,
+				given,
+			)
 		}
 
-		parts = append(parts, held)
+		parts = append(
+			parts,
+			held,
+		)
 	}
 
 	return starlark.String(filepath.Join(parts...)), nil
@@ -156,7 +213,13 @@ func _Split(
 ) (starlark.Value, error) {
 	var given string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &given)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&given,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +227,10 @@ func _Split(
 	dir, base := filepath.Split(given)
 
 	return starlark.NewList([]starlark.Value{
-		starlark.String(strings.TrimSuffix(dir, SEPARATOR)),
+		starlark.String(strings.TrimSuffix(
+			dir,
+			SEPARATOR,
+		)),
 		starlark.String(base),
 	}), nil
 }
@@ -185,26 +251,59 @@ func _Parts(
 ) (starlark.Value, error) {
 	var given string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &given)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&given,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	held := make([]starlark.Value, 0, strings.Count(given, SEPARATOR)+1)
+	return starlark.NewList(_SplitPath(given)), nil
+}
 
-	if strings.HasPrefix(given, SEPARATOR) {
-		held = append(held, starlark.String(SEPARATOR))
+// _SplitPath is the parts of a path, with a leading separator kept.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _SplitPath(given string) []starlark.Value {
+	held := make(
+		[]starlark.Value,
+		0,
+		strings.Count(
+			given,
+			SEPARATOR,
+		)+1,
+	)
+
+	if strings.HasPrefix(
+		given,
+		SEPARATOR,
+	) {
+		held = append(
+			held,
+			starlark.String(SEPARATOR),
+		)
 	}
 
-	for _, part := range strings.Split(filepath.Clean(given), SEPARATOR) {
+	for _, part := range strings.Split(
+		filepath.Clean(given),
+		SEPARATOR,
+	) {
 		if part == "" || part == "." {
 			continue
 		}
 
-		held = append(held, starlark.String(part))
+		held = append(
+			held,
+			starlark.String(part),
+		)
 	}
 
-	return starlark.NewList(held), nil
+	return held
 }
 
 // _IsAbs reports whether a path begins at the root.
@@ -219,7 +318,13 @@ func _IsAbs(
 ) (starlark.Value, error) {
 	var given string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &given)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&given,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -234,19 +339,26 @@ func _IsAbs(
 func _Stem(given string) string {
 	base := filepath.Base(given)
 
-	return strings.TrimSuffix(base, filepath.Ext(base))
+	return strings.TrimSuffix(
+		base,
+		filepath.Ext(base),
+	)
 }
 
 // _NotAPath is what join says about an argument that is not text.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _NotAPath(who string, index int, given starlark.Value) error {
+func _NotAPath(
+	who string,
+	index int,
+	given starlark.Value,
+) error {
 	return fmt.Errorf(
 		"%s: argument %d is a %s: %w",
 		who,
 		index+1,
 		given.Type(),
-		ERR_NOT_A_PATH,
+		ErrNotAPath,
 	)
 }

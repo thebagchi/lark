@@ -30,12 +30,21 @@ func _Constants(flow *workflowpb.Flow) ([]syntax.Stmt, error) {
 	var stmts []syntax.Stmt
 
 	for _, name := range names {
-		bound, err := _Bound(name, flow.GetConstants()[name])
+		bound, err := _Bound(
+			name,
+			flow.GetConstants()[name],
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		stmts = append(stmts, _Emit(name, bound))
+		stmts = append(
+			stmts,
+			_Emit(
+				name,
+				bound,
+			),
+		)
 	}
 
 	return stmts, nil
@@ -60,26 +69,47 @@ func _Order(flow *workflowpb.Flow) ([]string, error) {
 	held := flow.GetConstants()
 
 	// Sorted, so the first round is alphabetical as every round after it is.
-	names := slices.Sorted(maps.Keys(held))
-	waits, waiters := _Waits(held, names)
+	var names = slices.Sorted(maps.Keys(held))
+
+	waits, waiters := _Waits(
+		held,
+		names,
+	)
 
 	var round []string
 
 	for _, name := range names {
 		if waits[name] == 0 {
-			round = append(round, name)
+			round = append(
+				round,
+				name,
+			)
 		}
 	}
 
-	ordered := make([]string, 0, len(names))
+	ordered := make(
+		[]string,
+		0,
+		len(names),
+	)
 
 	for len(round) > 0 {
-		ordered = append(ordered, round...)
-		round = _Next(round, waits, waiters)
+		ordered = append(
+			ordered,
+			round...,
+		)
+		round = _Next(
+			round,
+			waits,
+			waiters,
+		)
 	}
 
 	if len(ordered) < len(names) {
-		return nil, fmt.Errorf("constants: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"constants: %w",
+			ErrForm,
+		)
 	}
 
 	return ordered, nil
@@ -96,8 +126,13 @@ func _Waits(
 	held map[string]*workflowpb.Constant,
 	names []string,
 ) (map[string]int, map[string][]string) {
-	waits := make(map[string]int, len(names))
-	waiters := make(map[string][]string)
+	var (
+		waits = make(
+			map[string]int,
+			len(names),
+		)
+		waiters = make(map[string][]string)
+	)
 
 	for _, name := range names {
 		var named []string
@@ -105,7 +140,10 @@ func _Waits(
 		for _, op := range held[name].GetCall().GetOperands() {
 			dep := op.GetName()
 			if _, ok := held[dep]; ok {
-				named = append(named, dep)
+				named = append(
+					named,
+					dep,
+				)
 			}
 		}
 
@@ -115,7 +153,10 @@ func _Waits(
 		waits[name] = len(named)
 
 		for _, dep := range named {
-			waiters[dep] = append(waiters[dep], name)
+			waiters[dep] = append(
+				waiters[dep],
+				name,
+			)
 		}
 	}
 
@@ -128,7 +169,11 @@ func _Waits(
 //
 // Revisions:
 //   - 2026-10-03 23:03: initial creation, in place of reading every name each round
-func _Next(round []string, waits map[string]int, waiters map[string][]string) []string {
+func _Next(
+	round []string,
+	waits map[string]int,
+	waiters map[string][]string,
+) []string {
 	var next []string
 
 	for _, name := range round {
@@ -136,7 +181,10 @@ func _Next(round []string, waits map[string]int, waiters map[string][]string) []
 			waits[waiter]--
 
 			if waits[waiter] == 0 {
-				next = append(next, waiter)
+				next = append(
+					next,
+					waiter,
+				)
 			}
 		}
 	}
@@ -152,9 +200,15 @@ func _Next(round []string, waits map[string]int, waiters map[string][]string) []
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the expression node
 //   - 2026-10-02 00:04: lifted into graph, taking the generated types
-func _Bound(name string, held *workflowpb.Constant) (syntax.Expr, error) {
+func _Bound(
+	name string,
+	held *workflowpb.Constant,
+) (syntax.Expr, error) {
 	if name == "" || held == nil {
-		return nil, fmt.Errorf("constant: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"constant: %w",
+			ErrForm,
+		)
 	}
 
 	switch kind := held.GetKind().(type) {
@@ -163,17 +217,29 @@ func _Bound(name string, held *workflowpb.Constant) (syntax.Expr, error) {
 
 	case *workflowpb.Constant_Call:
 		if kind.Call.GetResult() != "" {
-			return nil, fmt.Errorf("%s: %w", name, ERR_FORM)
+			return nil, fmt.Errorf(
+				"%s: %w",
+				name,
+				ErrForm,
+			)
 		}
 
 		if _Both(kind.Call) {
-			return nil, fmt.Errorf("%s: %w", name, ERR_FORM)
+			return nil, fmt.Errorf(
+				"%s: %w",
+				name,
+				ErrForm,
+			)
 		}
 
 		return _CallExpr(kind.Call)
 
 	default:
-		return nil, fmt.Errorf("%s: %w", name, ERR_FORM)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			name,
+			ErrForm,
+		)
 	}
 }
 
@@ -188,7 +254,10 @@ func _Arguments(flow *workflowpb.Flow) ([]syntax.Stmt, error) {
 
 	for _, name := range slices.Sorted(maps.Keys(flow.GetArgs())) {
 		if name == "" {
-			return nil, fmt.Errorf("arg: %w", ERR_FORM)
+			return nil, fmt.Errorf(
+				"arg: %w",
+				ErrForm,
+			)
 		}
 
 		call, err := _Declaration(flow.GetArgs()[name])
@@ -196,7 +265,13 @@ func _Arguments(flow *workflowpb.Flow) ([]syntax.Stmt, error) {
 			return nil, err
 		}
 
-		stmts = append(stmts, _Emit(name, call))
+		stmts = append(
+			stmts,
+			_Emit(
+				name,
+				call,
+			),
+		)
 	}
 
 	return stmts, nil

@@ -25,7 +25,7 @@ import (
 // failed, and a spine that returned a value while the run was being torn down
 // did not succeed.
 //
-// A failure arriving with ctx already done is ERR_CANCELLED, wrapping what the
+// A failure arriving with ctx already done is ErrCancelled, wrapping what the
 // interpreter said and then ctx's own error. The interpreter raises its
 // cancellation as text, which nothing could match; the sentinel is what a
 // caller tests, the text says where it stopped, and the context's error says
@@ -40,7 +40,7 @@ import (
 // Revisions:
 //   - 2026-09-19 22:40: initial creation, as the body of artifact.Invoke
 //   - 2026-09-21 09:46: moved here, where the rules it applies are declared
-//   - 2026-09-23 06:58: a run stopped while running reports ERR_CANCELLED, so a
+//   - 2026-09-23 06:58: a run stopped while running reports ErrCancelled, so a
 //     caller tests one sentinel rather than the context error alone
 //   - 2026-10-02 01:26: runs a body handed the run's thread, rather than
 //     calling a target, so what precedes the entry point runs on the spine
@@ -55,9 +55,17 @@ func Evaluate(
 	body func(thread *starlark.Thread) (starlark.Value, error),
 	settings *Settings,
 ) (starlark.Value, error) {
-	thread := &starlark.Thread{Name: name}
-
-	finish := Begin(ctx, thread, name, settings)
+	var (
+		thread = &starlark.Thread{
+			Name: name,
+		}
+		finish = Begin(
+			ctx,
+			thread,
+			name,
+			settings,
+		)
+	)
 
 	var (
 		result starlark.Value
@@ -95,7 +103,11 @@ func Evaluate(
 //   - 2026-10-02 12:19: initial creation, from Evaluate's body, so the end of
 //     the run applies the same rule
 //   - 2026-10-03 20:53: applied by the end of the run alone, which answers with it
-func _Produced(ctx context.Context, outcome error, err error) error {
+func _Produced(
+	ctx context.Context,
+	outcome error,
+	err error,
+) error {
 	if outcome != nil {
 		return outcome
 	}
@@ -106,10 +118,18 @@ func _Produced(ctx context.Context, outcome error, err error) error {
 
 	// Stopped, and the error does not say so yet: the interpreter raises its
 	// cancellation as text, which nothing could match.
-	stopped := ctx.Err() != nil && !errors.Is(err, ERR_CANCELLED)
+	stopped := ctx.Err() != nil && !errors.Is(
+		err,
+		ErrCancelled,
+	)
 	if !stopped {
 		return err
 	}
 
-	return fmt.Errorf("%w: %w: %w", ERR_CANCELLED, err, ctx.Err())
+	return fmt.Errorf(
+		"%w: %w: %w",
+		ErrCancelled,
+		err,
+		ctx.Err(),
+	)
 }

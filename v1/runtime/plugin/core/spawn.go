@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	// ERR_NOT_A_NAME is every refusal spawn makes of what it was handed: nothing,
+	// ErrNotAName is every refusal spawn makes of what it was handed: nothing,
 	// something that is not a function, or a function taking an argument
 	// spawn cannot supply.
 	//
@@ -20,9 +20,9 @@ var (
 	// arguments to pass on. What a handle lost by accepting it is its name, and
 	// what reports a run is the graph, which knows what runs on the lane a fork
 	// named.
-	ERR_NOT_A_NAME = errors.New("spawn wants a function")
+	ErrNotAName = errors.New("spawn wants a function")
 
-	// ERR_CAPTURES is returned when something reaching a new thread captures a
+	// ErrCaptures is returned when something reaching a new thread captures a
 	// local variable: a nested function spawned by name, a lambda made earlier
 	// and stored, a closure handed over through a lambda.
 	//
@@ -32,7 +32,7 @@ var (
 	// thread per item in a loop was found reading whichever item the loop had
 	// reached. A lambda written inside spawn takes its variables at the spawn
 	// instead, and is how a thread is handed what it needs.
-	ERR_CAPTURES = errors.New("captures a local variable")
+	ErrCaptures = errors.New("captures a local variable")
 )
 
 // _Spawn starts fn on a lane of its own and hands the script back a handle to
@@ -54,8 +54,8 @@ var (
 // lambda calls. Both are taken out before the arguments are read, and handed on
 // as the label the spawn is reported with.
 //
-// Returns ERR_NOT_A_NAME when fn is missing, is not a function, or takes an
-// argument spawn cannot supply, and ERR_CAPTURES naming the first captured
+// Returns ErrNotAName when fn is missing, is not a function, or takes an
+// argument spawn cannot supply, and ErrCaptures naming the first captured
 // variable found.
 //
 // Revisions:
@@ -72,22 +72,70 @@ func _Spawn(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	binding, kwargs := scheduler.Hidden(kwargs, spelling.BINDING)
-	callee, kwargs := scheduler.Hidden(kwargs, spelling.CALLEE)
+	var (
+		callee string
+		target *starlark.Function
+		err    error
+	)
 
-	target, err := _Named(args, kwargs)
+	binding, kwargs := scheduler.Hidden(
+		kwargs,
+		spelling.BINDING,
+	)
+
+	callee, kwargs = scheduler.Hidden(
+		kwargs,
+		spelling.CALLEE,
+	)
+
+	target, err = _Named(
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	err = _Walk(target, _Uncaptured)
+	return _Started(
+		thread,
+		target,
+		callee,
+		binding,
+	)
+}
+
+// _Started freezes target and runs it beside the caller.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Started(
+	thread *starlark.Thread,
+	target *starlark.Function,
+	callee string,
+	binding string,
+) (starlark.Value, error) {
+	err := _Walk(
+		target,
+		_Uncaptured,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", SPAWN, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			SPAWN,
+			err,
+		)
 	}
 
 	target.Freeze()
 
-	return scheduler.Beside(thread, target, scheduler.Labelled(callee, binding))
+	return scheduler.Beside(
+		thread,
+		target,
+		scheduler.Labelled(
+			callee,
+			binding,
+		),
+	)
 }
 
 // _Named returns the one function in args, or says why it is not one.
@@ -96,19 +144,35 @@ func _Spawn(
 //   - 2026-09-19 20:39: initial creation
 //   - 2026-09-29 23:30: a parameter with a default is one spawn need not
 //     supply, so a function whose parameters all have one is accepted
-func _Named(args starlark.Tuple, kwargs []starlark.Tuple) (*starlark.Function, error) {
+func _Named(
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (*starlark.Function, error) {
 	if len(args) != 1 || len(kwargs) > 0 {
-		return nil, fmt.Errorf("%s takes one function: %w", SPAWN, ERR_NOT_A_NAME)
+		return nil, fmt.Errorf(
+			"%s takes one function: %w",
+			SPAWN,
+			ErrNotAName,
+		)
 	}
 
 	target, ok := args[0].(*starlark.Function)
 	if !ok {
-		return nil, fmt.Errorf("%s got %s: %w", SPAWN, args[0].Type(), ERR_NOT_A_NAME)
+		return nil, fmt.Errorf(
+			"%s got %s: %w",
+			SPAWN,
+			args[0].Type(),
+			ErrNotAName,
+		)
 	}
 
 	if !_Defaulted(target) {
-		return nil, fmt.Errorf("%s got %s, which takes arguments: %w",
-			SPAWN, target.Name(), ERR_NOT_A_NAME)
+		return nil, fmt.Errorf(
+			"%s got %s, which takes arguments: %w",
+			SPAWN,
+			target.Name(),
+			ErrNotAName,
+		)
 	}
 
 	return target, nil
@@ -148,8 +212,13 @@ func _Uncaptured(fn *starlark.Function) error {
 
 	bind, _ := fn.FreeVar(0)
 
-	return fmt.Errorf("%s captures %s, bound at %s: %w",
-		fn.Name(), bind.Name, bind.Pos, ERR_CAPTURES)
+	return fmt.Errorf(
+		"%s captures %s, bound at %s: %w",
+		fn.Name(),
+		bind.Name,
+		bind.Pos,
+		ErrCaptures,
+	)
 }
 
 // _Global reports whether fn is one of its module's globals: a top-level def,

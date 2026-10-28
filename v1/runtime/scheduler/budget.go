@@ -37,9 +37,11 @@ const (
 	CEILING = 256 << 20
 )
 
-// ERR_MEMORY is returned for an allocation that would take a run past what it
+// ErrMemory is returned for an allocation that would take a run past what it
 // may hold.
-var ERR_MEMORY = errors.New("past the memory this run may use")
+var (
+	ErrMemory = errors.New("past the memory this run may use")
+)
 
 // Budget is how much memory one run may hold through this library.
 //
@@ -70,7 +72,9 @@ type Budget struct {
 // Revisions:
 //   - 2026-09-24 22:52: initial creation
 func NewBudget(ceiling int64) *Budget {
-	return &Budget{ceiling: ceiling}
+	return &Budget{
+		ceiling: ceiling,
+	}
 }
 
 // Charge reserves size bytes, or refuses without reserving anything.
@@ -78,24 +82,37 @@ func NewBudget(ceiling int64) *Budget {
 // Safe from any thread of a run: several may be reading at once, and the
 // ceiling belongs to the run rather than to each thread.
 //
-// Returns ERR_MEMORY naming what was asked for and what was left. Never panics.
+// Returns ErrMemory naming what was asked for and what was left. Never panics.
 //
 // Revisions:
 //   - 2026-09-24 22:52: initial creation
+//   - 2026-10-24 16:00: reject a charge that would wrap held+size
+//     past int64, so no silent overflow drops the ceiling
 func (b *Budget) Charge(size int64) error {
 	if size <= 0 {
 		return nil
 	}
 
 	for {
-		held := b.held.Load()
+		var (
+			held = b.held.Load()
+			room = b.ceiling - held
+		)
 
-		if held+size > b.ceiling {
-			return fmt.Errorf("asked for %d bytes with %d of %d left: %w",
-				size, b.ceiling-held, b.ceiling, ERR_MEMORY)
+		if size > room {
+			return fmt.Errorf(
+				"asked for %d bytes with %d of %d left: %w",
+				size,
+				room,
+				b.ceiling,
+				ErrMemory,
+			)
 		}
 
-		if b.held.CompareAndSwap(held, held+size) {
+		if b.held.CompareAndSwap(
+			held,
+			held+size,
+		) {
 			return nil
 		}
 	}

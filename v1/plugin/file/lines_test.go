@@ -20,19 +20,19 @@ import (
 )
 
 const (
-	// _LONG is a line far past any buffer a reader would choose by itself, and
+	// LONG is a line far past any buffer a reader would choose by itself, and
 	// far past the small ceiling below.
-	_LONG = 2 << 20
+	LONG = 2 << 20
 
-	// _SMALL is what a run in the narrow harness may hold: enough to work,
-	// nothing like enough for _LONG.
-	_SMALL = 64 << 10
+	// SMALL is what a run in the narrow harness may hold: enough to work,
+	// nothing like enough for LONG.
+	SMALL = 64 << 10
 
-	// _BIG is how many lines the memory proof writes.
-	_BIG = 400000
+	// BIG is how many lines the memory proof writes.
+	BIG = 400000
 
-	// _FILLER is the text every one of those lines holds.
-	_FILLER = "the quick brown fox jumps over the lazy dog, and then does it again"
+	// FILLER is the text every one of those lines holds.
+	FILLER = "the quick brown fox jumps over the lazy dog, and then does it again"
 )
 
 // _Within evaluates one expression inside a run whose ceiling is given, so a
@@ -48,23 +48,42 @@ const (
 //     rather than one that registers itself
 //   - 2026-10-03 20:55: returns what ending the run answers with, rather than applying
 //     the rule itself
-func _Within(t *testing.T, root string, ceiling int64, expression string) (string, error) {
+func _Within(
+	t *testing.T,
+	root string,
+	ceiling int64,
+	expression string,
+) (string, error) {
 	t.Helper()
 
 	held := _Environment(t)
 	held["root"] = starlark.String(root)
 
-	thread := &starlark.Thread{Name: SCRIPT}
-	ending := scheduler.Begin(
-		context.Background(),
-		thread,
-		SCRIPT,
-		&scheduler.Settings{Ceiling: ceiling},
+	var (
+		thread = &starlark.Thread{
+			Name: SCRIPT,
+		}
+		ending = scheduler.Begin(
+			context.Background(),
+			thread,
+			SCRIPT,
+			&scheduler.Settings{
+				Ceiling: ceiling,
+			},
+		)
 	)
 
-	value, err := starlark.EvalOptions(dialect.OPTIONS, thread, SCRIPT, expression, held)
+	var produced error
 
-	produced := ending(err)
+	value, err := starlark.EvalOptions(
+		dialect.OPTIONS,
+		thread,
+		SCRIPT,
+		expression,
+		held,
+	)
+
+	produced = ending(err)
 	if produced != nil {
 		return "", produced
 	}
@@ -76,12 +95,25 @@ func _Within(t *testing.T, root string, ceiling int64, expression string) (strin
 //
 // Revisions:
 //   - 2026-09-24 23:14: initial creation
-func _Put(t *testing.T, root string, name string, body string) string {
+func _Put(
+	t *testing.T,
+	root string,
+	name string,
+	body string,
+) string {
 	t.Helper()
 
-	named := filepath.Join(root, name)
-
-	err := os.WriteFile(named, []byte(body), 0o600)
+	var (
+		named = filepath.Join(
+			root,
+			name,
+		)
+		err = os.WriteFile(
+			named,
+			[]byte(body),
+			0o600,
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +129,12 @@ func _Put(t *testing.T, root string, name string, body string) string {
 func TestStat_AnswersWithWhatTheSyscallRead(t *testing.T) {
 	root := t.TempDir()
 
-	_Put(t, root, "note.txt", "hello")
+	_Put(
+		t,
+		root,
+		"note.txt",
+		"hello",
+	)
 
 	cases := map[string]string{
 		`file.stat(path.join(root, "note.txt")).size`:         "5",
@@ -110,16 +147,32 @@ func TestStat_AnswersWithWhatTheSyscallRead(t *testing.T) {
 	}
 
 	for expression, want := range cases {
-		t.Run(expression, func(t *testing.T) {
-			got, err := _Eval(t, root, expression)
-			if err != nil {
-				t.Fatalf("%s: %v", expression, err)
-			}
+		t.Run(
+			expression,
+			func(t *testing.T) {
+				got, err := _Eval(
+					t,
+					root,
+					expression,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						expression,
+						err,
+					)
+				}
 
-			if got != want {
-				t.Fatalf("%s gave %s, want %s", expression, got, want)
-			}
-		})
+				if got != want {
+					t.Fatalf(
+						"%s gave %s, want %s",
+						expression,
+						got,
+						want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -128,15 +181,31 @@ func TestStat_AnswersWithWhatTheSyscallRead(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 23:14: initial creation
 func TestStat_RefusesWhatIsNotThere(t *testing.T) {
-	root := t.TempDir()
+	var root = t.TempDir()
 
-	_, err := _Eval(t, root, `file.stat(path.join(root, "nope.txt"))`)
-	if !errors.Is(err, larkfile.ERR_FILE) {
-		t.Fatalf("got %v, want ERR_FILE", err)
+	_, err := _Eval(
+		t,
+		root,
+		`file.stat(path.join(root, "nope.txt"))`,
+	)
+	if !errors.Is(
+		err,
+		larkfile.ErrFile,
+	) {
+		t.Fatalf(
+			"got %v, want ErrFile",
+			err,
+		)
 	}
 
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the refusal lost the reason underneath: %v", err)
+	if !errors.Is(
+		err,
+		os.ErrNotExist,
+	) {
+		t.Fatalf(
+			"the refusal lost the reason underneath: %v",
+			err,
+		)
 	}
 }
 
@@ -147,7 +216,12 @@ func TestStat_RefusesWhatIsNotThere(t *testing.T) {
 func TestLines_WalksAndRoundTrips(t *testing.T) {
 	root := t.TempDir()
 
-	_Put(t, root, "three.txt", "alpha\nbeta\ngamma\n")
+	_Put(
+		t,
+		root,
+		"three.txt",
+		"alpha\nbeta\ngamma\n",
+	)
 
 	cases := []struct{ name, expression, want string }{
 		{
@@ -176,16 +250,30 @@ func TestLines_WalksAndRoundTrips(t *testing.T) {
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Eval(t, root, item.expression)
-			if err != nil {
-				t.Fatalf("%v", err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Eval(
+					t,
+					root,
+					item.expression,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%v",
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("got %s, want %s", got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"got %s, want %s",
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -195,36 +283,69 @@ func TestLines_WalksAndRoundTrips(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 23:14: initial creation
 func TestAppendlines_JoinsWhateverWasAlreadyThere(t *testing.T) {
-	root := t.TempDir()
-
-	cases := []struct{ name, start, want string }{
-		{"nothing there yet", "", `["c", "d"]`},
-		{"trimmed, as this writer leaves it", "a\nb", `["a", "b", "c", "d"]`},
-		{"ended by someone else", "a\nb\n", `["a", "b", "c", "d"]`},
-		{"one line, no terminator", "a", `["a", "c", "d"]`},
-	}
+	var (
+		root  = t.TempDir()
+		cases = []struct{ name, start, want string }{
+			{
+				"nothing there yet",
+				"",
+				`["c", "d"]`,
+			},
+			{
+				"trimmed, as this writer leaves it",
+				"a\nb",
+				`["a", "b", "c", "d"]`,
+			},
+			{
+				"ended by someone else",
+				"a\nb\n",
+				`["a", "b", "c", "d"]`,
+			},
+			{
+				"one line, no terminator",
+				"a",
+				`["a", "c", "d"]`,
+			},
+		}
+	)
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			named := _Put(t, root, "log.txt", item.start)
-
-			got, err := _Eval(t, root, fmt.Sprintf(
-				`file.appendlines(%q, ["c", "d"]) or [line for line in `+
-					`file.lines(%q)]`,
-				named, named))
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if got != item.want {
-				t.Fatalf(
-					"starting from %q gave %s, want %s",
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				var named = _Put(
+					t,
+					root,
+					"log.txt",
 					item.start,
-					got,
-					item.want,
 				)
-			}
-		})
+
+				got, err := _Eval(
+					t,
+					root,
+					fmt.Sprintf(
+						`file.appendlines(%q,`+
+							` ["c", "d"]) or [line for `+
+							`line in `+
+							`file.lines(%q)]`,
+						named,
+						named,
+					),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if got != item.want {
+					t.Fatalf(
+						"starting from %q gave %s, want %s",
+						item.start,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -234,27 +355,54 @@ func TestAppendlines_JoinsWhateverWasAlreadyThere(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 23:14: initial creation
 func TestLines_RefusesAtTheCallThatNamedTheFile(t *testing.T) {
-	root := t.TempDir()
-
-	cases := map[string]struct {
-		expression string
-		want       error
-	}{
-		"missing":     {`file.lines(path.join(root, "nope.txt"))`, os.ErrNotExist},
-		"a directory": {`file.lines(root)`, larkfile.ERR_NOT_A_FILE},
-	}
+	var (
+		root  = t.TempDir()
+		cases = map[string]struct {
+			expression string
+			want       error
+		}{
+			"missing": {
+				`file.lines(path.join(root, "nope.txt"))`,
+				os.ErrNotExist,
+			},
+			"a directory": {
+				`file.lines(root)`,
+				larkfile.ErrNotAFile,
+			},
+		}
+	)
 
 	for name, item := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := _Eval(t, root, item.expression)
-			if !errors.Is(err, larkfile.ERR_FILE) {
-				t.Fatalf("got %v, want ERR_FILE", err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					root,
+					item.expression,
+				)
+				if !errors.Is(
+					err,
+					larkfile.ErrFile,
+				) {
+					t.Fatalf(
+						"got %v, want ErrFile",
+						err,
+					)
+				}
 
-			if !errors.Is(err, item.want) {
-				t.Fatalf("got %v, want it to carry %v", err, item.want)
-			}
-		})
+				if !errors.Is(
+					err,
+					item.want,
+				) {
+					t.Fatalf(
+						"got %v, want it to carry %v",
+						err,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -266,19 +414,31 @@ func TestLines_RefusesAtTheCallThatNamedTheFile(t *testing.T) {
 func TestLines_ANamedFileNeverWalkedOpensNothing(t *testing.T) {
 	root := t.TempDir()
 
-	_Put(t, root, "idle.txt", "one\n")
+	_Put(
+		t,
+		root,
+		"idle.txt",
+		"one\n",
+	)
 
-	before := _Handles(t)
+	var before = _Handles(t)
 
-	_, err := _Eval(t, root,
-		`[file.lines(path.join(root, "idle.txt")) for i in range(200)] and "named"`)
+	_, err := _Eval(
+		t,
+		root,
+		`[file.lines(path.join(root, "idle.txt")) for i in range(200)] and "named"`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	after := _Handles(t)
 	if after > before+1 {
-		t.Fatalf("naming 200 files left %d handles open, was %d", after, before)
+		t.Fatalf(
+			"naming 200 files left %d handles open, was %d",
+			after,
+			before,
+		)
 	}
 }
 
@@ -292,7 +452,10 @@ func _Handles(t *testing.T) int {
 
 	held, err := os.ReadDir("/proc/self/fd")
 	if err != nil {
-		t.Skipf("no descriptor count on this system: %v", err)
+		t.Skipf(
+			"no descriptor count on this system: %v",
+			err,
+		)
 	}
 
 	return len(held)
@@ -311,21 +474,44 @@ func _Handles(t *testing.T) int {
 func TestLines_IsWalkedOnce(t *testing.T) {
 	root := t.TempDir()
 
-	_Put(t, root, "once.txt", "a\nb\n")
+	_Put(
+		t,
+		root,
+		"once.txt",
+		"a\nb\n",
+	)
 
-	_, err := _Within(t, root, 0, `[[line for line in held] for held in `+
-		`[file.lines(path.join(root, "once.txt"))] * 2]`)
-	if !errors.Is(err, larkfile.ERR_WALKED) {
-		t.Fatalf("got %v, want ERR_WALKED", err)
+	_, err := _Within(
+		t,
+		root,
+		0,
+		`[[line for line in held] for held in `+
+			`[file.lines(path.join(root, "once.txt"))] * 2]`,
+	)
+	if !errors.Is(
+		err,
+		larkfile.ErrWalked,
+	) {
+		t.Fatalf(
+			"got %v, want ErrWalked",
+			err,
+		)
 	}
 
-	got, err := _Eval(t, root, `[line for line in file.lines(path.join(root, "once.txt"))]`)
+	got, err := _Eval(
+		t,
+		root,
+		`[line for line in file.lines(path.join(root, "once.txt"))]`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if got != `["a", "b"]` {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -339,16 +525,24 @@ func TestLines_IsWalkedOnce(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 23:14: initial creation
 func TestLines_CostsOneLineNotTheFile(t *testing.T) {
-	root := t.TempDir()
-	named := filepath.Join(root, "big.txt")
+	var (
+		root  = t.TempDir()
+		named = filepath.Join(
+			root,
+			"big.txt",
+		)
+	)
 
 	held, err := os.Create(named)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for range _BIG {
-		_, err = fmt.Fprintln(held, _FILLER)
+	for range BIG {
+		_, err = fmt.Fprintln(
+			held,
+			FILLER,
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -369,25 +563,40 @@ func TestLines_CostsOneLineNotTheFile(t *testing.T) {
 	runtime.GC()
 	runtime.ReadMemStats(&before)
 
-	got, err := _Eval(t, root, `len([1 for line in file.lines(path.join(root, "big.txt"))])`)
+	got, err := _Eval(
+		t,
+		root,
+		`len([1 for line in file.lines(path.join(root, "big.txt"))])`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	runtime.ReadMemStats(&after)
 
-	t.Logf("file %d bytes, walk allocated %d in total, heap reached %d",
-		about.Size(), after.TotalAlloc-before.TotalAlloc, after.HeapAlloc)
+	t.Logf(
+		"file %d bytes, walk allocated %d in total, heap reached %d",
+		about.Size(),
+		after.TotalAlloc-before.TotalAlloc,
+		after.HeapAlloc,
+	)
 
-	if got != fmt.Sprint(_BIG) {
-		t.Fatalf("walked %s lines, want %d", got, _BIG)
+	if got != fmt.Sprint(BIG) {
+		t.Fatalf(
+			"walked %s lines, want %d",
+			got,
+			BIG,
+		)
 	}
 
 	// The list of results is what grows here, not the reader. What matters is
 	// that nothing ever held the file: the peak heap, not the running total.
 	if after.HeapAlloc > uint64(about.Size()) {
-		t.Fatalf("heap reached %d on a %d byte file, so the walk is holding it",
-			after.HeapAlloc, about.Size())
+		t.Fatalf(
+			"heap reached %d on a %d byte file, so the walk is holding it",
+			after.HeapAlloc,
+			about.Size(),
+		)
 	}
 }
 
@@ -399,17 +608,39 @@ func TestLines_CostsOneLineNotTheFile(t *testing.T) {
 func TestLines_ALongLineIsReadRatherThanRefused(t *testing.T) {
 	root := t.TempDir()
 
-	_Put(t, root, "long.txt", strings.Repeat("x", _LONG)+"\nshort\n")
+	_Put(
+		t,
+		root,
+		"long.txt",
+		strings.Repeat(
+			"x",
+			LONG,
+		)+"\nshort\n",
+	)
 
-	got, err := _Eval(t, root,
-		`[len(line) for line in file.lines(path.join(root, "long.txt"))]`)
+	got, err := _Eval(
+		t,
+		root,
+		`[len(line) for line in file.lines(path.join(root, "long.txt"))]`,
+	)
 	if err != nil {
-		t.Fatalf("a %d byte line was refused: %v", _LONG, err)
+		t.Fatalf(
+			"a %d byte line was refused: %v",
+			LONG,
+			err,
+		)
 	}
 
-	want := fmt.Sprintf("[%d, 5]", _LONG)
+	want := fmt.Sprintf(
+		"[%d, 5]",
+		LONG,
+	)
 	if got != want {
-		t.Fatalf("got %s, want %s", got, want)
+		t.Fatalf(
+			"got %s, want %s",
+			got,
+			want,
+		)
 	}
 }
 
@@ -421,15 +652,36 @@ func TestLines_ALongLineIsReadRatherThanRefused(t *testing.T) {
 func TestLines_ALineTheRunCannotAffordEndsIt(t *testing.T) {
 	root := t.TempDir()
 
-	_Put(t, root, "long.txt", strings.Repeat("x", _LONG)+"\n")
+	_Put(
+		t,
+		root,
+		"long.txt",
+		strings.Repeat(
+			"x",
+			LONG,
+		)+"\n",
+	)
 
-	_, err := _Within(t, root, _SMALL,
-		`[line for line in file.lines(path.join(root, "long.txt"))]`)
-	if !errors.Is(err, scheduler.ERR_MEMORY) {
-		t.Fatalf("got %v, want ERR_MEMORY", err)
+	_, err := _Within(
+		t,
+		root,
+		SMALL,
+		`[line for line in file.lines(path.join(root, "long.txt"))]`,
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrMemory,
+	) {
+		t.Fatalf(
+			"got %v, want ErrMemory",
+			err,
+		)
 	}
 
-	t.Logf("ended with: %v", err)
+	t.Logf(
+		"ended with: %v",
+		err,
+	)
 }
 
 // TestRead_TooBigForTheRunIsRefusedBeforeItIsAllocated is the answer to the
@@ -440,30 +692,72 @@ func TestLines_ALineTheRunCannotAffordEndsIt(t *testing.T) {
 func TestRead_TooBigForTheRunIsRefusedBeforeItIsAllocated(t *testing.T) {
 	root := t.TempDir()
 
-	_Put(t, root, "big.txt", strings.Repeat("y", _LONG))
+	_Put(
+		t,
+		root,
+		"big.txt",
+		strings.Repeat(
+			"y",
+			LONG,
+		),
+	)
 
 	for _, name := range []string{"read", "bytes"} {
-		t.Run(name, func(t *testing.T) {
-			_, err := _Within(t, root, _SMALL,
-				fmt.Sprintf(`file.%s(path.join(root, "big.txt"))`, name))
-			if !errors.Is(err, scheduler.ERR_MEMORY) {
-				t.Fatalf("got %v, want ERR_MEMORY", err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Within(
+					t,
+					root,
+					SMALL,
+					fmt.Sprintf(
+						`file.%s(path.join(root, "big.txt"))`,
+						name,
+					),
+				)
+				if !errors.Is(
+					err,
+					scheduler.ErrMemory,
+				) {
+					t.Fatalf(
+						"got %v, want ErrMemory",
+						err,
+					)
+				}
 
-			if !errors.Is(err, larkfile.ERR_FILE) {
-				t.Fatalf("got %v, want it to also answer ERR_FILE", err)
-			}
-		})
+				if !errors.Is(
+					err,
+					larkfile.ErrFile,
+				) {
+					t.Fatalf(
+						"got %v, want it to also answer ErrFile",
+						err,
+					)
+				}
+			},
+		)
 	}
 
 	// The same file under the ordinary ceiling still reads.
-	got, err := _Within(t, root, 0, `len(file.read(path.join(root, "big.txt")))`)
+	got, err := _Within(
+		t,
+		root,
+		0,
+		`len(file.read(path.join(root, "big.txt")))`,
+	)
 	if err != nil {
-		t.Fatalf("under the default ceiling: %v", err)
+		t.Fatalf(
+			"under the default ceiling: %v",
+			err,
+		)
 	}
 
-	if got != fmt.Sprint(_LONG) {
-		t.Fatalf("read %s bytes, want %d", got, _LONG)
+	if got != fmt.Sprint(LONG) {
+		t.Fatalf(
+			"read %s bytes, want %d",
+			got,
+			LONG,
+		)
 	}
 }
 
@@ -473,31 +767,52 @@ func TestRead_TooBigForTheRunIsRefusedBeforeItIsAllocated(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 23:14: initial creation
 func TestWritelines_RefusesSomethingThatIsNotALine(t *testing.T) {
-	root := t.TempDir()
+	var root = t.TempDir()
 
-	_, err := _Eval(t, root,
-		`file.writelines(path.join(root, "bad.txt"), ["fine", 7, "also fine"])`)
-	if !errors.Is(err, larkfile.ERR_LINE) {
-		t.Fatalf("got %v, want ERR_LINE", err)
+	_, err := _Eval(
+		t,
+		root,
+		`file.writelines(path.join(root, "bad.txt"), ["fine", 7, "also fine"])`,
+	)
+	if !errors.Is(
+		err,
+		larkfile.ErrLine,
+	) {
+		t.Fatalf(
+			"got %v, want ErrLine",
+			err,
+		)
 	}
 
-	if !errors.Is(err, larkfile.ERR_FILE) {
-		t.Fatalf("got %v, want it to also answer ERR_FILE", err)
+	if !errors.Is(
+		err,
+		larkfile.ErrFile,
+	) {
+		t.Fatalf(
+			"got %v, want it to also answer ErrFile",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), "line 1") {
-		t.Fatalf("the refusal does not say which line: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"line 1",
+	) {
+		t.Fatalf(
+			"the refusal does not say which line: %v",
+			err,
+		)
 	}
 }
 
 // TestErrFile_IsAnsweredWithoutBeingSaid is the sentinel doing its job
 // silently.
 //
-// ERR_FILE answers "did a file call fail", which every refusal here answers yes
+// ErrFile answers "did a file call fail", which every refusal here answers yes
 // to. Wrapping it with %w put its words at the end of every message, where a
 // line of the wrong type and a read past the run's memory both claimed the
 // filesystem had refused something. The question still has to be answerable,
-// so this checks both halves at once: every refusal matches ERR_FILE, and none
+// so this checks both halves at once: every refusal matches ErrFile, and none
 // of them says so.
 //
 // Revisions:
@@ -505,7 +820,12 @@ func TestWritelines_RefusesSomethingThatIsNotALine(t *testing.T) {
 func TestErrFile_IsAnsweredWithoutBeingSaid(t *testing.T) {
 	root := t.TempDir()
 
-	_Put(t, root, "note.txt", "hello")
+	_Put(
+		t,
+		root,
+		"note.txt",
+		"hello",
+	)
 
 	cases := map[string]string{
 		"a missing file":           `file.read(path.join(root, "nope.txt"))`,
@@ -518,20 +838,48 @@ func TestErrFile_IsAnsweredWithoutBeingSaid(t *testing.T) {
 	}
 
 	for name, expression := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := _Eval(t, root, expression)
-			if !errors.Is(err, larkfile.ERR_FILE) {
-				t.Fatalf("%s did not answer ERR_FILE: %v", expression, err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					root,
+					expression,
+				)
+				if !errors.Is(
+					err,
+					larkfile.ErrFile,
+				) {
+					t.Fatalf(
+						"%s did not answer ErrFile: %v",
+						expression,
+						err,
+					)
+				}
 
-			if strings.Contains(err.Error(), larkfile.ERR_FILE.Error()) {
-				t.Fatalf("the sentinel put its words in the message: %v", err)
-			}
-		})
+				if strings.Contains(
+					err.Error(),
+					larkfile.ErrFile.Error(),
+				) {
+					t.Fatalf(
+						"the sentinel put its words in the message: %v",
+						err,
+					)
+				}
+			},
+		)
 	}
 
 	// And the memory refusals, which are the ones the words were false about.
-	_Put(t, root, "big.txt", strings.Repeat("y", _LONG))
+	_Put(
+		t,
+		root,
+		"big.txt",
+		strings.Repeat(
+			"y",
+			LONG,
+		),
+	)
 
 	narrow := map[string]string{
 		"a read past the ceiling": `file.read(path.join(root, "big.txt"))`,
@@ -540,22 +888,48 @@ func TestErrFile_IsAnsweredWithoutBeingSaid(t *testing.T) {
 	}
 
 	for name, expression := range narrow {
-		t.Run(name, func(t *testing.T) {
-			_, err := _Within(t, root, _SMALL, expression)
-			if !errors.Is(err, larkfile.ERR_FILE) {
-				t.Fatalf("%s did not answer ERR_FILE: %v", expression, err)
-			}
-
-			if !errors.Is(err, scheduler.ERR_MEMORY) {
-				t.Fatalf("%s did not answer ERR_MEMORY: %v", expression, err)
-			}
-
-			if strings.Contains(err.Error(), larkfile.ERR_FILE.Error()) {
-				t.Fatalf(
-					"a memory refusal claimed the filesystem refused it: %v",
-					err,
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Within(
+					t,
+					root,
+					SMALL,
+					expression,
 				)
-			}
-		})
+				if !errors.Is(
+					err,
+					larkfile.ErrFile,
+				) {
+					t.Fatalf(
+						"%s did not answer ErrFile: %v",
+						expression,
+						err,
+					)
+				}
+
+				if !errors.Is(
+					err,
+					scheduler.ErrMemory,
+				) {
+					t.Fatalf(
+						"%s did not answer ErrMemory: %v",
+						expression,
+						err,
+					)
+				}
+
+				if strings.Contains(
+					err.Error(),
+					larkfile.ErrFile.Error(),
+				) {
+					t.Fatalf(
+						"a memory refusal claimed the filesystem "+
+							"refused it: %v",
+						err,
+					)
+				}
+			},
+		)
 	}
 }

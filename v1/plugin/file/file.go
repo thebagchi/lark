@@ -32,28 +32,28 @@ import (
 )
 
 var (
-	// ERR_FILE is what every refusal in this module answers to, so a caller
+	// ErrFile is what every refusal in this module answers to, so a caller
 	// asking "did a file call fail" asks once.
 	//
-	// It is carried rather than wrapped with %w; see _Failed. Its words would
+	// It is carried rather than wrapped with %w; see _FileError. Its words would
 	// otherwise land at the end of every message, where they read as a claim
 	// about the filesystem rather than as the category they are - and three of
 	// this module's refusals are not the filesystem's doing at all.
-	ERR_FILE = errors.New("the filesystem refused")
+	ErrFile = errors.New("the filesystem refused")
 
-	// ERR_NOT_A_FILE is returned for reading something that is not a regular
+	// ErrNotAFile is returned for reading something that is not a regular
 	// file: a device, a pipe, a directory.
 	//
-	// Answers ERR_FILE as well as itself. A caller branching on "did this call
+	// Answers ErrFile as well as itself. A caller branching on "did this call
 	// fail in a way I handle" tests the general one, and a refusal that
 	// matched only the specific sentinel would slip past every such branch -
 	// including the ones written before this sentinel existed, when reading a
-	// directory reached the filesystem and came back as ERR_FILE.
-	ERR_NOT_A_FILE = errors.New("not a regular file")
+	// directory reached the filesystem and came back as ErrFile.
+	ErrNotAFile = errors.New("not a regular file")
 )
 
+// NAME is the module, and the names it holds.
 const (
-	// NAME is the module, and the names it holds.
 	NAME   = "file"
 	READ   = "read"
 	BYTES  = "bytes"
@@ -82,9 +82,9 @@ const (
 	FILE      = 0o640
 	DIRECTORY = 0o750
 
-	// _STRING is what a read pays on top of the bytes it read, because the
+	// STRING is what a read pays on top of the bytes it read, because the
 	// file and the string copied from it are both live at once.
-	_STRING = 2
+	STRING = 2
 )
 
 // Plugin is the file module, for a host to hand a compiler with WithPlugins.
@@ -108,29 +108,87 @@ func (p *Plugin) Name() string {
 //   - 2026-10-02 17:12: a method of Plugin, which a host hands a compiler,
 //     rather than of a plugin that registered itself
 func (p *Plugin) Values() starlark.StringDict {
+	members := _FileNames()
+
+	for key, value := range _FileStat() {
+		members[key] = value
+	}
+
 	return starlark.StringDict{
 		NAME: &starlarkstruct.Module{
-			Name: NAME,
-			Members: starlark.StringDict{
-				READ:   starlark.NewBuiltin(NAME+"."+READ, _Read),
-				BYTES:  starlark.NewBuiltin(NAME+"."+BYTES, _Bytes),
-				WRITE:  starlark.NewBuiltin(NAME+"."+WRITE, _Write),
-				APPEND: starlark.NewBuiltin(NAME+"."+APPEND, _Append),
-				EXISTS: starlark.NewBuiltin(NAME+"."+EXISTS, _Exists),
-				REMOVE: starlark.NewBuiltin(NAME+"."+REMOVE, _Remove),
-				LIST:   starlark.NewBuiltin(NAME+"."+LIST, _List),
-				SIZE:   starlark.NewBuiltin(NAME+"."+SIZE, _Size),
-				MKDIR:  starlark.NewBuiltin(NAME+"."+MKDIR, _Mkdir),
-
-				STAT:       starlark.NewBuiltin(NAME+"."+STAT, _Stat),
-				LINES:      starlark.NewBuiltin(NAME+"."+LINES, _Reading),
-				WRITELINES: starlark.NewBuiltin(NAME+"."+WRITELINES, _Writelines),
-				APPENDLINES: starlark.NewBuiltin(
-					NAME+"."+APPENDLINES,
-					_Appendlines,
-				),
-			},
+			Name:    NAME,
+			Members: members,
 		},
+	}
+}
+
+// _FileNames is the names that read, write, and manage a path.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _FileNames() starlark.StringDict {
+	return starlark.StringDict{
+		READ: starlark.NewBuiltin(
+			NAME+"."+READ,
+			_Read,
+		),
+		BYTES: starlark.NewBuiltin(
+			NAME+"."+BYTES,
+			_Bytes,
+		),
+		WRITE: starlark.NewBuiltin(
+			NAME+"."+WRITE,
+			_Write,
+		),
+		APPEND: starlark.NewBuiltin(
+			NAME+"."+APPEND,
+			_Append,
+		),
+		EXISTS: starlark.NewBuiltin(
+			NAME+"."+EXISTS,
+			_Exists,
+		),
+		REMOVE: starlark.NewBuiltin(
+			NAME+"."+REMOVE,
+			_Remove,
+		),
+		LIST: starlark.NewBuiltin(
+			NAME+"."+LIST,
+			_List,
+		),
+		SIZE: starlark.NewBuiltin(
+			NAME+"."+SIZE,
+			_Size,
+		),
+		MKDIR: starlark.NewBuiltin(
+			NAME+"."+MKDIR,
+			_Mkdir,
+		),
+	}
+}
+
+// _FileStat is the names that report a path or walk its lines.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _FileStat() starlark.StringDict {
+	return starlark.StringDict{
+		STAT: starlark.NewBuiltin(
+			NAME+"."+STAT,
+			_Stat,
+		),
+		LINES: starlark.NewBuiltin(
+			NAME+"."+LINES,
+			_Reading,
+		),
+		WRITELINES: starlark.NewBuiltin(
+			NAME+"."+WRITELINES,
+			_Writelines,
+		),
+		APPENDLINES: starlark.NewBuiltin(
+			NAME+"."+APPENDLINES,
+			_Appendlines,
+		),
 	}
 }
 
@@ -144,7 +202,12 @@ func _Read(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	held, err := _Contents(thread, fn, args, kwargs)
+	held, err := _Contents(
+		thread,
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +225,12 @@ func _Bytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	held, err := _Contents(thread, fn, args, kwargs)
+	held, err := _Contents(
+		thread,
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -182,41 +250,79 @@ func _Contents(
 ) ([]byte, error) {
 	var named string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &named)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	about, err := _Sized(fn.Name(), named)
+	about, err := _Sized(
+		fn.Name(),
+		named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	budget := scheduler.Allowance(thread)
-
-	// Charged from the stat, before anything is allocated, so a file this run
-	// cannot afford costs one syscall rather than an allocation that takes the
-	// process down with it. Twice the size, because ReadFile allocates the
-	// bytes and starlark.String copies them: measured, 512MB of file peaked at
-	// 1057MB of memory.
-	size := about.Size() * _STRING
-
-	err = budget.Charge(size)
+	credit, err := _Charged(
+		thread,
+		fn,
+		named,
+		about.Size(),
+	)
 	if err != nil {
-		return nil, _Rejected(fn.Name(), named, err)
+		return nil, err
 	}
 
-	// Given back when the value is handed over: from then on the script owns
-	// it and Go's collector decides when it goes. This bounds one read, and
-	// every read in flight at once, not the whole of what a script is holding.
-	defer budget.Credit(size)
+	defer credit()
 
 	held, err := os.ReadFile(named)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
 	return held, nil
+}
+
+// _Charged reserves room for the file before the read allocates it.
+//
+// The charge is twice the size, because ReadFile allocates the bytes and
+// the string copies them. The credit runs when the value has been handed
+// over, so the bound covers the reads in flight.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Charged(
+	thread *starlark.Thread,
+	fn *starlark.Builtin,
+	named string,
+	size int64,
+) (func(), error) {
+	var (
+		budget = scheduler.Allowance(thread)
+		cost   = size * STRING
+	)
+
+	err := budget.Charge(cost)
+	if err != nil {
+		return nil, _Rejected(
+			fn.Name(),
+			named,
+			err,
+		)
+	}
+
+	return func() {
+		budget.Credit(cost)
+	}, nil
 }
 
 // _Write puts data in a file, replacing what was there.
@@ -233,19 +339,36 @@ func _Write(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	named, data, err := _Destination(fn, args, kwargs)
+	named, data, err := _Destination(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	err = os.MkdirAll(filepath.Dir(named), DIRECTORY)
+	err = os.MkdirAll(
+		filepath.Dir(named),
+		DIRECTORY,
+	)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
-	err = os.WriteFile(named, data, FILE)
+	err = os.WriteFile(
+		named,
+		data,
+		FILE,
+	)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
 	return starlark.None, nil
@@ -261,32 +384,72 @@ func _Append(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	named, data, err := _Destination(fn, args, kwargs)
+	named, data, err := _Destination(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	err = os.MkdirAll(filepath.Dir(named), DIRECTORY)
+	err = os.MkdirAll(
+		filepath.Dir(named),
+		DIRECTORY,
+	)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
-	held, err := os.OpenFile(named, os.O_CREATE|os.O_WRONLY|os.O_APPEND, FILE)
+	return _Appending(
+		fn,
+		named,
+		data,
+	)
+}
+
+// _Appending opens the file, writes data at the end, and closes it.
+//
+// A failed write is still closed, and that failure is the one reported.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Appending(
+	fn *starlark.Builtin,
+	named string,
+	data []byte,
+) (starlark.Value, error) {
+	held, err := os.OpenFile(
+		named,
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
+		FILE,
+	)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
 	_, err = held.Write(data)
 	if err != nil {
-		// Closed anyway, and the write's failure is the one worth reporting.
 		_ = held.Close()
 
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
 	err = held.Close()
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
 	return starlark.None, nil
@@ -314,7 +477,13 @@ func _Exists(
 ) (starlark.Value, error) {
 	var named string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &named)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&named,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -324,11 +493,17 @@ func _Exists(
 		return starlark.True, nil
 	}
 
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(
+		err,
+		os.ErrNotExist,
+	) {
 		return starlark.False, nil
 	}
 
-	return nil, _Refused(fn.Name(), err)
+	return nil, _Refused(
+		fn.Name(),
+		err,
+	)
 }
 
 // _Remove deletes a file, or an empty directory.
@@ -347,14 +522,23 @@ func _Remove(
 ) (starlark.Value, error) {
 	var named string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &named)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	err = os.Remove(named)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
 	return starlark.None, nil
@@ -376,31 +560,62 @@ func _List(
 ) (starlark.Value, error) {
 	var named string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &named)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	entries, err := os.ReadDir(named)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
-	names := make([]string, 0, len(entries))
+	return starlark.NewList(_Sorted(entries)), nil
+}
+
+// _Sorted is the entry names, in order, as Starlark strings.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Sorted(entries []os.DirEntry) []starlark.Value {
+	names := make(
+		[]string,
+		0,
+		len(entries),
+	)
 
 	for _, entry := range entries {
-		names = append(names, entry.Name())
+		names = append(
+			names,
+			entry.Name(),
+		)
 	}
 
 	sort.Strings(names)
 
-	held := make([]starlark.Value, 0, len(names))
+	held := make(
+		[]starlark.Value,
+		0,
+		len(names),
+	)
 
 	for _, name := range names {
-		held = append(held, starlark.String(name))
+		held = append(
+			held,
+			starlark.String(name),
+		)
 	}
 
-	return starlark.NewList(held), nil
+	return held
 }
 
 // _Size is how many bytes a file holds.
@@ -415,14 +630,23 @@ func _Size(
 ) (starlark.Value, error) {
 	var named string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &named)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	held, err := os.Stat(named)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
 	return starlark.MakeInt64(held.Size()), nil
@@ -443,14 +667,26 @@ func _Mkdir(
 ) (starlark.Value, error) {
 	var named string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &named)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	err = os.MkdirAll(named, DIRECTORY)
+	err = os.MkdirAll(
+		named,
+		DIRECTORY,
+	)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
 	return starlark.None, nil
@@ -470,12 +706,23 @@ func _Destination(
 		given starlark.Value
 	)
 
-	err := starlark.UnpackArgs(fn.Name(), args, kwargs, PATH, &named, DATA, &given)
+	err := starlark.UnpackArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		PATH,
+		&named,
+		DATA,
+		&given,
+	)
 	if err != nil {
 		return "", nil, err
 	}
 
-	data, err := unpack.Bytes(fn.Name(), given)
+	data, err := unpack.Bytes(
+		fn.Name(),
+		given,
+	)
 	if err != nil {
 		return "", nil, err
 	}

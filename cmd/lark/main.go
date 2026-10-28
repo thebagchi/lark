@@ -120,25 +120,25 @@ const (
 	// not fail and a caller acts on the two differently.
 	//
 	// Read from whether the signal arrived, never from the error. A script
-	// that cancels its own thread and joins it also meets ERR_CANCELLED, and
+	// that cancels its own thread and joins it also meets ErrCancelled, and
 	// that script failed in the ordinary way - samples/cancel.star is exactly
 	// that, and exits 1.
 	STOPPED = 4
 )
 
 var (
-	// ERR_ONE_INPUT is returned when no input was named, or more than one was.
-	ERR_ONE_INPUT = errors.New("lark: give exactly one of -s, -g and -r")
+	// ErrOneInput is returned when no input was named, or more than one was.
+	ErrOneInput = errors.New("lark: give exactly one of -s, -g and -r")
 
-	// ERR_ONE_OUTPUT is returned when two things to produce were named.
-	ERR_ONE_OUTPUT = errors.New("lark: -t and -b produce different things")
+	// ErrOneOutput is returned when two things to produce were named.
+	ErrOneOutput = errors.New("lark: -t and -b produce different things")
 
-	// ERR_ONLY_RUN is returned when a bundle is to be translated or bundled. It
+	// ErrOnlyRun is returned when a bundle is to be translated or bundled. It
 	// carries no source to do either from, so it is only run.
-	ERR_ONLY_RUN = errors.New("lark: a bundle is only run; -t and -b need -s or -g")
+	ErrOnlyRun = errors.New("lark: a bundle is only run; -t and -b need -s or -g")
 
-	// ERR_MEMORY is returned for a ceiling that is not a quantity of memory.
-	ERR_MEMORY = errors.New("lark: -m is a number of megabytes, above zero")
+	// ErrMemory is returned for a ceiling that is not a quantity of memory.
+	ErrMemory = errors.New("lark: -m is a number of megabytes, above zero")
 )
 
 // main runs or translates whichever input was named.
@@ -203,48 +203,149 @@ var (
 //     a second replacing the first
 //   - 2026-10-03 08:32: hands the run its memory ceiling as an option, and so
 //     returns no context, having none to derive
-func _Prepared(asked *_Asked, path string) (func() error, *_Handed) {
-	logging, kept, err := _Logging(asked.logs, path)
+func _Prepared(
+	asked *_Asked,
+	path string,
+) (func() error, *_Handed) {
+	var (
+		logging, kept = _MustLog(
+			asked.logs,
+			path,
+		)
+		run             = _MustSupply(asked.supplied)
+		memory          = _MustAllow(asked.memory)
+		plugins, hosted = _MustHost(asked.plugins)
+	)
+
+	return _HandedOf(
+		&_Ready{
+			logging: logging,
+			kept:    kept,
+			run:     run,
+			memory:  memory,
+			plugins: plugins,
+			hosted:  hosted,
+		},
+	)
+}
+
+// _Ready is what the command has opened before it builds the options.
+type _Ready struct {
+	logging runtime.RunOption
+	kept    func() error
+	run     []runtime.RunOption
+	memory  []runtime.RunOption
+	plugins []runtime.Plugin
+	hosted  func() error
+}
+
+// _MustLog opens the transcript, or exits when it cannot.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _MustLog(
+	logs string,
+	path string,
+) (runtime.RunOption, func() error) {
+	logging, kept, err := _Logging(
+		logs,
+		path,
+	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		fmt.Fprintf(
+			os.Stderr,
+			"lark: %v\n",
+			err,
+		)
 		os.Exit(NO_FILE)
 	}
 
-	run, err := _Supplying(asked.supplied)
+	return logging, kept
+}
+
+// _MustSupply reads the arguments file, or exits when it cannot.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _MustSupply(supplied string) []runtime.RunOption {
+	run, err := _Supplying(supplied)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		fmt.Fprintf(
+			os.Stderr,
+			"lark: %v\n",
+			err,
+		)
 		flag.Usage()
 		os.Exit(NO_INPUT)
 	}
 
-	memory, err := _Allowing(asked.memory)
+	return run
+}
+
+// _MustAllow reads the memory ceiling, or exits when it cannot.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _MustAllow(memory int) []runtime.RunOption {
+	run, err := _Allowing(memory)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(
+			os.Stderr,
+			err,
+		)
 		flag.Usage()
 		os.Exit(NO_INPUT)
 	}
 
-	plugins, hosted, err := _Hosting(asked.plugins)
+	return run
+}
+
+// _MustHost starts the plugins, or exits when it cannot.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _MustHost(dir string) ([]runtime.Plugin, func() error) {
+	plugins, hosted, err := _Hosting(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		fmt.Fprintf(
+			os.Stderr,
+			"lark: %v\n",
+			err,
+		)
 		os.Exit(NO_FILE)
 	}
 
-	// Both closes, in one call, because main exits rather than returns and a
-	// deferred close would not run: the transcript has to be finished and the
-	// plugins have to be seen off on every path out.
-	closing := func() error {
-		return errors.Join(kept(), hosted())
-	}
+	return plugins, hosted
+}
 
-	// Every plugin in the one WithPlugins, since a second would replace the
-	// first: file, and whatever attached.
-	given := append([]runtime.Plugin{&larkfile.Plugin{}}, plugins...)
-
-	handed := &_Handed{
-		compile: []runtime.CompileOption{runtime.WithPlugins(given...)},
-		run:     slices.Concat(run, memory, []runtime.RunOption{logging}),
-	}
+// _HandedOf joins the closes and the options the runtime is given.
+//
+// Both closes are one call, because main exits rather than returns. Every
+// plugin is in the one WithPlugins, since a second would replace the first.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _HandedOf(ready *_Ready) (func() error, *_Handed) {
+	var (
+		closing = func() error {
+			return errors.Join(
+				ready.kept(),
+				ready.hosted(),
+			)
+		}
+		given = append(
+			[]runtime.Plugin{&larkfile.Plugin{}},
+			ready.plugins...,
+		)
+		handed = &_Handed{
+			compile: []runtime.CompileOption{runtime.WithPlugins(given...)},
+			run: slices.Concat(
+				ready.run,
+				ready.memory,
+				[]runtime.RunOption{ready.logging},
+			),
+		}
+	)
 
 	return closing, handed
 }
@@ -281,65 +382,147 @@ type _Asked struct {
 //   - 2026-09-26 03:20: initial creation, lifted out of main
 //   - 2026-10-03 00:28: reads a bundle to run under -r, which takes neither -t nor -b
 func _Flags() *_Asked {
-	var (
-		script    = flag.String(SCRIPT_FLAG, "", SCRIPT_USAGE)
-		described = flag.String(GRAPH_FLAG, "", GRAPH_USAGE)
-		bundled   = flag.String(RUN_FLAG, "", RUN_USAGE)
-		translate = flag.Bool(TRANSLATE_FLAG, false, TRANSLATE_USAGE)
-		logs      = flag.String(LOGS_FLAG, "", LOGS_USAGE)
-		bundle    = flag.String(BUNDLE_FLAG, "", BUNDLE_USAGE)
-		supplied  = flag.String(ARGS_FLAG, "", ARGS_USAGE)
-		memory    = flag.Int(MEMORY_FLAG, 0, MEMORY_USAGE)
-		plugins   = flag.String(PLUGINS_FLAG, "", PLUGINS_USAGE)
-	)
+	command := _Command()
 
 	flag.Parse()
+	_OneInput(command)
 
+	return _AskedOf(command)
+}
+
+// _Command is the flags this command reads, before they are parsed.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Command() *_Line {
+	return &_Line{
+		script: flag.String(
+			SCRIPT_FLAG,
+			"",
+			SCRIPT_USAGE,
+		),
+		described: flag.String(
+			GRAPH_FLAG,
+			"",
+			GRAPH_USAGE,
+		),
+		bundled: flag.String(
+			RUN_FLAG,
+			"",
+			RUN_USAGE,
+		),
+		translate: flag.Bool(
+			TRANSLATE_FLAG,
+			false,
+			TRANSLATE_USAGE,
+		),
+		logs: flag.String(
+			LOGS_FLAG,
+			"",
+			LOGS_USAGE,
+		),
+		bundle: flag.String(
+			BUNDLE_FLAG,
+			"",
+			BUNDLE_USAGE,
+		),
+		supplied: flag.String(
+			ARGS_FLAG,
+			"",
+			ARGS_USAGE,
+		),
+		memory: flag.Int(
+			MEMORY_FLAG,
+			0,
+			MEMORY_USAGE,
+		),
+		plugins: flag.String(
+			PLUGINS_FLAG,
+			"",
+			PLUGINS_USAGE,
+		),
+	}
+}
+
+// _Line is the flag pointers, so the check and the asked value share them.
+type _Line struct {
+	script    *string
+	described *string
+	bundled   *string
+	translate *bool
+	logs      *string
+	bundle    *string
+	supplied  *string
+	memory    *int
+	plugins   *string
+}
+
+// _OneInput refuses a command line that does not name exactly one input,
+// or that asks to translate a bundle.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _OneInput(command *_Line) {
 	named := 0
 
-	for _, input := range []string{*script, *described, *bundled} {
+	for _, input := range []string{*command.script, *command.described, *command.bundled} {
 		if input != "" {
 			named++
 		}
 	}
 
 	if named != 1 {
-		fmt.Fprintln(os.Stderr, ERR_ONE_INPUT)
+		fmt.Fprintln(
+			os.Stderr,
+			ErrOneInput,
+		)
 		flag.Usage()
 		os.Exit(NO_INPUT)
 	}
 
-	translated := *translate || *bundle != ""
-	if *bundled != "" && translated {
-		fmt.Fprintln(os.Stderr, ERR_ONLY_RUN)
+	translated := *command.translate || *command.bundle != ""
+	if *command.bundled != "" && translated {
+		fmt.Fprintln(
+			os.Stderr,
+			ErrOnlyRun,
+		)
 		flag.Usage()
 		os.Exit(NO_INPUT)
 	}
 
-	if *translate && *bundle != "" {
-		fmt.Fprintln(os.Stderr, ERR_ONE_OUTPUT)
+	if *command.translate && *command.bundle != "" {
+		fmt.Fprintln(
+			os.Stderr,
+			ErrOneOutput,
+		)
 		flag.Usage()
 		os.Exit(NO_INPUT)
 	}
+}
 
+// _AskedOf is the command line as the rest of the command reads it.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _AskedOf(command *_Line) *_Asked {
 	held := &_Asked{
-		path:      *script,
+		path:      *command.script,
 		noun:      SCRIPT,
-		translate: *translate,
-		logs:      *logs,
-		bundle:    *bundle,
-		supplied:  *supplied,
-		memory:    *memory,
-		plugins:   *plugins,
+		translate: *command.translate,
+		logs:      *command.logs,
+		bundle:    *command.bundle,
+		supplied:  *command.supplied,
+		memory:    *command.memory,
+		plugins:   *command.plugins,
 	}
 
-	if *described != "" {
-		held.path = *described
+	if *command.described != "" {
+		held.path = *command.described
 		held.noun = FLOW
 	}
 
-	if *bundled != "" {
-		held.path = *bundled
+	if *command.bundled != "" {
+		held.path = *command.bundled
 		held.noun = BUNDLE
 	}
 
@@ -356,14 +539,19 @@ func _Flags() *_Asked {
 //     each, the artifact built by _Built
 //   - 2026-10-03 23:38: drops a first case that repeated the default
 func main() {
-	asked := _Flags()
-
-	path := asked.path
-	noun := asked.noun
+	var (
+		asked = _Flags()
+		path  = asked.path
+		noun  = asked.noun
+	)
 
 	src, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "lark: %v\n", err)
+		fmt.Fprintf(
+			os.Stderr,
+			"lark: %v\n",
+			err,
+		)
 		os.Exit(NO_FILE)
 	}
 
@@ -377,25 +565,85 @@ func main() {
 	)
 	defer released()
 
-	closing, handed := _Prepared(asked, path)
+	closing, handed := _Prepared(
+		asked,
+		path,
+	)
 
-	// A bundle under -r reaches the default: _Flags refuses -r beside -t or -b.
-	switch {
-	case asked.bundle != "":
-		err = _Keeping(asked, src, handed)
-	case noun == SCRIPT && asked.translate:
-		err = _Derive(path, src)
-	case asked.translate:
-		err = _Emit(path, src)
-	default:
-		err = _Running(stopping, asked, src, handed)
-	}
+	err = _Chose(
+		stopping,
+		asked,
+		src,
+		handed,
+	)
 
 	// Closed here rather than deferred, because this function exits and a
-	// deferred close would not run. A transcript that could not be finished
-	// is reported, unless the run already had something worse to say. The
-	// plugins go the same way, and for the same reason: nothing deferred here
-	// runs, so a deferred kill would leave them behind on every failing run.
+	// deferred close would not run.
+	_Finish(
+		stopping,
+		closing,
+		err,
+		noun,
+	)
+}
+
+// _Chose runs, translates, emits, or keeps what the command line asked for.
+//
+// A bundle under -r reaches the default: _Flags refuses -r beside -t or -b.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Chose(
+	stopping context.Context,
+	asked *_Asked,
+	src []byte,
+	handed *_Handed,
+) error {
+	switch {
+	case asked.bundle != "":
+		return _Keeping(
+			asked,
+			src,
+			handed,
+		)
+
+	case asked.noun == SCRIPT && asked.translate:
+		return _Derive(
+			asked.path,
+			src,
+		)
+
+	case asked.translate:
+		return _Emit(
+			asked.path,
+			src,
+		)
+
+	default:
+		return _Running(
+			stopping,
+			asked,
+			src,
+			handed,
+		)
+	}
+}
+
+// _Finish closes what the command opened and exits when the work failed.
+//
+// A transcript that could not be finished is reported, unless the run
+// already had something worse to say. Nothing deferred in main runs, so
+// this is the close.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+//   - 2026-10-24 21:41: takes the context first
+func _Finish(
+	stopping context.Context,
+	closing func() error,
+	err error,
+	noun string,
+) {
 	ending := closing()
 	if err == nil {
 		err = ending
@@ -406,11 +654,20 @@ func main() {
 	}
 
 	if stopping.Err() != nil {
-		fmt.Fprintf(os.Stderr, "%s stopped\n", noun)
+		fmt.Fprintf(
+			os.Stderr,
+			"%s stopped\n",
+			noun,
+		)
 		os.Exit(STOPPED)
 	}
 
-	fmt.Fprintf(os.Stderr, "%s failed: %v\n", noun, err)
+	fmt.Fprintf(
+		os.Stderr,
+		"%s failed: %v\n",
+		noun,
+		err,
+	)
 	os.Exit(FAILED)
 }
 
@@ -430,7 +687,10 @@ func main() {
 //     time and the layout, rather than a transcript on the context
 //   - 2026-10-02 16:33: writes each line's message last
 //   - 2026-10-03 16:31: through the runtime's WithLog, which writes as this did
-func _Logging(dir string, path string) (runtime.RunOption, func() error, error) {
+func _Logging(
+	dir string,
+	path string,
+) (runtime.RunOption, func() error, error) {
 	if dir == "" {
 		nothing := func() error {
 			return nil
@@ -439,19 +699,43 @@ func _Logging(dir string, path string) (runtime.RunOption, func() error, error) 
 		return runtime.WithLog(os.Stdout), nothing, nil
 	}
 
-	err := os.MkdirAll(dir, LOG_DIRECTORY)
+	err := os.MkdirAll(
+		dir,
+		LOG_DIRECTORY,
+	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("log %s: %w", dir, err)
+		return nil, nil, fmt.Errorf(
+			"log %s: %w",
+			dir,
+			err,
+		)
 	}
 
-	name := filepath.Join(dir, filepath.Base(path)+LOG_SUFFIX)
+	var (
+		name = filepath.Join(
+			dir,
+			filepath.Base(path)+LOG_SUFFIX,
+		)
+		file *os.File
+	)
 
-	file, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, LOG_FILE)
+	file, err = os.OpenFile(
+		name,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		LOG_FILE,
+	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("log %s: %w", name, err)
+		return nil, nil, fmt.Errorf(
+			"log %s: %w",
+			name,
+			err,
+		)
 	}
 
-	return runtime.WithLog(io.MultiWriter(os.Stdout, file)), file.Close, nil
+	return runtime.WithLog(io.MultiWriter(
+		os.Stdout,
+		file,
+	)), file.Close, nil
 }
 
 // _Supplying is the run options handing this run's script the arguments a
@@ -477,9 +761,15 @@ func _Supplying(supplied string) ([]runtime.RunOption, error) {
 
 	var args map[string]any
 
-	err := json.Unmarshal([]byte(supplied), &args)
+	err := json.Unmarshal(
+		[]byte(supplied),
+		&args,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("arguments: %w", err)
+		return nil, fmt.Errorf(
+			"arguments: %w",
+			err,
+		)
 	}
 
 	return []runtime.RunOption{runtime.WithArgs(args)}, nil
@@ -502,7 +792,7 @@ func _Allowing(memory int) ([]runtime.RunOption, error) {
 	}
 
 	if memory < 0 {
-		return nil, ERR_MEMORY
+		return nil, ErrMemory
 	}
 
 	return []runtime.RunOption{runtime.WithMemory(int64(memory) * MEGABYTE)}, nil
@@ -521,22 +811,43 @@ func _Allowing(memory int) ([]runtime.RunOption, error) {
 // Revisions:
 //   - 2026-10-03 21:05: initial creation, from the three ways a run or a bundle was
 //     built, each beside what it was built for
-func _Built(asked *_Asked, src []byte, opts []runtime.CompileOption) (*runtime.Artifact, error) {
+func _Built(
+	asked *_Asked,
+	src []byte,
+	opts []runtime.CompileOption,
+) (*runtime.Artifact, error) {
 	switch asked.noun {
 	case SCRIPT:
-		return runtime.Compile(&runtime.Source{Entry: asked.path, Text: src}, opts...)
+		return runtime.Compile(
+			&runtime.Source{
+				Entry: asked.path,
+				Text:  src,
+			},
+			opts...,
+		)
 
 	case BUNDLE:
-		built, err := runtime.Load(src, opts...)
+		built, err := runtime.Load(
+			src,
+			opts...,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", asked.path, err)
+			return nil, fmt.Errorf(
+				"%s: %w",
+				asked.path,
+				err,
+			)
 		}
 
 		return built, nil
 
 	default:
 		// A flow, the one noun left.
-		return _Compiled(asked.path, src, opts...)
+		return _Compiled(
+			asked.path,
+			src,
+			opts...,
+		)
 	}
 }
 
@@ -546,13 +857,26 @@ func _Built(asked *_Asked, src []byte, opts []runtime.CompileOption) (*runtime.A
 // Revisions:
 //   - 2026-10-03 21:05: initial creation, from _Run, _RunBundle and _Play, which
 //     differed only in how the artifact was built
-func _Running(ctx context.Context, asked *_Asked, src []byte, handed *_Handed) error {
-	built, err := _Built(asked, src, handed.compile)
+func _Running(
+	ctx context.Context,
+	asked *_Asked,
+	src []byte,
+	handed *_Handed,
+) error {
+	built, err := _Built(
+		asked,
+		src,
+		handed.compile,
+	)
 	if err != nil {
 		return err
 	}
 
-	_, err = runtime.Start(ctx, built, handed.run...).Wait()
+	_, err = runtime.Start(
+		ctx,
+		built,
+		handed.run...,
+	).Wait()
 
 	return err
 }
@@ -562,13 +886,24 @@ func _Running(ctx context.Context, asked *_Asked, src []byte, handed *_Handed) e
 // Revisions:
 //   - 2026-10-03 21:05: initial creation, from _Bundle and _BundleOf, which differed
 //     only in how the artifact was built
-func _Keeping(asked *_Asked, src []byte, handed *_Handed) error {
-	built, err := _Built(asked, src, handed.compile)
+func _Keeping(
+	asked *_Asked,
+	src []byte,
+	handed *_Handed,
+) error {
+	built, err := _Built(
+		asked,
+		src,
+		handed.compile,
+	)
 	if err != nil {
 		return err
 	}
 
-	return _Kept(built, asked.bundle)
+	return _Kept(
+		built,
+		asked.bundle,
+	)
 }
 
 // _Kept writes a bundle.
@@ -577,15 +912,25 @@ func _Keeping(asked *_Asked, src []byte, handed *_Handed) error {
 //   - 2026-09-21 17:19: initial creation
 //   - 2026-09-21 23:47: says nothing about the graph, which a bundle either
 //     has or has not
-func _Kept(built *runtime.Artifact, out string) error {
+func _Kept(
+	built *runtime.Artifact,
+	out string,
+) error {
 	bundle, err := built.Save()
 	if err != nil {
 		return err
 	}
 
-	err = os.WriteFile(out, bundle, BUNDLE_FILE)
+	err = os.WriteFile(
+		out,
+		bundle,
+		BUNDLE_FILE,
+	)
 	if err != nil {
-		return fmt.Errorf("bundle: %w", err)
+		return fmt.Errorf(
+			"bundle: %w",
+			err,
+		)
 	}
 
 	return nil
@@ -601,12 +946,21 @@ func _Compiled(
 	src []byte,
 	opts ...runtime.CompileOption,
 ) (*runtime.Artifact, error) {
-	out, err := _Generated(path, src)
+	out, err := _Generated(
+		path,
+		src,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return runtime.Compile(&runtime.Source{Entry: path + GENERATED, Text: out}, opts...)
+	return runtime.Compile(
+		&runtime.Source{
+			Entry: path + GENERATED,
+			Text:  out,
+		},
+		opts...,
+	)
 }
 
 // _Derive prints the flow of the script at path as JSON. Modules resolve beside
@@ -623,22 +977,39 @@ func _Compiled(
 //   - 2026-10-02 01:45: prints a flow
 //   - 2026-10-03 00:17: says nothing on standard error, a flow being the whole script
 //     or refused
-func _Derive(path string, src []byte) error {
-	flow, err := runtime.Derive(&runtime.Source{Entry: path, Text: src})
+func _Derive(
+	path string,
+	src []byte,
+) error {
+	flow, err := runtime.Derive(&runtime.Source{
+		Entry: path,
+		Text:  src,
+	})
 	if err != nil {
 		return err
 	}
 
 	compact, err := protojson.Marshal(flow)
 	if err != nil {
-		return fmt.Errorf("flow: %w", err)
+		return fmt.Errorf(
+			"flow: %w",
+			err,
+		)
 	}
 
 	var laid bytes.Buffer
 
-	err = json.Indent(&laid, compact, "", INDENT)
+	err = json.Indent(
+		&laid,
+		compact,
+		"",
+		INDENT,
+	)
 	if err != nil {
-		return fmt.Errorf("flow: %w", err)
+		return fmt.Errorf(
+			"flow: %w",
+			err,
+		)
 	}
 
 	return _Written(laid.String())
@@ -652,8 +1023,14 @@ func _Derive(path string, src []byte) error {
 // Revisions:
 //   - 2026-09-21 16:25: initial creation
 //   - 2026-10-02 01:45: reads a flow
-func _Emit(path string, src []byte) error {
-	out, err := _Generated(path, src)
+func _Emit(
+	path string,
+	src []byte,
+) error {
+	out, err := _Generated(
+		path,
+		src,
+	)
 	if err != nil {
 		return err
 	}
@@ -672,12 +1049,23 @@ func _Emit(path string, src []byte) error {
 //   - 2026-10-02 01:45: reads a flow, and returns only the script, since a
 //     bundle no longer carries what it came from
 //   - 2026-10-03 16:29: leaves the check to Emit, which now makes it
-func _Generated(path string, src []byte) ([]byte, error) {
-	described := new(runtime.Flow)
-
-	err := protojson.Unmarshal(src, described)
+func _Generated(
+	path string,
+	src []byte,
+) ([]byte, error) {
+	var (
+		described = new(runtime.Flow)
+		err       = protojson.Unmarshal(
+			src,
+			described,
+		)
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			path,
+			err,
+		)
 	}
 
 	return runtime.Emit(described)
@@ -688,9 +1076,15 @@ func _Generated(path string, src []byte) ([]byte, error) {
 // Revisions:
 //   - 2026-09-21 16:25: initial creation
 func _Written(out string) error {
-	_, err := fmt.Fprintln(os.Stdout, out)
+	_, err := fmt.Fprintln(
+		os.Stdout,
+		out,
+	)
 	if err != nil {
-		return fmt.Errorf("write: %w", err)
+		return fmt.Errorf(
+			"write: %w",
+			err,
+		)
 	}
 
 	return nil
@@ -738,37 +1132,77 @@ func _Hosting(dir string) ([]runtime.Plugin, func() error, error) {
 		return nil, nothing, err
 	}
 
-	// Its own directory, so the socket is short: a unix socket path has a low
-	// length limit and a temporary name under it is what fits.
-	held, err := os.MkdirTemp("", PLUGIN_DIR)
+	held, listener, err := _Socket(token)
 	if err != nil {
-		return nil, nothing, fmt.Errorf("making somewhere for the plugin socket: %w", err)
+		return nil, nothing, err
 	}
 
-	// What is made is undone on every way out that fails, since a caller handed
-	// an error exits on it without asking what else it was handed.
-	listener, err := remote.Listen(filepath.Join(held, PLUGIN_SOCKET), token)
-	if err != nil {
-		return nil, nothing, errors.Join(err, os.RemoveAll(held))
-	}
-
-	closing := func() error {
+	var closing = func() error {
 		err := listener.Close()
 
-		return errors.Join(err, os.RemoveAll(held))
+		return errors.Join(
+			err,
+			os.RemoveAll(held),
+		)
 	}
 
-	loading, err := listener.Load(dir, "")
+	loading, err := listener.Load(
+		dir,
+		"",
+	)
 	if err != nil {
-		return nil, nothing, errors.Join(err, closing())
+		return nil, nothing, errors.Join(
+			err,
+			closing(),
+		)
 	}
 
 	for _, skipped := range loading.Skipped {
-		fmt.Fprintf(os.Stderr, "lark: %v\n", skipped)
+		fmt.Fprintf(
+			os.Stderr,
+			"lark: %v\n",
+			skipped,
+		)
 	}
 
 	// Only what attached: a compiler adds these to the runtime's own.
 	return listener.Plugins(), closing, nil
+}
+
+// _Socket makes a short directory and listens there for plugins.
+//
+// The directory is its own, so the socket path stays under the length a
+// unix socket allows. A failed listen removes the directory.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Socket(token string) (string, *remote.Listener, error) {
+	held, err := os.MkdirTemp(
+		"",
+		PLUGIN_DIR,
+	)
+	if err != nil {
+		return "", nil, fmt.Errorf(
+			"making somewhere for the plugin socket: %w",
+			err,
+		)
+	}
+
+	listener, err := remote.Listen(
+		filepath.Join(
+			held,
+			PLUGIN_SOCKET,
+		),
+		token,
+	)
+	if err != nil {
+		return "", nil, errors.Join(
+			err,
+			os.RemoveAll(held),
+		)
+	}
+
+	return held, listener, nil
 }
 
 // _Token is a secret this run shares with the plugins it starts.
@@ -776,11 +1210,20 @@ func _Hosting(dir string) ([]runtime.Plugin, func() error, error) {
 // Revisions:
 //   - 2026-09-26 00:34: initial creation
 func _Token() (string, error) {
-	held := make([]byte, TOKEN_BYTES)
+	var (
+		held = make(
+			[]byte,
+			TOKEN_BYTES,
+		)
+		err error
+	)
 
-	_, err := rand.Read(held)
+	_, err = rand.Read(held)
 	if err != nil {
-		return "", fmt.Errorf("minting a plugin token: %w", err)
+		return "", fmt.Errorf(
+			"minting a plugin token: %w",
+			err,
+		)
 	}
 
 	return hex.EncodeToString(held), nil

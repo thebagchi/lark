@@ -34,7 +34,12 @@ const (
 //   - 2026-10-02 01:34: initial creation
 func _Begun() *_Recorder {
 	into := _NewRecorder()
-	into.Started(SPINE, &scheduler.Line{Name: spelling.ENTRY})
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name: spelling.ENTRY,
+		},
+	)
 
 	return into
 }
@@ -43,7 +48,10 @@ func _Begun() *_Recorder {
 //
 // Revisions:
 //   - 2026-10-02 15:34: initial creation, replacing _Thread
-func _Function(into *_Recorder, name string) *workflowpb.Node {
+func _Function(
+	into *_Recorder,
+	name string,
+) *workflowpb.Node {
 	for _, node := range into._Drawn().GetFunctions() {
 		if node.GetName() == name {
 			return node
@@ -61,7 +69,10 @@ func _Calls(into *_Recorder) []string {
 	var calls []string
 
 	for _, edge := range into._Drawn().GetCalls() {
-		calls = append(calls, edge.GetCaller()+" "+edge.GetCallee())
+		calls = append(
+			calls,
+			edge.GetCaller()+" "+edge.GetCallee(),
+		)
 	}
 
 	return calls
@@ -84,62 +95,159 @@ func _Calls(into *_Recorder) []string {
 //     own node
 //   - 2026-10-02 15:34: a cause names the function alone
 func TestBlame_IgnoresACancellationHoweverEarly(t *testing.T) {
-	into := _NewRecorder()
+	var (
+		into    = _NewRecorder()
+		stopped = fmt.Errorf(
+			"%s: %w",
+			"patient",
+			context.Canceled,
+		)
+	)
 
-	stopped := fmt.Errorf("%s: %w", "patient", context.Canceled)
+	into.Started(
+		OTHER,
+		&scheduler.Line{
+			Name: "patient",
+		},
+	)
+	into.Ended(
+		OTHER,
+		"patient",
+		stopped,
+	)
 
-	into.Started(OTHER, &scheduler.Line{Name: "patient"})
-	into.Ended(OTHER, "patient", stopped)
-
-	into.Started(LANE, &scheduler.Line{Name: "bad"})
-	into.Ended(LANE, "bad", errors.New(BROKE))
+	into.Started(
+		LANE,
+		&scheduler.Line{
+			Name: "bad",
+		},
+	)
+	into.Ended(
+		LANE,
+		"bad",
+		errors.New(BROKE),
+	)
 
 	cause := into._Cause()
 	if cause.GetFunction() != "bad" || cause.GetFailure() != BROKE {
-		t.Fatalf("want the function that failed, and what it said, got %v", cause)
+		t.Fatalf(
+			"want the function that failed, and what it said, got %v",
+			cause,
+		)
 	}
 }
 
-// TestBlame_KeepsTheFirstFailure records the rule for two genuine failures:
-// the first heard of, not the last.
+// TestBlame_KeepsTheLastFailure records the rule for two genuine failures:
+// the last heard of, not the first, because join returns the first failure in
+// argument order and settles every handle before it returns, so the function
+// it returns is the last one the recorder hears fail.
 //
 // Revisions:
 //   - 2026-09-20 11:40: initial creation
 //   - 2026-10-02 15:34: starts each call before it ends, as a run does
-func TestBlame_KeepsTheFirstFailure(t *testing.T) {
+//   - 2026-10-24 20:30: expect the last failure, not the first, matching the
+//     new contract
+func TestBlame_KeepsTheLastFailure(t *testing.T) {
 	into := _NewRecorder()
 
-	into.Started(LANE, &scheduler.Line{Name: "first"})
-	into.Ended(LANE, "first", errors.New(BROKE))
-	into.Started(OTHER, &scheduler.Line{Name: "second"})
-	into.Ended(OTHER, "second", errors.New("also broke"))
+	into.Started(
+		LANE,
+		&scheduler.Line{
+			Name: "first",
+		},
+	)
+	into.Ended(
+		LANE,
+		"first",
+		errors.New(BROKE),
+	)
+	into.Started(
+		OTHER,
+		&scheduler.Line{
+			Name: "second",
+		},
+	)
+	into.Ended(
+		OTHER,
+		"second",
+		errors.New("also broke"),
+	)
 
-	if into._Cause().GetFunction() != "first" {
-		t.Fatalf("want the first failure kept, got %q", into._Cause().GetFunction())
+	if into._Cause().GetFunction() != "second" {
+		t.Fatalf(
+			"want the last failure kept, got %q",
+			into._Cause().GetFunction(),
+		)
 	}
 }
 
 // TestBlame_NamesTheFunctionThatFailed checks the cause is the call that
 // failed, not main, which fails through it.
 //
+// The same error reaches both Ended calls, as it does in a real run: sign
+// raises it, and main propagates it. A caller that wraps the error is still
+// detected, because errors.Is follows the chain.
+//
 // Revisions:
 //   - 2026-10-02 01:34: initial creation, as TestBlame_PointsAtTheLineThatFailed
 //   - 2026-10-02 15:34: names the function, there being no line to point at
+//   - 2026-10-24 20:30: use the same error for both calls, as a real run does,
+//     so the propagation check tells main from sign
 func TestBlame_NamesTheFunctionThatFailed(t *testing.T) {
 	into := _Begun()
 
-	into.Started(SPINE, &scheduler.Line{Name: "sign"})
-	into.Ended(SPINE, "sign", nil)
-	into.Started(SPINE, &scheduler.Line{Name: "sign"})
-	into.Ended(SPINE, "sign", errors.New(BROKE))
-	into.Ended(SPINE, spelling.ENTRY, errors.New(BROKE))
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name: "sign",
+		},
+	)
+	into.Ended(
+		SPINE,
+		"sign",
+		nil,
+	)
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name: "sign",
+		},
+	)
+
+	broke := errors.New(BROKE)
+
+	into.Ended(
+		SPINE,
+		"sign",
+		broke,
+	)
+	into.Ended(
+		SPINE,
+		spelling.ENTRY,
+		fmt.Errorf(
+			"sign: %w",
+			broke,
+		),
+	)
 
 	if into._Cause().GetFunction() != "sign" {
-		t.Fatalf("want sign blamed, got %v", into._Cause())
+		t.Fatalf(
+			"want sign blamed, got %v",
+			into._Cause(),
+		)
 	}
 
-	if _Function(into, spelling.ENTRY).GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want main failed too, got %v", _Function(into, spelling.ENTRY))
+	if _Function(
+		into,
+		spelling.ENTRY,
+	).GetStatus() != workflowpb.Status_STATUS_FAILED {
+		t.Fatalf(
+			"want main failed too, got %v",
+			_Function(
+				into,
+				spelling.ENTRY,
+			),
+		)
 	}
 }
 
@@ -152,22 +260,36 @@ func TestBlame_NamesTheFunctionThatFailed(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 11:40: initial creation
 func TestBecause_StandsInWhenNothingWasBlamed(t *testing.T) {
-	into := _NewRecorder()
+	var (
+		into  = _NewRecorder()
+		cause = into._Because(
+			workflowpb.Status_STATUS_FAILED,
+			BROKE,
+		)
+	)
 
-	cause := into._Because(workflowpb.Status_STATUS_FAILED, BROKE)
 	if cause == nil {
 		t.Fatal("want a failed run to carry a cause even with no node blamed")
 	}
 
 	if cause.GetFailure() != BROKE {
-		t.Fatalf("want the run's own text, got %q", cause.GetFailure())
+		t.Fatalf(
+			"want the run's own text, got %q",
+			cause.GetFailure(),
+		)
 	}
 
 	if cause.GetFunction() != "" {
-		t.Fatalf("want no function named, got %q", cause.GetFunction())
+		t.Fatalf(
+			"want no function named, got %q",
+			cause.GetFunction(),
+		)
 	}
 
-	if into._Because(workflowpb.Status_STATUS_CANCELLED, "") != nil {
+	if into._Because(
+		workflowpb.Status_STATUS_CANCELLED,
+		"",
+	) != nil {
 		t.Fatal("want no cause for a cancelled run")
 	}
 }
@@ -180,15 +302,26 @@ func TestBecause_StandsInWhenNothingWasBlamed(t *testing.T) {
 //     TestStarted_MakesTheSpinesEntryItsOwnNode
 //   - 2026-10-02 15:34: a node with no caller, rather than a thread's own node
 func TestStarted_TheEntryIsANodeNothingCalls(t *testing.T) {
-	into := _Begun()
+	var (
+		into  = _Begun()
+		entry = _Function(
+			into,
+			spelling.ENTRY,
+		)
+	)
 
-	entry := _Function(into, spelling.ENTRY)
 	if entry.GetStatus() != workflowpb.Status_STATUS_RUNNING {
-		t.Fatalf("want main running, got %v", entry)
+		t.Fatalf(
+			"want main running, got %v",
+			entry,
+		)
 	}
 
 	if len(_Calls(into)) != 0 {
-		t.Fatalf("want no edge, got %v", _Calls(into))
+		t.Fatalf(
+			"want no edge, got %v",
+			_Calls(into),
+		)
 	}
 }
 
@@ -203,21 +336,45 @@ func TestStarted_TwoCallsOfOneFunctionAreOneNode(t *testing.T) {
 	into := _Begun()
 
 	for range 2 {
-		into.Started(SPINE, &scheduler.Line{Name: "sign"})
-		into.Ended(SPINE, "sign", nil)
+		into.Started(
+			SPINE,
+			&scheduler.Line{
+				Name: "sign",
+			},
+		)
+		into.Ended(
+			SPINE,
+			"sign",
+			nil,
+		)
 	}
 
 	if len(into._Drawn().GetFunctions()) != 2 {
-		t.Fatalf("want main and sign, got %v", into._Drawn().GetFunctions())
+		t.Fatalf(
+			"want main and sign, got %v",
+			into._Drawn().GetFunctions(),
+		)
 	}
 
-	if _Function(into, "sign").GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want sign succeeded, got %v", _Function(into, "sign"))
+	if _Function(
+		into,
+		"sign",
+	).GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
+		t.Fatalf(
+			"want sign succeeded, got %v",
+			_Function(
+				into,
+				"sign",
+			),
+		)
 	}
 
 	calls := _Calls(into)
 	if len(calls) != 1 || calls[0] != spelling.ENTRY+" sign" {
-		t.Fatalf("want one edge from main to sign, got %v", calls)
+		t.Fatalf(
+			"want one edge from main to sign, got %v",
+			calls,
+		)
 	}
 }
 
@@ -230,17 +387,49 @@ func TestStarted_TwoCallsOfOneFunctionAreOneNode(t *testing.T) {
 func TestEnded_AnOlderCallLeavesTheNewestsStatus(t *testing.T) {
 	into := _Begun()
 
-	into.Started(SPINE, &scheduler.Line{Name: "work", Builtin: spelling.SPAWN, Child: LANE})
-	into.Started(SPINE, &scheduler.Line{Name: "work"})
-	into.Ended(SPINE, "work", nil)
-	into.Ended(LANE, "work", errors.New(BROKE))
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name:    "work",
+			Builtin: spelling.SPAWN,
+			Child:   LANE,
+		},
+	)
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name: "work",
+		},
+	)
+	into.Ended(
+		SPINE,
+		"work",
+		nil,
+	)
+	into.Ended(
+		LANE,
+		"work",
+		errors.New(BROKE),
+	)
 
-	if _Function(into, "work").GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want the newest call's status, got %v", _Function(into, "work"))
+	if _Function(
+		into,
+		"work",
+	).GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
+		t.Fatalf(
+			"want the newest call's status, got %v",
+			_Function(
+				into,
+				"work",
+			),
+		)
 	}
 
 	if into._Cause().GetFunction() != "work" {
-		t.Fatalf("want the older call's failure blamed, got %v", into._Cause())
+		t.Fatalf(
+			"want the older call's failure blamed, got %v",
+			into._Cause(),
+		)
 	}
 }
 
@@ -255,32 +444,64 @@ func TestStarted_ARepeatIsOneCall(t *testing.T) {
 	into := _Begun()
 
 	for attempt := int32(ONCE); attempt <= TRIES; attempt++ {
-		into.Started(SPINE, &scheduler.Line{
-			Name:    "once",
-			Builtin: spelling.REPEAT,
-			Attempt: attempt,
-			Count:   TRIES,
-		})
+		into.Started(
+			SPINE,
+			&scheduler.Line{
+				Name:    "once",
+				Builtin: spelling.REPEAT,
+				Attempt: attempt,
+				Count:   TRIES,
+			},
+		)
 
-		into.Started(SPINE, &scheduler.Line{Name: "inner"})
-		into.Ended(SPINE, "inner", nil)
+		into.Started(
+			SPINE,
+			&scheduler.Line{
+				Name: "inner",
+			},
+		)
+		into.Ended(
+			SPINE,
+			"inner",
+			nil,
+		)
 	}
 
-	into.Ended(SPINE, "once", nil)
+	into.Ended(
+		SPINE,
+		"once",
+		nil,
+	)
 
 	// Only main is left: every attempt after the first was the call already
 	// running, so the one end closed it.
 	if len(into.running[SPINE]) != 1 {
-		t.Fatalf("want only main still running, got %d calls", len(into.running[SPINE]))
+		t.Fatalf(
+			"want only main still running, got %d calls",
+			len(into.running[SPINE]),
+		)
 	}
 
-	if _Function(into, "once").GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want once succeeded, got %v", _Function(into, "once"))
+	if _Function(
+		into,
+		"once",
+	).GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
+		t.Fatalf(
+			"want once succeeded, got %v",
+			_Function(
+				into,
+				"once",
+			),
+		)
 	}
 
 	want := fmt.Sprint([]string{spelling.ENTRY + " once", "once inner"})
 	if fmt.Sprint(_Calls(into)) != want {
-		t.Fatalf("got %v, want %s", _Calls(into), want)
+		t.Fatalf(
+			"got %v, want %s",
+			_Calls(into),
+			want,
+		)
 	}
 }
 
@@ -295,14 +516,33 @@ func TestStarted_ARepeatIsOneCall(t *testing.T) {
 func TestStarted_ALaterAttemptWithNothingRunningIsACall(t *testing.T) {
 	into := _Begun()
 
-	into.Started(SPINE, &scheduler.Line{Name: "once", Builtin: spelling.RETRY, Attempt: TRIES})
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name:    "once",
+			Builtin: spelling.RETRY,
+			Attempt: TRIES,
+		},
+	)
 
-	if _Function(into, "once").GetStatus() != workflowpb.Status_STATUS_RUNNING {
-		t.Fatalf("want once running, got %v", _Function(into, "once"))
+	if _Function(
+		into,
+		"once",
+	).GetStatus() != workflowpb.Status_STATUS_RUNNING {
+		t.Fatalf(
+			"want once running, got %v",
+			_Function(
+				into,
+				"once",
+			),
+		)
 	}
 
 	if len(_Calls(into)) != 1 {
-		t.Fatalf("want an edge from main, got %v", _Calls(into))
+		t.Fatalf(
+			"want an edge from main, got %v",
+			_Calls(into),
+		)
 	}
 }
 
@@ -319,23 +559,59 @@ func TestStarted_ALaterAttemptWithNothingRunningIsACall(t *testing.T) {
 func TestStarted_ASpawnIsACallFromTheSpawner(t *testing.T) {
 	into := _Begun()
 
-	into.Started(SPINE, &scheduler.Line{Name: "work", Builtin: spelling.SPAWN, Child: LANE})
-	into.Started(LANE, &scheduler.Line{Name: "helper"})
-	into.Ended(LANE, "helper", nil)
-	into.Ended(LANE, "work", nil)
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name:    "work",
+			Builtin: spelling.SPAWN,
+			Child:   LANE,
+		},
+	)
+	into.Started(
+		LANE,
+		&scheduler.Line{
+			Name: "helper",
+		},
+	)
+	into.Ended(
+		LANE,
+		"helper",
+		nil,
+	)
+	into.Ended(
+		LANE,
+		"work",
+		nil,
+	)
 
 	want := fmt.Sprint([]string{spelling.ENTRY + " work", "work helper"})
 	if fmt.Sprint(_Calls(into)) != want {
-		t.Fatalf("got %v, want %s", _Calls(into), want)
+		t.Fatalf(
+			"got %v, want %s",
+			_Calls(into),
+			want,
+		)
 	}
 
-	if _Function(into, "work").GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want work succeeded, got %v", _Function(into, "work"))
+	if _Function(
+		into,
+		"work",
+	).GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
+		t.Fatalf(
+			"want work succeeded, got %v",
+			_Function(
+				into,
+				"work",
+			),
+		)
 	}
 
 	_, kept := into.running[LANE]
 	if kept {
-		t.Fatalf("want the finished thread forgotten, got %v", into.running[LANE])
+		t.Fatalf(
+			"want the finished thread forgotten, got %v",
+			into.running[LANE],
+		)
 	}
 }
 
@@ -350,16 +626,31 @@ func TestEnded_ALineThatCallsNothingIsNoNode(t *testing.T) {
 	into := _Begun()
 
 	for _, builtin := range []string{spelling.JOIN, spelling.SLEEP, spelling.CANCEL} {
-		into.Started(SPINE, &scheduler.Line{Builtin: builtin})
-		into.Ended(SPINE, "", errors.New(BROKE))
+		into.Started(
+			SPINE,
+			&scheduler.Line{
+				Builtin: builtin,
+			},
+		)
+		into.Ended(
+			SPINE,
+			"",
+			errors.New(BROKE),
+		)
 	}
 
 	if len(into._Drawn().GetFunctions()) != 1 || len(_Calls(into)) != 0 {
-		t.Fatalf("want main alone, got %v", into._Drawn())
+		t.Fatalf(
+			"want main alone, got %v",
+			into._Drawn(),
+		)
 	}
 
 	if into._Cause() != nil {
-		t.Fatalf("want nothing blamed, got %v", into._Cause())
+		t.Fatalf(
+			"want nothing blamed, got %v",
+			into._Cause(),
+		)
 	}
 }
 
@@ -372,10 +663,20 @@ func TestEnded_ALineThatCallsNothingIsNoNode(t *testing.T) {
 func TestEnded_AnEndWithNoCallChangesNothing(t *testing.T) {
 	into := _Begun()
 
-	into.Ended(LANE, "ghost", errors.New(BROKE))
+	into.Ended(
+		LANE,
+		"ghost",
+		errors.New(BROKE),
+	)
 
-	if _Function(into, "ghost") != nil || into._Cause() != nil {
-		t.Fatalf("want nothing recorded, got %v", into._Drawn())
+	if _Function(
+		into,
+		"ghost",
+	) != nil || into._Cause() != nil {
+		t.Fatalf(
+			"want nothing recorded, got %v",
+			into._Drawn(),
+		)
 	}
 }
 
@@ -387,15 +688,36 @@ func TestEnded_AnEndWithNoCallChangesNothing(t *testing.T) {
 func TestEnded_ADeadlineCancelsWithoutACause(t *testing.T) {
 	into := _Begun()
 
-	into.Started(SPINE, &scheduler.Line{Name: "slow"})
-	into.Ended(SPINE, "slow", context.DeadlineExceeded)
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name: "slow",
+		},
+	)
+	into.Ended(
+		SPINE,
+		"slow",
+		context.DeadlineExceeded,
+	)
 
-	if _Function(into, "slow").GetStatus() != workflowpb.Status_STATUS_CANCELLED {
-		t.Fatalf("want a cancellation, got %v", _Function(into, "slow"))
+	if _Function(
+		into,
+		"slow",
+	).GetStatus() != workflowpb.Status_STATUS_CANCELLED {
+		t.Fatalf(
+			"want a cancellation, got %v",
+			_Function(
+				into,
+				"slow",
+			),
+		)
 	}
 
 	if into._Cause() != nil {
-		t.Fatalf("want no cause, got %v", into._Cause())
+		t.Fatalf(
+			"want no cause, got %v",
+			into._Cause(),
+		)
 	}
 }
 
@@ -409,24 +731,44 @@ func TestDrawn_IsSortedByName(t *testing.T) {
 	into := _Begun()
 
 	for _, name := range []string{"zeta", "alpha", "mu"} {
-		into.Started(SPINE, &scheduler.Line{Name: name})
-		into.Ended(SPINE, name, nil)
+		into.Started(
+			SPINE,
+			&scheduler.Line{
+				Name: name,
+			},
+		)
+		into.Ended(
+			SPINE,
+			name,
+			nil,
+		)
 	}
 
 	var names []string
 
 	for _, node := range into._Drawn().GetFunctions() {
-		names = append(names, node.GetName())
+		names = append(
+			names,
+			node.GetName(),
+		)
 	}
 
 	want := fmt.Sprint([]string{"alpha", spelling.ENTRY, "mu", "zeta"})
 	if fmt.Sprint(names) != want {
-		t.Fatalf("got %v, want %s", names, want)
+		t.Fatalf(
+			"got %v, want %s",
+			names,
+			want,
+		)
 	}
 
 	calls := fmt.Sprint([]string{"main alpha", "main mu", "main zeta"})
 	if fmt.Sprint(_Calls(into)) != calls {
-		t.Fatalf("got %v, want %s", _Calls(into), calls)
+		t.Fatalf(
+			"got %v, want %s",
+			_Calls(into),
+			calls,
+		)
 	}
 }
 
@@ -440,15 +782,27 @@ func TestDrawn_IsSortedByName(t *testing.T) {
 func TestDrawn_StaysAsItWas(t *testing.T) {
 	into := _Begun()
 
-	into.Started(SPINE, &scheduler.Line{Name: "sign"})
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name: "sign",
+		},
+	)
 
 	shot := into._Drawn()
 
-	into.Ended(SPINE, "sign", errors.New(BROKE))
+	into.Ended(
+		SPINE,
+		"sign",
+		errors.New(BROKE),
+	)
 
 	for _, node := range shot.GetFunctions() {
 		if node.GetStatus() != workflowpb.Status_STATUS_RUNNING {
-			t.Fatalf("want the graph left running, got %v", node)
+			t.Fatalf(
+				"want the graph left running, got %v",
+				node,
+			)
 		}
 	}
 }
@@ -458,7 +812,10 @@ func TestDrawn_StaysAsItWas(t *testing.T) {
 //
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
-func _Told(t *testing.T, into *_Recorder) *[]string {
+func _Told(
+	t *testing.T,
+	into *_Recorder,
+) *[]string {
 	t.Helper()
 
 	told := new([]string)
@@ -470,13 +827,20 @@ func _Told(t *testing.T, into *_Recorder) *[]string {
 			if op.GetValue() != nil {
 				raw, err := json.Marshal(op.GetValue().AsInterface())
 				if err != nil {
-					t.Fatalf("value of %s: %v", op.GetPath(), err)
+					t.Fatalf(
+						"value of %s: %v",
+						op.GetPath(),
+						err,
+					)
 				}
 
 				line += " " + string(raw)
 			}
 
-			*told = append(*told, line)
+			*told = append(
+				*told,
+				line,
+			)
 		}
 	}
 
@@ -490,8 +854,10 @@ func _Told(t *testing.T, into *_Recorder) *[]string {
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
 func TestMembers_AreTheSchemasJSONNames(t *testing.T) {
-	graph := (&workflowpb.Graph{}).ProtoReflect().Descriptor().Fields()
-	node := (&workflowpb.Node{}).ProtoReflect().Descriptor().Fields()
+	var (
+		graph = (&workflowpb.Graph{}).ProtoReflect().Descriptor().Fields()
+		node  = (&workflowpb.Node{}).ProtoReflect().Descriptor().Fields()
+	)
 
 	for member, field := range map[string]protoreflect.FieldDescriptor{
 		FUNCTIONS: graph.ByName(FUNCTIONS),
@@ -501,7 +867,10 @@ func TestMembers_AreTheSchemasJSONNames(t *testing.T) {
 		THREADS:   node.ByName(THREADS),
 	} {
 		if field == nil || field.JSONName() != member {
-			t.Fatalf("no field written as %q", member)
+			t.Fatalf(
+				"no field written as %q",
+				member,
+			)
 		}
 	}
 }
@@ -514,13 +883,36 @@ func TestMembers_AreTheSchemasJSONNames(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
 func TestChanges_SayWhatEachStepDid(t *testing.T) {
-	into := _NewRecorder()
-	told := _Told(t, into)
+	var (
+		into = _NewRecorder()
+		told = _Told(
+			t,
+			into,
+		)
+	)
 
-	into.Started(SPINE, &scheduler.Line{Name: spelling.ENTRY})
-	into.Started(SPINE, &scheduler.Line{Name: "fetch"})
-	into.Ended(SPINE, "fetch", nil)
-	into.Ended(SPINE, spelling.ENTRY, nil)
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name: spelling.ENTRY,
+		},
+	)
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name: "fetch",
+		},
+	)
+	into.Ended(
+		SPINE,
+		"fetch",
+		nil,
+	)
+	into.Ended(
+		SPINE,
+		spelling.ENTRY,
+		nil,
+	)
 
 	want := []string{
 		`add /functions [{"name":"main","status":"STATUS_RUNNING"}]`,
@@ -536,8 +928,24 @@ func TestChanges_SayWhatEachStepDid(t *testing.T) {
 		`add /functions/1/status "STATUS_SUCCEEDED"`,
 	}
 
-	if strings.Join(*told, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("told\n%s\nwant\n%s", strings.Join(*told, "\n"), strings.Join(want, "\n"))
+	if strings.Join(
+		*told,
+		"\n",
+	) != strings.Join(
+		want,
+		"\n",
+	) {
+		t.Fatalf(
+			"told\n%s\nwant\n%s",
+			strings.Join(
+				*told,
+				"\n",
+			),
+			strings.Join(
+				want,
+				"\n",
+			),
+		)
 	}
 }
 
@@ -550,23 +958,60 @@ func TestChanges_SayWhatEachStepDid(t *testing.T) {
 func TestChanges_ShowWhichThreadExecutesWhat(t *testing.T) {
 	into := _Begun()
 
-	into.Started(SPINE, &scheduler.Line{Name: "work", Builtin: spelling.SPAWN, Child: LANE})
-	into.Started(SPINE, &scheduler.Line{Name: "work", Builtin: spelling.SPAWN, Child: OTHER})
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name:    "work",
+			Builtin: spelling.SPAWN,
+			Child:   LANE,
+		},
+	)
+	into.Started(
+		SPINE,
+		&scheduler.Line{
+			Name:    "work",
+			Builtin: spelling.SPAWN,
+			Child:   OTHER,
+		},
+	)
 
-	threads := fmt.Sprint(_Function(into, "work").GetThreads())
+	threads := fmt.Sprint(_Function(
+		into,
+		"work",
+	).GetThreads())
 	if threads != fmt.Sprint([]string{LANE, OTHER}) {
-		t.Fatalf("want both threads on work, got %s", threads)
+		t.Fatalf(
+			"want both threads on work, got %s",
+			threads,
+		)
 	}
 
-	into.Ended(LANE, "work", nil)
+	into.Ended(
+		LANE,
+		"work",
+		nil,
+	)
 
-	threads = fmt.Sprint(_Function(into, "work").GetThreads())
+	threads = fmt.Sprint(_Function(
+		into,
+		"work",
+	).GetThreads())
 	if threads != fmt.Sprint([]string{OTHER}) {
-		t.Fatalf("want only %s left on work, got %s", OTHER, threads)
+		t.Fatalf(
+			"want only %s left on work, got %s",
+			OTHER,
+			threads,
+		)
 	}
 
-	spine := fmt.Sprint(_Function(into, spelling.ENTRY).GetThreads())
+	spine := fmt.Sprint(_Function(
+		into,
+		spelling.ENTRY,
+	).GetThreads())
 	if spine != fmt.Sprint([]string{SPINE}) {
-		t.Fatalf("want the spine still on main, got %s", spine)
+		t.Fatalf(
+			"want the spine still on main, got %s",
+			spine,
+		)
 	}
 }

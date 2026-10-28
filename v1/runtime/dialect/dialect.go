@@ -22,10 +22,12 @@ import "go.starlark.net/syntax"
 // spawn's argument it compiles differently, taking the variables it reads at
 // the spawn. That, and the calls compiled so a run can report its lines, are
 // the rules of this dialect that are not options here, and Compile says how.
-var OPTIONS = &syntax.FileOptions{
-	Set:             true,
-	While:           true,
-	TopLevelControl: true,
-	GlobalReassign:  false,
-	Recursion:       true,
-}
+var (
+	OPTIONS = &syntax.FileOptions{
+		Set:             true,
+		While:           true,
+		TopLevelControl: true,
+		GlobalReassign:  false,
+		Recursion:       true,
+	}
+)

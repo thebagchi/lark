@@ -15,14 +15,23 @@ import (
 //   - 2026-10-03 20:44: on an empty program, SOURCE being parsed by PARSED rather than
 //     held by the program
 func TestNode_RefusesNothingAtAll(t *testing.T) {
-	_, err := new(_Program).Node(nil, "")
-	if !errors.Is(err, ERR_FORM) {
-		t.Fatalf("got %v, want ERR_FORM", err)
+	_, err := new(_Program).Node(
+		nil,
+		"",
+	)
+	if !errors.Is(
+		err,
+		ErrForm,
+	) {
+		t.Fatalf(
+			"got %v, want ErrForm",
+			err,
+		)
 	}
 }
 
 // TestNode_RefusesAKindItDoesNotWrite checks a built node that is none of the
-// kinds a script is written with fails through the template, as ERR_FORM. No
+// kinds a script is written with fails through the template, as ErrForm. No
 // flow builds one, so nothing else reaches this.
 //
 // Revisions:
@@ -30,10 +39,27 @@ func TestNode_RefusesNothingAtAll(t *testing.T) {
 //   - 2026-10-03 20:44: on an empty program, SOURCE being parsed by PARSED rather than
 //     held by the program
 func TestNode_RefusesAKindItDoesNotWrite(t *testing.T) {
-	negated := &syntax.UnaryExpr{Op: syntax.MINUS, X: &syntax.Ident{Name: "x"}}
+	var (
+		negated = &syntax.UnaryExpr{
+			Op: syntax.MINUS,
+			X: &syntax.Ident{
+				Name: "x",
+			},
+		}
+		err error
+	)
 
-	_, err := new(_Program).Node(negated, "")
-	if !errors.Is(err, ERR_FORM) {
-		t.Fatalf("got %v, want ERR_FORM", err)
+	_, err = new(_Program).Node(
+		negated,
+		"",
+	)
+	if !errors.Is(
+		err,
+		ErrForm,
+	) {
+		t.Fatalf(
+			"got %v, want ErrForm",
+			err,
+		)
 	}
 }

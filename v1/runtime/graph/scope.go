@@ -35,7 +35,10 @@ type _Scope struct {
 //
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
-func (r *_Reading) _Opened(def *syntax.DefStmt, params []string) *_Scope {
+func (r *_Reading) _Opened(
+	def *syntax.DefStmt,
+	params []string,
+) *_Scope {
 	scope := &_Scope{
 		reading: r,
 		params:  make(map[string]bool),
@@ -48,7 +51,10 @@ func (r *_Reading) _Opened(def *syntax.DefStmt, params []string) *_Scope {
 		scope.params[name] = true
 	}
 
-	dialect.Bound(def.Body, scope.locals)
+	dialect.Bound(
+		def.Body,
+		scope.locals,
+	)
 
 	return scope
 }
@@ -58,7 +64,10 @@ func (r *_Reading) _Opened(def *syntax.DefStmt, params []string) *_Scope {
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
 func (r *_Reading) _Top() *_Scope {
-	return &_Scope{reading: r, top: true}
+	return &_Scope{
+		reading: r,
+		top:     true,
+	}
 }
 
 // _Inner is the scope of a list inside a statement on this one.
@@ -179,8 +188,13 @@ func (s *_Scope) _Fork(name string) bool {
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
 func (r *_Reading) _Global(name string) bool {
-	_, constant := r.constants[name]
-	_, arg := r.args[name]
+	var (
+		constant bool
+		arg      bool
+	)
+
+	_, constant = r.constants[name]
+	_, arg = r.args[name]
 
 	return constant || arg || r._Listed(name)
 }

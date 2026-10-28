@@ -22,9 +22,13 @@ func _Held(values ...starlark.Value) *starlark.List {
 // Revisions:
 //   - 2026-09-24 20:22: initial creation
 func TestIsData_AcceptsWhatAStoreCanHold(t *testing.T) {
-	deeper := starlark.NewDict(1)
-
-	err := deeper.SetKey(starlark.String("k"), _Held(starlark.MakeInt(1)))
+	var (
+		deeper = starlark.NewDict(1)
+		err    = deeper.SetKey(
+			starlark.String("k"),
+			_Held(starlark.MakeInt(1)),
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,19 +40,32 @@ func TestIsData_AcceptsWhatAStoreCanHold(t *testing.T) {
 		"a float": starlark.Float(1.5),
 		"a word":  starlark.String("x"),
 		"bytes":   starlark.Bytes("x"),
-		"a list":  _Held(starlark.MakeInt(1), starlark.String("a")),
+		"a list": _Held(
+			starlark.MakeInt(1),
+			starlark.String("a"),
+		),
 		"a tuple": starlark.Tuple{starlark.MakeInt(1)},
 		"a dict":  deeper,
-		"nested":  _Held(deeper, starlark.Tuple{starlark.None}),
+		"nested": _Held(
+			deeper,
+			starlark.Tuple{starlark.None},
+		),
 	}
 
 	for name, value := range cases {
-		t.Run(name, func(t *testing.T) {
-			bad, ok := deep.IsData(value)
-			if !ok {
-				t.Fatalf("%s was refused, at %v", name, bad)
-			}
-		})
+		t.Run(
+			name,
+			func(t *testing.T) {
+				bad, ok := deep.IsData(value)
+				if !ok {
+					t.Fatalf(
+						"%s was refused, at %v",
+						name,
+						bad,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -59,33 +76,50 @@ func TestIsData_AcceptsWhatAStoreCanHold(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 20:22: initial creation
 func TestIsData_RefusesWhatIsNotData(t *testing.T) {
-	code := starlark.NewBuiltin("helper", func(
-		thread *starlark.Thread,
-		fn *starlark.Builtin,
-		args starlark.Tuple,
-		kwargs []starlark.Tuple,
-	) (starlark.Value, error) {
-		return starlark.None, nil
-	})
-
-	cases := map[string]starlark.Value{
-		"a builtin":          code,
-		"one inside a list":  _Held(starlark.MakeInt(1), code),
-		"one inside a tuple": starlark.Tuple{starlark.None, code},
-		"one deeper still":   _Held(_Held(_Held(code))),
-	}
+	var (
+		code = starlark.NewBuiltin(
+			"helper",
+			func(
+				thread *starlark.Thread,
+				fn *starlark.Builtin,
+				args starlark.Tuple,
+				kwargs []starlark.Tuple,
+			) (starlark.Value, error) {
+				return starlark.None, nil
+			},
+		)
+		cases = map[string]starlark.Value{
+			"a builtin": code,
+			"one inside a list": _Held(
+				starlark.MakeInt(1),
+				code,
+			),
+			"one inside a tuple": starlark.Tuple{starlark.None, code},
+			"one deeper still":   _Held(_Held(_Held(code))),
+		}
+	)
 
 	for name, value := range cases {
-		t.Run(name, func(t *testing.T) {
-			bad, ok := deep.IsData(value)
-			if ok {
-				t.Fatalf("%s was accepted", name)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				bad, ok := deep.IsData(value)
+				if ok {
+					t.Fatalf(
+						"%s was accepted",
+						name,
+					)
+				}
 
-			if bad != code {
-				t.Fatalf("%s blamed %v, want the builtin itself", name, bad)
-			}
-		})
+				if bad != code {
+					t.Fatalf(
+						"%s blamed %v, want the builtin itself",
+						name,
+						bad,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -96,15 +130,19 @@ func TestIsData_RefusesWhatIsNotData(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 20:22: initial creation
 func TestIsData_TerminatesOnAValueThatHoldsItself(t *testing.T) {
-	held := _Held(starlark.MakeInt(1))
-
-	err := held.Append(held)
+	var (
+		held = _Held(starlark.MakeInt(1))
+		err  = held.Append(held)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	bad, ok := deep.IsData(held)
 	if !ok {
-		t.Fatalf("a list holding itself was refused, at %v", bad)
+		t.Fatalf(
+			"a list holding itself was refused, at %v",
+			bad,
+		)
 	}
 }

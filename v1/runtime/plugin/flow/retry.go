@@ -12,8 +12,10 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
-// ERR_TIMEOUT is returned when a bounded call runs out of time.
-var ERR_TIMEOUT = errors.New("timed out")
+// ErrTimeout is returned when a bounded call runs out of time.
+var (
+	ErrTimeout = errors.New("timed out")
+)
 
 // _Retry calls its target until one attempt succeeds, waiting the delay
 // between attempts when one is given.
@@ -42,37 +44,104 @@ func _Retry(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	attempts, err := _Counted(fn.Name(), args, kwargs)
+	attempts, err := _Counted(
+		fn.Name(),
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
+	return _Retried(
+		thread,
+		attempts,
+	)
+}
+
+// _Retried runs each attempt until one succeeds or the count is spent.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Retried(
+	thread *starlark.Thread,
+	attempts *_Attempts,
+) (starlark.Value, error) {
 	var last error
 
 	for attempt := int32(ONCE); attempt <= attempts.count; attempt++ {
-		value, failure := attempts._Attempted(thread, attempt, scheduler.Catching())
+		value, failure := attempts._Attempted(
+			thread,
+			attempt,
+			scheduler.Catching(),
+		)
 		if failure == nil {
-			scheduler.Close(thread, attempts.name, nil)
+			scheduler.Close(
+				thread,
+				attempts.name,
+				nil,
+			)
 
 			return value, nil
 		}
 
-		if !errors.Is(failure, core.ERR_ASSERT) {
-			failed := fmt.Errorf(
-				"%s attempt %d: %w",
-				attempts.written,
+		if !errors.Is(
+			failure,
+			core.ErrAssert,
+		) {
+			return _RetryFail(
+				thread,
+				attempts,
 				attempt,
 				failure,
 			)
-
-			scheduler.Close(thread, attempts.name, failed)
-
-			return nil, failed
 		}
 
 		last = failure
 	}
 
+	return _GaveUp(
+		thread,
+		attempts,
+		last,
+	)
+}
+
+// _RetryFail closes the line and returns a failure that was not an assert.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _RetryFail(
+	thread *starlark.Thread,
+	attempts *_Attempts,
+	attempt int32,
+	failure error,
+) (starlark.Value, error) {
+	failed := fmt.Errorf(
+		"%s attempt %d: %w",
+		attempts.written,
+		attempt,
+		failure,
+	)
+
+	scheduler.Close(
+		thread,
+		attempts.name,
+		failed,
+	)
+
+	return nil, failed
+}
+
+// _GaveUp closes the line after every attempt asserted, and stops the run.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _GaveUp(
+	thread *starlark.Thread,
+	attempts *_Attempts,
+	last error,
+) (starlark.Value, error) {
 	exhausted := fmt.Errorf(
 		"%s gave up after %d attempts: %w",
 		attempts.written,
@@ -80,9 +149,16 @@ func _Retry(
 		last,
 	)
 
-	scheduler.Close(thread, attempts.name, exhausted)
+	scheduler.Close(
+		thread,
+		attempts.name,
+		exhausted,
+	)
 
-	return nil, scheduler.Fail(thread, exhausted)
+	return nil, scheduler.Fail(
+		thread,
+		exhausted,
+	)
 }
 
 // _Timeout gives its target a limited time to finish, in milliseconds.
@@ -110,38 +186,130 @@ func _Timeout(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	callee, rest := scheduler.Hidden(kwargs, spelling.CALLEE)
+	var (
+		callee, rest = scheduler.Hidden(
+			kwargs,
+			spelling.CALLEE,
+		)
+		given, target, budget, err = _TimeoutArgs(
+			fn,
+			args,
+			rest,
+		)
+	)
+	if err != nil {
+		return nil, err
+	}
 
+	return _TimeoutRun(
+		thread,
+		&_Limit{
+			callee: callee,
+			given:  given,
+			target: target,
+			budget: budget,
+		},
+	)
+}
+
+// _TimeoutArgs reads the duration and the function a timeout wraps.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _TimeoutArgs(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	rest []starlark.Tuple,
+) (starlark.Value, *starlark.Function, time.Duration, error) {
 	var (
 		given  starlark.Value
 		target *starlark.Function
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, rest, WRAPPED, &given, &target)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		rest,
+		WRAPPED,
+		&given,
+		&target,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, nil, 0, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	budget, err := scheduler.Duration(given)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, nil, 0, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
-	name := scheduler.Named(target, callee)
-	written := fmt.Sprintf("%s(%s, %s)", TIMEOUT, given.String(), target.Name())
+	return given, target, budget, nil
+}
 
-	scheduler.Open(thread, &scheduler.Line{Name: name, Builtin: TIMEOUT})
+// _Limit is one function a timeout is about to run.
+type _Limit struct {
+	callee string
+	given  starlark.Value
+	target *starlark.Function
+	budget time.Duration
+}
 
-	value, err := _Bounded(thread, target, budget)
+// _TimeoutRun opens the line, runs the function, and closes the line.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _TimeoutRun(
+	thread *starlark.Thread,
+	limit *_Limit,
+) (starlark.Value, error) {
+	name := scheduler.Named(
+		limit.target,
+		limit.callee,
+	)
+
+	scheduler.Open(
+		thread,
+		&scheduler.Line{
+			Name:    name,
+			Builtin: TIMEOUT,
+		},
+	)
+
+	value, err := _Bounded(
+		thread,
+		limit.target,
+		limit.budget,
+	)
 	if err != nil {
-		failed := fmt.Errorf("%s: %w", written, err)
+		err = fmt.Errorf(
+			"%s(%s, %s): %w",
+			TIMEOUT,
+			limit.given.String(),
+			limit.target.Name(),
+			err,
+		)
+		scheduler.Close(
+			thread,
+			name,
+			err,
+		)
 
-		scheduler.Close(thread, name, failed)
-
-		return nil, failed
+		return nil, err
 	}
 
-	scheduler.Close(thread, name, nil)
+	scheduler.Close(
+		thread,
+		name,
+		nil,
+	)
 
 	return value, nil
 }
@@ -150,7 +318,7 @@ func _Timeout(
 //
 // Three ways out. The evaluation ends on its own and its result is returned.
 // The clock runs out, the evaluation is stopped and waited for, and the
-// failure is ERR_TIMEOUT. The caller's own evaluation is cancelled, which the
+// failure is ErrTimeout. The caller's own evaluation is cancelled, which the
 // bounded one descends from, so it ends too and Wait says why.
 //
 // Revisions:
@@ -163,7 +331,11 @@ func _Bounded(
 	target *starlark.Function,
 	budget time.Duration,
 ) (starlark.Value, error) {
-	handle, err := scheduler.Beside(thread, target, scheduler.Inline())
+	handle, err := scheduler.Beside(
+		thread,
+		target,
+		scheduler.Inline(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -184,8 +356,11 @@ func _Bounded(
 
 		<-handle.Done()
 
-		return nil, ERR_TIMEOUT
+		return nil, ErrTimeout
 	}
 
-	return scheduler.Wait(thread, handle)
+	return scheduler.Wait(
+		thread,
+		handle,
+	)
 }

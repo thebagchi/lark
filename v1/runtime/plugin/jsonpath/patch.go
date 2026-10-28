@@ -11,19 +11,20 @@ import (
 )
 
 var (
-	// ERR_OPERATION is returned for an op this does not implement.
-	ERR_OPERATION = errors.New("unknown patch operation")
+	// ErrOperation is returned for an op this does not implement.
+	ErrOperation = errors.New("unknown patch operation")
 
-	// ERR_FIELD is returned when an op is missing something it requires.
-	ERR_FIELD = errors.New("patch operation is missing a field")
+	// ErrField is returned when an op is missing something it requires.
+	ErrField = errors.New("patch operation is missing a field")
 
-	// ERR_TEST is returned when a test op does not match.
-	ERR_TEST = errors.New("test failed")
+	// ErrTest is returned when a test op does not match.
+	ErrTest = errors.New("test failed")
 
-	// ERR_INTO is returned for a move whose destination is inside its source.
-	ERR_INTO = errors.New("cannot move a value into itself")
+	// ErrInto is returned for a move whose destination is inside its source.
+	ErrInto = errors.New("cannot move a value into itself")
 )
 
+// OP is the field a patch names its operation with, and the names that follow are the operations.
 const (
 	OP      = "op"
 	PATH    = "path"
@@ -50,8 +51,14 @@ const (
 //   - 2026-09-21 08:09: one keyword per case
 //   - 2026-10-03 16:53: a method of _Edit, so a later operation changes in place what
 //     an earlier one copied
-func (e *_Edit) _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
-	kind, err := _Field(op, OP)
+func (e *_Edit) _Patch(
+	doc starlark.Value,
+	op *starlark.Dict,
+) (starlark.Value, error) {
+	kind, err := _Field(
+		op,
+		OP,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -60,27 +67,62 @@ func (e *_Edit) _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, e
 	case ADD:
 		fallthrough
 	case REPLACE:
-		return e._Write(doc, op, kind)
+		return e._Write(
+			doc,
+			op,
+			kind,
+		)
 
 	case REMOVE:
-		path, err := _Field(op, PATH)
-		if err != nil {
-			return nil, err
-		}
-
-		return e._Remove(doc, path)
+		return e._Removed(
+			doc,
+			op,
+		)
 
 	case MOVE:
 		fallthrough
 	case COPY:
-		return e._Relocate(doc, op, kind)
+		return e._Relocate(
+			doc,
+			op,
+			kind,
+		)
 
 	case TEST:
-		return _Test(doc, op)
+		return _Test(
+			doc,
+			op,
+		)
 
 	default:
-		return nil, fmt.Errorf("%q: %w", kind, ERR_OPERATION)
+		return nil, fmt.Errorf(
+			"%q: %w",
+			kind,
+			ErrOperation,
+		)
 	}
+}
+
+// _Removed deletes the path an operation names.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (e *_Edit) _Removed(
+	doc starlark.Value,
+	op *starlark.Dict,
+) (starlark.Value, error) {
+	path, err := _Field(
+		op,
+		PATH,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return e._Remove(
+		doc,
+		path,
+	)
 }
 
 // _Field reads a required string member of an operation.
@@ -89,15 +131,27 @@ func (e *_Edit) _Patch(doc starlark.Value, op *starlark.Dict) (starlark.Value, e
 //   - 2026-09-20 00:54: initial creation
 //   - 2026-09-24 16:08: a copy is given its own containers, where it used to
 //     share them with the document it came from
-func _Field(op *starlark.Dict, name string) (string, error) {
+func _Field(
+	op *starlark.Dict,
+	name string,
+) (string, error) {
 	value, found, err := op.Get(starlark.String(name))
 	if err != nil || !found {
-		return "", fmt.Errorf("%q: %w", name, ERR_FIELD)
+		return "", fmt.Errorf(
+			"%q: %w",
+			name,
+			ErrField,
+		)
 	}
 
 	text, ok := value.(starlark.String)
 	if !ok {
-		return "", fmt.Errorf("%q is %s: %w", name, value.Type(), ERR_FIELD)
+		return "", fmt.Errorf(
+			"%q is %s: %w",
+			name,
+			value.Type(),
+			ErrField,
+		)
 	}
 
 	return string(text), nil
@@ -111,7 +165,11 @@ func _Field(op *starlark.Dict, name string) (string, error) {
 func _Value(op *starlark.Dict) (starlark.Value, error) {
 	value, found, err := op.Get(starlark.String(VALUE))
 	if err != nil || !found {
-		return nil, fmt.Errorf("%q: %w", VALUE, ERR_FIELD)
+		return nil, fmt.Errorf(
+			"%q: %w",
+			VALUE,
+			ErrField,
+		)
 	}
 
 	return value, nil
@@ -132,7 +190,10 @@ func (e *_Edit) _Write(
 	op *starlark.Dict,
 	kind string,
 ) (starlark.Value, error) {
-	path, err := _Field(op, PATH)
+	path, err := _Field(
+		op,
+		PATH,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -147,26 +208,53 @@ func (e *_Edit) _Write(
 		return nil, err
 	}
 
-	// The written value gets its own containers. _Insert already copies every
-	// container of the caller's along the path, so the document's structure is
-	// never shared - this finishes that job at the leaf. Without it a caller
-	// who passed a value they still hold, part of the document included, could
-	// change what came back and change the input with it.
+	return e._Written(
+		doc,
+		steps,
+		value,
+		kind,
+	)
+}
+
+// _Written copies value and inserts or replaces it at steps.
+//
+// The copy is the leaf. _Insert copies every container along the path, and
+// this stops a caller who still holds value from changing the result.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (e *_Edit) _Written(
+	doc starlark.Value,
+	steps []string,
+	value starlark.Value,
+	kind string,
+) (starlark.Value, error) {
 	own, err := deep.Copy(value)
 	if err != nil {
 		return nil, err
 	}
 
 	if kind == ADD {
-		return e._Insert(doc, steps, own)
+		return e._Insert(
+			doc,
+			steps,
+			own,
+		)
 	}
 
-	_, err = _Walk(doc, steps)
+	_, err = _Walk(
+		doc,
+		steps,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return e._Replace(doc, steps, own)
+	return e._Replace(
+		doc,
+		steps,
+		own,
+	)
 }
 
 // _Remove deletes what path names.
@@ -174,22 +262,34 @@ func (e *_Edit) _Write(
 // Revisions:
 //   - 2026-09-20 00:57: initial creation
 //   - 2026-10-03 16:53: a method of _Edit, which copies a container once per patch
-func (e *_Edit) _Remove(doc starlark.Value, path string) (starlark.Value, error) {
+func (e *_Edit) _Remove(
+	doc starlark.Value,
+	path string,
+) (starlark.Value, error) {
 	steps, err := _Steps(path)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(steps) == 0 {
-		return nil, fmt.Errorf("the whole document: %w", ERR_POINTER)
+		return nil, fmt.Errorf(
+			"the whole document: %w",
+			ErrPointer,
+		)
 	}
 
-	_, err = _Walk(doc, steps)
+	_, err = _Walk(
+		doc,
+		steps,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return e._Delete(doc, steps)
+	return e._Delete(
+		doc,
+		steps,
+	)
 }
 
 // _Relocate applies move or copy.
@@ -211,62 +311,130 @@ func (e *_Edit) _Relocate(
 	op *starlark.Dict,
 	kind string,
 ) (starlark.Value, error) {
-	from, err := _Field(op, FROM)
+	from, path, source, target, err := _Route(op)
 	if err != nil {
 		return nil, err
 	}
 
-	path, err := _Field(op, PATH)
+	if kind == MOVE && _Inside(
+		source,
+		target,
+	) {
+		return nil, fmt.Errorf(
+			"%q into %q: %w",
+			from,
+			path,
+			ErrInto,
+		)
+	}
+
+	value, err := _Walk(
+		doc,
+		source,
+	)
 	if err != nil {
 		return nil, err
+	}
+
+	return e._Placed(
+		&_Place{
+			doc:    doc,
+			kind:   kind,
+			source: source,
+			target: target,
+			value:  value,
+		},
+	)
+}
+
+// _Route reads from and path, and the steps each one walks.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Route(
+	op *starlark.Dict,
+) (string, string, []string, []string, error) {
+	from, err := _Field(
+		op,
+		FROM,
+	)
+	if err != nil {
+		return "", "", nil, nil, err
+	}
+
+	path, err := _Field(
+		op,
+		PATH,
+	)
+	if err != nil {
+		return "", "", nil, nil, err
 	}
 
 	source, err := _Steps(from)
 	if err != nil {
-		return nil, err
+		return "", "", nil, nil, err
 	}
 
 	target, err := _Steps(path)
 	if err != nil {
-		return nil, err
+		return "", "", nil, nil, err
 	}
 
-	if kind == MOVE && _Inside(source, target) {
-		return nil, fmt.Errorf("%q into %q: %w", from, path, ERR_INTO)
-	}
+	return from, path, source, target, nil
+}
 
-	value, err := _Walk(doc, source)
-	if err != nil {
-		return nil, err
-	}
+// _Place is a value on its way from one path to another.
+type _Place struct {
+	doc    starlark.Value
+	kind   string
+	source []string
+	target []string
+	value  starlark.Value
+}
 
-	// Once the walk has found the value, a move onto itself has nothing left to
-	// do. Deleting the value and putting it back would move a member to the end
-	// of its dict, and the whole document has nothing to be deleted from.
-	stays := kind == MOVE && slices.Equal(source, target)
+// _Placed moves or copies the value onto its target.
+//
+// A move onto itself returns the document. Deleting the value and putting
+// it back would move a member to the end of its dict. A copy gets its own
+// value, so a later edit at the target cannot change the source.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (e *_Edit) _Placed(place *_Place) (starlark.Value, error) {
+	stays := place.kind == MOVE && slices.Equal(
+		place.source,
+		place.target,
+	)
 	if stays {
-		return doc, nil
+		return place.doc, nil
 	}
 
-	if kind == MOVE {
-		doc, err = e._Delete(doc, source)
+	if place.kind == MOVE {
+		doc, err := e._Delete(
+			place.doc,
+			place.source,
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		return e._Insert(doc, target, value)
+		return e._Insert(
+			doc,
+			place.target,
+			place.value,
+		)
 	}
 
-	// The copy gets its own. Inserting the value itself puts one list in two
-	// places, so appending to what is now at the target changed what is at
-	// the source - and this package promises the document it was handed is
-	// never modified. Move may keep the value, because the value left.
-	own, err := deep.Copy(value)
+	own, err := deep.Copy(place.value)
 	if err != nil {
 		return nil, err
 	}
 
-	return e._Insert(doc, target, own)
+	return e._Insert(
+		place.doc,
+		place.target,
+		own,
+	)
 }
 
 // _Inside reports whether target is strictly below source.
@@ -277,7 +445,10 @@ func (e *_Edit) _Relocate(
 // Revisions:
 //   - 2026-09-20 00:59: initial creation
 //   - 2026-09-21 08:09: a path equal to its source is not inside it
-func _Inside(source []string, target []string) bool {
+func _Inside(
+	source []string,
+	target []string,
+) bool {
 	if len(target) <= len(source) {
 		return false
 	}
@@ -296,8 +467,14 @@ func _Inside(source []string, target []string) bool {
 //
 // Revisions:
 //   - 2026-09-20 01:00: initial creation
-func _Test(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
-	path, err := _Field(op, PATH)
+func _Test(
+	doc starlark.Value,
+	op *starlark.Dict,
+) (starlark.Value, error) {
+	path, err := _Field(
+		op,
+		PATH,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -312,12 +489,18 @@ func _Test(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 		return nil, err
 	}
 
-	got, err := _Walk(doc, steps)
+	got, err := _Walk(
+		doc,
+		steps,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	same, err := _Equal(got, want)
+	same, err := _Equal(
+		got,
+		want,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +511,7 @@ func _Test(doc starlark.Value, op *starlark.Dict) (starlark.Value, error) {
 			path,
 			got.String(),
 			want.String(),
-			ERR_TEST,
+			ErrTest,
 		)
 	}
 

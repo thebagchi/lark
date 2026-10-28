@@ -11,6 +11,7 @@ import (
 
 const (
 	EXPLODES_FIXTURE = "explodes.star"
+	UNJOINED_FIXTURE = "unjoined.star"
 	PANIC_TEXT       = "a plugin blew up"
 	RECOVERED        = "recovered"
 )
@@ -32,14 +33,17 @@ func (e *_Exploding) Name() string {
 //   - 2026-09-19 23:22: initial creation
 func (e *_Exploding) Values() starlark.StringDict {
 	return starlark.StringDict{
-		"explode": starlark.NewBuiltin("explode", func(
-			thread *starlark.Thread,
-			fn *starlark.Builtin,
-			args starlark.Tuple,
-			kwargs []starlark.Tuple,
-		) (starlark.Value, error) {
-			panic(PANIC_TEXT)
-		}),
+		"explode": starlark.NewBuiltin(
+			"explode",
+			func(
+				thread *starlark.Thread,
+				fn *starlark.Builtin,
+				args starlark.Tuple,
+				kwargs []starlark.Tuple,
+			) (starlark.Value, error) {
+				panic(PANIC_TEXT)
+			},
+		),
 	}
 }
 
@@ -53,18 +57,83 @@ func (e *_Exploding) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-19 23:23: initial creation
 func TestRun_APanickingBuiltinFailsTheRunNotTheProcess(t *testing.T) {
-	_, err := artifact.Run(t.Context(), _Built(t, EXPLODES_FIXTURE))
+	_, err := artifact.Run(
+		t.Context(),
+		_Built(
+			t,
+			EXPLODES_FIXTURE,
+		),
+	)
 	if err == nil {
 		t.Fatal("a panicking builtin did not fail the run")
 	}
 
-	if !strings.Contains(err.Error(), PANIC_TEXT) {
-		t.Fatalf("the failure does not carry what the plugin panicked with: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		PANIC_TEXT,
+	) {
+		t.Fatalf(
+			"the failure does not carry what the plugin panicked with: %v",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), RECOVERED) {
-		t.Fatalf("the failure does not say it was recovered: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		RECOVERED,
+	) {
+		t.Fatalf(
+			"the failure does not say it was recovered: %v",
+			err,
+		)
 	}
 
-	t.Logf("the host survived: %v", err)
+	t.Logf(
+		"the host survived: %v",
+		err,
+	)
+}
+
+// TestRegression_Panic proves a panic in a spawn that nobody joins still ends
+// the run. The script spawns boom, does not join it, and returns "ok". Without
+// the fix the run returns "ok" with no error, because nothing calls _End.
+//
+// Revisions:
+//   - 2026-10-24 20:00: initial creation
+func TestRegression_Panic(t *testing.T) {
+	_, err := artifact.Run(
+		t.Context(),
+		_Built(
+			t,
+			UNJOINED_FIXTURE,
+		),
+	)
+	if err == nil {
+		t.Fatal("an unjoined panic did not fail the run")
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		PANIC_TEXT,
+	) {
+		t.Fatalf(
+			"the failure does not carry what the plugin panicked with: %v",
+			err,
+		)
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		RECOVERED,
+	) {
+		t.Fatalf(
+			"the failure does not say it was recovered: %v",
+			err,
+		)
+	}
+
+	t.Logf(
+		"unjoined panic ended the run: %v",
+		err,
+	)
 }

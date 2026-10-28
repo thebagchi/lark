@@ -40,7 +40,10 @@ import (
 //   - 2026-09-20 00:42: initial creation, as state's own _Copy
 //   - 2026-09-24 16:08: moved here, where jsonpath reaches it too
 func Copy(value starlark.Value) (starlark.Value, error) {
-	return _Into(value, map[starlark.Value]starlark.Value{})
+	return _Into(
+		value,
+		map[starlark.Value]starlark.Value{},
+	)
 }
 
 // _Into copies value, reusing whatever has already been copied.
@@ -70,16 +73,28 @@ func _Into(
 ) (starlark.Value, error) {
 	switch original := value.(type) {
 	case *starlark.List:
-		return _List(original, seen)
+		return _List(
+			original,
+			seen,
+		)
 
 	case *starlark.Dict:
-		return _Dict(original, seen)
+		return _Dict(
+			original,
+			seen,
+		)
 
 	case starlark.Tuple:
-		return _Tuple(original, seen)
+		return _Tuple(
+			original,
+			seen,
+		)
 
 	case *starlark.Set:
-		return _Set(original, seen)
+		return _Set(
+			original,
+			seen,
+		)
 
 	default:
 		return value, nil
@@ -101,19 +116,30 @@ func _List(
 		return copied, nil
 	}
 
-	made := starlark.NewList(make([]starlark.Value, 0, original.Len()))
+	made := starlark.NewList(make(
+		[]starlark.Value,
+		0,
+		original.Len(),
+	))
 
 	seen[original] = made
 
 	for index := range original.Len() {
-		element, err := _Into(original.Index(index), seen)
+		element, err := _Into(
+			original.Index(index),
+			seen,
+		)
 		if err != nil {
 			return nil, err
 		}
 
 		err = made.Append(element)
 		if err != nil {
-			return nil, fmt.Errorf("copy element %d: %w", index, err)
+			return nil, fmt.Errorf(
+				"copy element %d: %w",
+				index,
+				err,
+			)
 		}
 	}
 
@@ -144,19 +170,32 @@ func _Dict(
 	seen[original] = made
 
 	for name, value := range original.Entries() {
-		key, err := _Into(name, seen)
+		key, err := _Into(
+			name,
+			seen,
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		held, err := _Into(value, seen)
+		held, err := _Into(
+			value,
+			seen,
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		err = made.SetKey(key, held)
+		err = made.SetKey(
+			key,
+			held,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("copy key %s: %w", name.String(), err)
+			return nil, fmt.Errorf(
+				"copy key %s: %w",
+				name.String(),
+				err,
+			)
 		}
 	}
 
@@ -175,15 +214,25 @@ func _Tuple(
 	original starlark.Tuple,
 	seen map[starlark.Value]starlark.Value,
 ) (starlark.Value, error) {
-	made := make(starlark.Tuple, 0, len(original))
+	made := make(
+		starlark.Tuple,
+		0,
+		len(original),
+	)
 
 	for _, element := range original {
-		copied, err := _Into(element, seen)
+		copied, err := _Into(
+			element,
+			seen,
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		made = append(made, copied)
+		made = append(
+			made,
+			copied,
+		)
 	}
 
 	return made, nil
@@ -197,7 +246,10 @@ func _Tuple(
 // Revisions:
 //   - 2026-09-20 00:47: initial creation
 //   - 2026-09-21 08:09: reuses a copy already made
-func _Set(original *starlark.Set, seen map[starlark.Value]starlark.Value) (starlark.Value, error) {
+func _Set(
+	original *starlark.Set,
+	seen map[starlark.Value]starlark.Value,
+) (starlark.Value, error) {
 	copied, found := seen[original]
 	if found {
 		return copied, nil
@@ -215,7 +267,11 @@ func _Set(original *starlark.Set, seen map[starlark.Value]starlark.Value) (starl
 	for iterator.Next(&member) {
 		err := made.Insert(member)
 		if err != nil {
-			return nil, fmt.Errorf("copy member %s: %w", member.String(), err)
+			return nil, fmt.Errorf(
+				"copy member %s: %w",
+				member.String(),
+				err,
+			)
 		}
 	}
 
@@ -247,33 +303,54 @@ func IsData(value starlark.Value) (starlark.Value, bool) {
 	// something might be walked into.
 	switch value.(type) {
 	case *starlark.List, *starlark.Dict, starlark.Tuple, *starlark.Set:
-		return _Walk(value, map[starlark.Value]bool{})
+		return _Walk(
+			value,
+			map[starlark.Value]bool{},
+		)
 	}
 
-	return _Walk(value, nil)
+	return _Walk(
+		value,
+		nil,
+	)
 }
 
 // _Walk is IsData, carrying what it has already seen.
 //
 // Revisions:
 //   - 2026-09-24 20:14: initial creation
-func _Walk(value starlark.Value, seen map[starlark.Value]bool) (starlark.Value, bool) {
+func _Walk(
+	value starlark.Value,
+	seen map[starlark.Value]bool,
+) (starlark.Value, bool) {
 	switch held := value.(type) {
 	case starlark.NoneType, starlark.Bool, starlark.Int, starlark.Float,
 		starlark.String, starlark.Bytes:
 		return nil, true
 
 	case *starlark.List:
-		return _Every(held, seen)
+		return _Every(
+			held,
+			seen,
+		)
 
 	case *starlark.Dict:
-		return _Pairs(held, seen)
+		return _Pairs(
+			held,
+			seen,
+		)
 
 	case starlark.Tuple:
-		return _Items(held, seen)
+		return _Items(
+			held,
+			seen,
+		)
 
 	case *starlark.Set:
-		return _Every(held, seen)
+		return _Every(
+			held,
+			seen,
+		)
 	}
 
 	return value, false
@@ -283,7 +360,10 @@ func _Walk(value starlark.Value, seen map[starlark.Value]bool) (starlark.Value, 
 //
 // Revisions:
 //   - 2026-09-24 20:10: initial creation
-func _Every(held starlark.Iterable, seen map[starlark.Value]bool) (starlark.Value, bool) {
+func _Every(
+	held starlark.Iterable,
+	seen map[starlark.Value]bool,
+) (starlark.Value, bool) {
 	if seen[held] {
 		return nil, true
 	}
@@ -296,7 +376,10 @@ func _Every(held starlark.Iterable, seen map[starlark.Value]bool) (starlark.Valu
 	var value starlark.Value
 
 	for iter.Next(&value) {
-		bad, ok := _Walk(value, seen)
+		bad, ok := _Walk(
+			value,
+			seen,
+		)
 		if !ok {
 			return bad, false
 		}
@@ -313,7 +396,10 @@ func _Every(held starlark.Iterable, seen map[starlark.Value]bool) (starlark.Valu
 // Revisions:
 //   - 2026-09-24 20:10: initial creation
 //   - 2026-10-03 17:08: walks the pairs without first building a slice of them
-func _Pairs(held *starlark.Dict, seen map[starlark.Value]bool) (starlark.Value, bool) {
+func _Pairs(
+	held *starlark.Dict,
+	seen map[starlark.Value]bool,
+) (starlark.Value, bool) {
 	if seen[held] {
 		return nil, true
 	}
@@ -321,12 +407,18 @@ func _Pairs(held *starlark.Dict, seen map[starlark.Value]bool) (starlark.Value, 
 	seen[held] = true
 
 	for key, value := range held.Entries() {
-		bad, ok := _Walk(key, seen)
+		bad, ok := _Walk(
+			key,
+			seen,
+		)
 		if !ok {
 			return bad, false
 		}
 
-		bad, ok = _Walk(value, seen)
+		bad, ok = _Walk(
+			value,
+			seen,
+		)
 		if !ok {
 			return bad, false
 		}
@@ -343,9 +435,15 @@ func _Pairs(held *starlark.Dict, seen map[starlark.Value]bool) (starlark.Value, 
 //
 // Revisions:
 //   - 2026-09-24 20:10: initial creation
-func _Items(held starlark.Tuple, seen map[starlark.Value]bool) (starlark.Value, bool) {
+func _Items(
+	held starlark.Tuple,
+	seen map[starlark.Value]bool,
+) (starlark.Value, bool) {
 	for _, value := range held {
-		bad, ok := _Walk(value, seen)
+		bad, ok := _Walk(
+			value,
+			seen,
+		)
 		if !ok {
 			return bad, false
 		}

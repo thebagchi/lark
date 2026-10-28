@@ -2,6 +2,7 @@ package scheduler_test
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"testing"
 
@@ -9,15 +10,15 @@ import (
 )
 
 const (
-	// _CEILING is what the budget under test may give out.
-	_CEILING = 1000
+	// CEILING is what the budget under test may give out.
+	CEILING = 1000
 
-	// _RACERS is how many goroutines charge at once, and _EACH is what each of
+	// RACERS is how many goroutines charge at once, and EACH is what each of
 	// them asks for. The product is the ceiling exactly, so every charge must
 	// succeed and the total must land on the ceiling - a lost update shows up
 	// as room left over.
-	_RACERS = 100
-	_EACH   = 10
+	RACERS = 100
+	EACH   = 10
 )
 
 // TestBudget_RefusesWithoutReserving is the guarantee a caller leans on: a
@@ -26,24 +27,41 @@ const (
 // Revisions:
 //   - 2026-09-24 23:26: initial creation
 func TestBudget_RefusesWithoutReserving(t *testing.T) {
-	budget := scheduler.NewBudget(_CEILING)
+	var (
+		budget = scheduler.NewBudget(CEILING)
+		err    = budget.Charge(CEILING + 1)
+	)
 
-	err := budget.Charge(_CEILING + 1)
-	if !errors.Is(err, scheduler.ERR_MEMORY) {
-		t.Fatalf("got %v, want ERR_MEMORY", err)
+	if !errors.Is(
+		err,
+		scheduler.ErrMemory,
+	) {
+		t.Fatalf(
+			"got %v, want ErrMemory",
+			err,
+		)
 	}
 
 	if budget.Held() != 0 {
-		t.Fatalf("a refused charge reserved %d bytes", budget.Held())
+		t.Fatalf(
+			"a refused charge reserved %d bytes",
+			budget.Held(),
+		)
 	}
 
-	err = budget.Charge(_CEILING)
+	err = budget.Charge(CEILING)
 	if err != nil {
-		t.Fatalf("the whole ceiling was refused: %v", err)
+		t.Fatalf(
+			"the whole ceiling was refused: %v",
+			err,
+		)
 	}
 
 	if budget.Left() != 0 {
-		t.Fatalf("%d left after spending all of it", budget.Left())
+		t.Fatalf(
+			"%d left after spending all of it",
+			budget.Left(),
+		)
 	}
 }
 
@@ -53,19 +71,25 @@ func TestBudget_RefusesWithoutReserving(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 23:26: initial creation
 func TestBudget_CreditsBack(t *testing.T) {
-	budget := scheduler.NewBudget(_CEILING)
+	budget := scheduler.NewBudget(CEILING)
 
 	for range 10 {
-		err := budget.Charge(_CEILING)
+		err := budget.Charge(CEILING)
 		if err != nil {
-			t.Fatalf("a charge the last one paid for was refused: %v", err)
+			t.Fatalf(
+				"a charge the last one paid for was refused: %v",
+				err,
+			)
 		}
 
-		budget.Credit(_CEILING)
+		budget.Credit(CEILING)
 	}
 
 	if budget.Held() != 0 {
-		t.Fatalf("%d bytes left reserved after giving all of it back", budget.Held())
+		t.Fatalf(
+			"%d bytes left reserved after giving all of it back",
+			budget.Held(),
+		)
 	}
 }
 
@@ -76,7 +100,7 @@ func TestBudget_CreditsBack(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 23:26: initial creation
 func TestBudget_IsOneCeilingForEveryThread(t *testing.T) {
-	budget := scheduler.NewBudget(_RACERS * _EACH)
+	budget := scheduler.NewBudget(RACERS * EACH)
 
 	var (
 		group  sync.WaitGroup
@@ -84,19 +108,23 @@ func TestBudget_IsOneCeilingForEveryThread(t *testing.T) {
 		failed []error
 	)
 
-	for range _RACERS {
+	for range RACERS {
 		group.Add(1)
 
 		go func() {
 			defer group.Done()
 
-			err := budget.Charge(_EACH)
+			err := budget.Charge(EACH)
 			if err == nil {
 				return
 			}
 
 			mutex.Lock()
-			failed = append(failed, err)
+
+			failed = append(
+				failed,
+				err,
+			)
 			mutex.Unlock()
 		}()
 	}
@@ -104,13 +132,53 @@ func TestBudget_IsOneCeilingForEveryThread(t *testing.T) {
 	group.Wait()
 
 	if len(failed) > 0 {
-		t.Fatalf("%d of %d charges were refused inside the ceiling: %v",
-			len(failed), _RACERS, failed[0])
+		t.Fatalf(
+			"%d of %d charges were refused inside the ceiling: %v",
+			len(failed),
+			RACERS,
+			failed[0],
+		)
 	}
 
 	if budget.Left() != 0 {
-		t.Fatalf("%d bytes left after charging the ceiling exactly, so a charge was lost",
-			budget.Left())
+		t.Fatalf(
+			"%d bytes left after charging the ceiling exactly, so a charge was lost",
+			budget.Left(),
+		)
+	}
+}
+
+// TestRegression_Budget rejects a charge that wraps held+size past int64.
+//
+// Before this fix, Charge(math.MaxInt64) after a held of 1 wrapped to a
+// negative sum, passed the ceiling check, and left held at math.MinInt64.
+//
+// Revisions:
+//   - 2026-10-24 16:00: initial creation
+func TestRegression_Budget(t *testing.T) {
+	budget := scheduler.NewBudget(scheduler.CEILING)
+
+	if err := budget.Charge(1); err != nil {
+		t.Fatal(err)
+	}
+
+	err := budget.Charge(math.MaxInt64)
+	if !errors.Is(
+		err,
+		scheduler.ErrMemory,
+	) {
+		t.Fatalf(
+			"held %d, err %v",
+			budget.Held(),
+			err,
+		)
+	}
+
+	if budget.Held() != 1 {
+		t.Fatalf(
+			"held %d after a refused charge, want 1",
+			budget.Held(),
+		)
 	}
 }
 
@@ -120,17 +188,24 @@ func TestBudget_IsOneCeilingForEveryThread(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 23:26: initial creation
 func TestBudget_IgnoresNothing(t *testing.T) {
-	budget := scheduler.NewBudget(_CEILING)
-
-	err := budget.Charge(0)
+	var (
+		budget = scheduler.NewBudget(CEILING)
+		err    = budget.Charge(0)
+	)
 	if err != nil {
-		t.Fatalf("charging nothing was refused: %v", err)
+		t.Fatalf(
+			"charging nothing was refused: %v",
+			err,
+		)
 	}
 
 	budget.Credit(0)
 	budget.Credit(-1)
 
 	if budget.Held() != 0 {
-		t.Fatalf("held %d after charging and crediting nothing", budget.Held())
+		t.Fatalf(
+			"held %d after charging and crediting nothing",
+			budget.Held(),
+		)
 	}
 }

@@ -24,7 +24,10 @@ type _Reach struct {
 //
 // Revisions:
 //   - 2026-09-29 23:30: initial creation
-func _Walk(value starlark.Value, visit func(*starlark.Function) error) error {
+func _Walk(
+	value starlark.Value,
+	visit func(*starlark.Function) error,
+) error {
 	reach := &_Reach{
 		visit: visit,
 		seen:  make(map[starlark.Value]bool),

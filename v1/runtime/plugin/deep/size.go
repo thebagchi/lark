@@ -41,14 +41,20 @@ const (
 // Revisions:
 //   - 2026-09-27 01:20: initial creation
 func Size(value starlark.Value) int64 {
-	return _Weigh(value, map[starlark.Value]bool{})
+	return _Weigh(
+		value,
+		map[starlark.Value]bool{},
+	)
 }
 
 // _Weigh is Size with the set of values already counted, so a cycle ends.
 //
 // Revisions:
 //   - 2026-09-27 01:20: initial creation
-func _Weigh(value starlark.Value, seen map[starlark.Value]bool) int64 {
+func _Weigh(
+	value starlark.Value,
+	seen map[starlark.Value]bool,
+) int64 {
 	switch held := value.(type) {
 	case starlark.NoneType, starlark.Bool:
 		return WORD
@@ -63,16 +69,30 @@ func _Weigh(value starlark.Value, seen map[starlark.Value]bool) int64 {
 		return WORD + int64(len(held))
 
 	case *starlark.List:
-		return _Inside(held, held.Len(), seen)
+		return _Inside(
+			held,
+			held.Len(),
+			seen,
+		)
 
 	case *starlark.Set:
-		return _Inside(held, held.Len(), seen)
+		return _Inside(
+			held,
+			held.Len(),
+			seen,
+		)
 
 	case starlark.Tuple:
-		return _Slots(held, seen)
+		return _Slots(
+			held,
+			seen,
+		)
 
 	case *starlark.Dict:
-		return _Keyed(held, seen)
+		return _Keyed(
+			held,
+			seen,
+		)
 	}
 
 	// Something this does not know, which a store would have refused: one word,
@@ -89,11 +109,17 @@ func _Weigh(value starlark.Value, seen map[starlark.Value]bool) int64 {
 //
 // Revisions:
 //   - 2026-09-27 01:32: initial creation, after marking one panicked
-func _Slots(held starlark.Tuple, seen map[starlark.Value]bool) int64 {
+func _Slots(
+	held starlark.Tuple,
+	seen map[starlark.Value]bool,
+) int64 {
 	total := WORD + int64(len(held))*ENTRY
 
 	for _, one := range held {
-		total += _Weigh(one, seen)
+		total += _Weigh(
+			one,
+			seen,
+		)
 	}
 
 	return total
@@ -103,22 +129,31 @@ func _Slots(held starlark.Tuple, seen map[starlark.Value]bool) int64 {
 //
 // Revisions:
 //   - 2026-09-27 01:20: initial creation
-func _Inside(held starlark.Iterable, length int, seen map[starlark.Value]bool) int64 {
+func _Inside(
+	held starlark.Iterable,
+	length int,
+	seen map[starlark.Value]bool,
+) int64 {
 	if seen[held] {
 		return 0
 	}
 
 	seen[held] = true
 
-	total := WORD + int64(length)*ENTRY
-	walk := held.Iterate()
+	var (
+		total = WORD + int64(length)*ENTRY
+		walk  = held.Iterate()
+	)
 
 	defer walk.Done()
 
 	var one starlark.Value
 
 	for walk.Next(&one) {
-		total += _Weigh(one, seen)
+		total += _Weigh(
+			one,
+			seen,
+		)
 	}
 
 	return total
@@ -132,7 +167,10 @@ func _Inside(held starlark.Iterable, length int, seen map[starlark.Value]bool) i
 // Revisions:
 //   - 2026-09-27 01:20: initial creation
 //   - 2026-10-03 17:08: counts the pairs without first building a slice of them
-func _Keyed(held *starlark.Dict, seen map[starlark.Value]bool) int64 {
+func _Keyed(
+	held *starlark.Dict,
+	seen map[starlark.Value]bool,
+) int64 {
 	if seen[held] {
 		return 0
 	}
@@ -142,8 +180,14 @@ func _Keyed(held *starlark.Dict, seen map[starlark.Value]bool) int64 {
 	total := WORD + int64(held.Len())*ENTRY
 
 	for key, value := range held.Entries() {
-		total += _Weigh(key, seen)
-		total += _Weigh(value, seen)
+		total += _Weigh(
+			key,
+			seen,
+		)
+		total += _Weigh(
+			value,
+			seen,
+		)
 	}
 
 	return total

@@ -8,14 +8,14 @@ import (
 	"go.starlark.net/starlarkstruct"
 )
 
+// The fields a stat answers with, beside SIZE, which a stat calls what
+// the builtin of that name is already called.
+//
+// MODE is the permission bits as a number, the way Python's stat.S_IMODE
+// gives them, so that a script testing one masks rather than parses:
+// info.mode & 0o700. Printing it is "%o" % info.mode, because Starlark
+// has neither oct() nor a width in its interpolation.
 const (
-	// The fields a stat answers with, beside SIZE, which a stat calls what
-	// the builtin of that name is already called.
-	//
-	// MODE is the permission bits as a number, the way Python's stat.S_IMODE
-	// gives them, so that a script testing one masks rather than parses:
-	// info.mode & 0o700. Printing it is "%o" % info.mode, because Starlark
-	// has neither oct() nor a width in its interpolation.
 	DIR      = "dir"
 	MODE     = "mode"
 	MODIFIED = "modified"
@@ -42,14 +42,23 @@ func _Stat(
 ) (starlark.Value, error) {
 	var named string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &named)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&named,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	about, err := os.Stat(named)
 	if err != nil {
-		return nil, _Refused(fn.Name(), err)
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
 	}
 
 	held := starlark.StringDict{
@@ -59,7 +68,10 @@ func _Stat(
 		MODIFIED: starlarktime.Time(about.ModTime()),
 	}
 
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, held), nil
+	return starlarkstruct.FromStringDict(
+		starlarkstruct.Default,
+		held,
+	), nil
 }
 
 // _Sized is what a file holds, for a caller deciding whether it can afford to
@@ -70,14 +82,24 @@ func _Stat(
 //
 // Revisions:
 //   - 2026-09-24 22:58: initial creation
-func _Sized(name string, named string) (os.FileInfo, error) {
+func _Sized(
+	name string,
+	named string,
+) (os.FileInfo, error) {
 	about, err := os.Stat(named)
 	if err != nil {
-		return nil, _Refused(name, err)
+		return nil, _Refused(
+			name,
+			err,
+		)
 	}
 
 	if !about.Mode().IsRegular() {
-		return nil, _Rejected(name, named, ERR_NOT_A_FILE)
+		return nil, _Rejected(
+			name,
+			named,
+			ErrNotAFile,
+		)
 	}
 
 	return about, nil

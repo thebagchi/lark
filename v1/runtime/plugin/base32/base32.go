@@ -22,11 +22,13 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
-// ERR_ENCODED is returned for text that is not base32.
-var ERR_ENCODED = errors.New("not the encoding this reads")
+// ErrEncoded is returned for text that is not base32.
+var (
+	ErrEncoded = errors.New("not the encoding this reads")
+)
 
+// NAME is the module, and the two names it holds.
 const (
-	// NAME is the module, and the two names it holds.
 	NAME   = "base32"
 	ENCODE = "encode"
 	DECODE = "decode"
@@ -65,8 +67,14 @@ func (b *_Base32) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				ENCODE: starlark.NewBuiltin(NAME+"."+ENCODE, _Encode),
-				DECODE: starlark.NewBuiltin(NAME+"."+DECODE, _Decode),
+				ENCODE: starlark.NewBuiltin(
+					NAME+"."+ENCODE,
+					_Encode,
+				),
+				DECODE: starlark.NewBuiltin(
+					NAME+"."+DECODE,
+					_Decode,
+				),
 			},
 		},
 	}
@@ -83,7 +91,11 @@ func _Encode(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(fn, args, kwargs)
+	data, err := unpack.Data(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -106,16 +118,30 @@ func _Decode(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	bare := base32.StdEncoding.WithPadding(base32.NoPadding)
 
-	data, err := bare.DecodeString(strings.TrimRight(text, PADDING))
+	var data []byte
+
+	data, err = bare.DecodeString(strings.TrimRight(
+		text,
+		PADDING,
+	))
 	if err != nil {
-		return nil, fmt.Errorf("%s got %q: %w", fn.Name(), text, ERR_ENCODED)
+		return nil, fmt.Errorf(
+			"%s got %q: %w",
+			fn.Name(),
+			text,
+			ErrEncoded,
+		)
 	}
 
 	return starlark.Bytes(data), nil

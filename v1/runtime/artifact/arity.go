@@ -9,11 +9,13 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
-// ERR_ARITY is returned for a call that passes a function the script defines
+// ErrArity is returned for a call that passes a function the script defines
 // or loads arguments it does not take: too many, too few, one it has no
 // parameter for, or one twice. spelling's, so it is the value a flow's check
 // refuses the same mistake with.
-var ERR_ARITY = spelling.ERR_ARITY
+var (
+	ErrArity = spelling.ErrArity
+)
 
 // _Signature is what a def takes, as a call's arguments are bound to it.
 //
@@ -38,26 +40,40 @@ type _Signature struct {
 // unpacks *args or **kwargs is not, since what it passes is known only when
 // it runs.
 //
-// Returns ERR_ARITY, opening with the call's file, line and column, as a parse
+// Returns ErrArity, opening with the call's file, line and column, as a parse
 // or resolve error does.
 //
 // Revisions:
 //   - 2026-10-02 01:23: initial creation
-func _Arity(units map[string]*_Unit, order []string) error {
+func _Arity(
+	units map[string]*_Unit,
+	order []string,
+) error {
 	for _, path := range order {
-		unit := units[path]
-		signed := _Signatures(units, unit)
+		var (
+			unit   = units[path]
+			signed = _Signatures(
+				units,
+				unit,
+			)
+		)
 
 		var refused error
 
-		syntax.Walk(unit.tree, func(node syntax.Node) bool {
-			call, ok := node.(*syntax.CallExpr)
-			if ok && refused == nil {
-				refused = _Fits(call, signed)
-			}
+		syntax.Walk(
+			unit.tree,
+			func(node syntax.Node) bool {
+				call, ok := node.(*syntax.CallExpr)
+				if ok && refused == nil {
+					refused = _Fits(
+						call,
+						signed,
+					)
+				}
 
-			return refused == nil
-		})
+				return refused == nil
+			},
+		)
 
 		if refused != nil {
 			return refused
@@ -72,7 +88,10 @@ func _Arity(units map[string]*_Unit, order []string) error {
 //
 // Revisions:
 //   - 2026-10-02 01:23: initial creation
-func _Fits(call *syntax.CallExpr, signed map[*syntax.Ident]*_Signature) error {
+func _Fits(
+	call *syntax.CallExpr,
+	signed map[*syntax.Ident]*_Signature,
+) error {
 	name, ok := call.Fn.(*syntax.Ident)
 	if !ok {
 		return nil
@@ -92,7 +111,12 @@ func _Fits(call *syntax.CallExpr, signed map[*syntax.Ident]*_Signature) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s: call of %s: %w", name.NamePos, name.Name, ERR_ARITY)
+	return fmt.Errorf(
+		"%s: call of %s: %w",
+		name.NamePos,
+		name.Name,
+		ErrArity,
+	)
 }
 
 // _Signatures is what each function unit may call by name takes, keyed by
@@ -104,7 +128,10 @@ func _Fits(call *syntax.CallExpr, signed map[*syntax.Ident]*_Signature) error {
 //
 // Revisions:
 //   - 2026-10-02 01:23: initial creation
-func _Signatures(units map[string]*_Unit, unit *_Unit) map[*syntax.Ident]*_Signature {
+func _Signatures(
+	units map[string]*_Unit,
+	unit *_Unit,
+) map[*syntax.Ident]*_Signature {
 	signed := make(map[*syntax.Ident]*_Signature)
 
 	for _, stmt := range unit.tree.Stmts {
@@ -118,7 +145,10 @@ func _Signatures(units map[string]*_Unit, unit *_Unit) map[*syntax.Ident]*_Signa
 			module := units[unit.saved.GetLoads()[actual.ModuleName()]]
 
 			for idx, to := range actual.To {
-				def := _Defined(module, actual.From[idx].Name)
+				def := _Defined(
+					module,
+					actual.From[idx].Name,
+				)
 				if def != nil {
 					signed[to] = _Signed(def)
 				}
@@ -134,7 +164,10 @@ func _Signatures(units map[string]*_Unit, unit *_Unit) map[*syntax.Ident]*_Signa
 //
 // Revisions:
 //   - 2026-10-02 01:23: initial creation
-func _Defined(module *_Unit, name string) *syntax.DefStmt {
+func _Defined(
+	module *_Unit,
+	name string,
+) *syntax.DefStmt {
 	if module == nil {
 		return nil
 	}
@@ -157,40 +190,68 @@ func _Defined(module *_Unit, name string) *syntax.DefStmt {
 // Revisions:
 //   - 2026-10-02 01:23: initial creation
 func _Signed(def *syntax.DefStmt) *_Signature {
-	signature := &_Signature{
-		named:    make(map[string]bool),
-		required: make(map[string]bool),
-	}
-
-	starred := false
+	var (
+		signature = &_Signature{
+			named:    make(map[string]bool),
+			required: make(map[string]bool),
+		}
+		starred = false
+	)
 
 	for _, param := range def.Params {
 		switch actual := param.(type) {
 		case *syntax.Ident:
-			signature._Add(actual.Name, starred)
+			if starred {
+				signature._AddNamed(
+					actual.Name,
+				)
+			} else {
+				signature._Add(
+					actual.Name,
+				)
+			}
+
 			signature.required[actual.Name] = true
 
 		case *syntax.BinaryExpr:
 			defaulted, ok := actual.X.(*syntax.Ident)
 			if ok {
-				signature._Add(defaulted.Name, starred)
+				if starred {
+					signature._AddNamed(
+						defaulted.Name,
+					)
+				} else {
+					signature._Add(
+						defaulted.Name,
+					)
+				}
 			}
 
 		case *syntax.UnaryExpr:
-			if actual.Op == syntax.STARSTAR {
-				signature.keywords = true
-
-				continue
-			}
-
-			// A bare * only ends what a call may fill by position. A *args
-			// also takes any number more.
-			signature.rest = actual.X != nil
-			starred = true
+			starred = signature._Star(actual) || starred
 		}
 	}
 
 	return signature
+}
+
+// _Star records a * or a **. It reports whether later names are keyword-only.
+//
+// A bare * only ends what a call may fill by position. A *args also takes
+// any number more. ** does not, and the names after a * are keyword-only.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (s *_Signature) _Star(actual *syntax.UnaryExpr) bool {
+	if actual.Op == syntax.STARSTAR {
+		s.keywords = true
+
+		return false
+	}
+
+	s.rest = actual.X != nil
+
+	return true
 }
 
 // _Add records a parameter a keyword may fill, and a call may fill by
@@ -198,12 +259,25 @@ func _Signed(def *syntax.DefStmt) *_Signature {
 //
 // Revisions:
 //   - 2026-10-02 01:23: initial creation
-func (s *_Signature) _Add(name string, starred bool) {
+//   - 2026-10-24 18:29: a name after * is recorded by _AddNamed
+func (s *_Signature) _Add(
+	name string,
+) {
 	s.named[name] = true
+	s.positional = append(
+		s.positional,
+		name,
+	)
+}
 
-	if !starred {
-		s.positional = append(s.positional, name)
-	}
+// _AddNamed records a parameter only a keyword may fill.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (s *_Signature) _AddNamed(
+	name string,
+) {
+	s.named[name] = true
 }
 
 // _Takes reports whether call's arguments bind to this signature as Starlark
@@ -217,8 +291,10 @@ func (s *_Signature) _Add(name string, starred bool) {
 //   - 2026-10-08 17:28: counts an operation such as a + 1 by position, where it
 //     read every BinaryExpr as a keyword
 func (s *_Signature) _Takes(call *syntax.CallExpr) bool {
-	filled := make(map[string]bool)
-	passed := 0
+	var (
+		filled = make(map[string]bool)
+		passed = 0
+	)
 
 	for _, arg := range call.Args {
 		keyword, ok := arg.(*syntax.BinaryExpr)
@@ -229,7 +305,10 @@ func (s *_Signature) _Takes(call *syntax.CallExpr) bool {
 		}
 
 		name, ok := keyword.X.(*syntax.Ident)
-		if !ok || !s._Fill(name.Name, filled) {
+		if !ok || !s._Fill(
+			name.Name,
+			filled,
+		) {
 			return false
 		}
 	}
@@ -238,7 +317,10 @@ func (s *_Signature) _Takes(call *syntax.CallExpr) bool {
 		return false
 	}
 
-	for _, name := range s.positional[:min(passed, len(s.positional))] {
+	for _, name := range s.positional[:min(
+		passed,
+		len(s.positional),
+	)] {
 		if filled[name] {
 			return false
 		}
@@ -261,7 +343,10 @@ func (s *_Signature) _Takes(call *syntax.CallExpr) bool {
 //
 // Revisions:
 //   - 2026-10-02 01:23: initial creation
-func (s *_Signature) _Fill(name string, filled map[string]bool) bool {
+func (s *_Signature) _Fill(
+	name string,
+	filled map[string]bool,
+) bool {
 	if filled[name] {
 		return false
 	}

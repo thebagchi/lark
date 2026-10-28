@@ -23,22 +23,45 @@ type _Spine struct {
 //
 // Revisions:
 //   - 2026-10-02 01:28: initial creation
-func (s *_Spine) Started(thread string, line *scheduler.Line) {
+func (s *_Spine) Started(
+	thread string,
+	line *scheduler.Line,
+) {
 	s.guard.Lock()
 	defer s.guard.Unlock()
 
-	s.lines = append(s.lines, fmt.Sprintf("start %s %s %s", thread, line.Name, line.Builtin))
+	s.lines = append(
+		s.lines,
+		fmt.Sprintf(
+			"start %s %s %s",
+			thread,
+			line.Name,
+			line.Builtin,
+		),
+	)
 }
 
 // Ended keeps an end.
 //
 // Revisions:
 //   - 2026-10-02 01:28: initial creation
-func (s *_Spine) Ended(thread string, name string, err error) {
+func (s *_Spine) Ended(
+	thread string,
+	name string,
+	err error,
+) {
 	s.guard.Lock()
 	defer s.guard.Unlock()
 
-	s.lines = append(s.lines, fmt.Sprintf("end %s %s %t", thread, name, err == nil))
+	s.lines = append(
+		s.lines,
+		fmt.Sprintf(
+			"end %s %s %t",
+			thread,
+			name,
+			err == nil,
+		),
+	)
 }
 
 // Write keeps a line the run printed, from the record a JSON handler writes:
@@ -50,9 +73,12 @@ func (s *_Spine) Ended(thread string, name string, err error) {
 //     printed it
 //   - 2026-10-02 16:21: a record of the run's logger
 func (s *_Spine) Write(p []byte) (int, error) {
-	record := map[string]any{}
+	var record = map[string]any{}
 
-	err := json.Unmarshal(p, &record)
+	err := json.Unmarshal(
+		p,
+		&record,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -67,7 +93,10 @@ func (s *_Spine) Write(p []byte) (int, error) {
 	s.guard.Lock()
 	defer s.guard.Unlock()
 
-	s.lines = append(s.lines, line)
+	s.lines = append(
+		s.lines,
+		line,
+	)
 
 	return len(p), nil
 }
@@ -76,12 +105,21 @@ func (s *_Spine) Write(p []byte) (int, error) {
 //
 // Revisions:
 //   - 2026-10-02 01:28: initial creation
-func _Compiled(t *testing.T, src string) *artifact.Artifact {
+func _Compiled(
+	t *testing.T,
+	src string,
+) *artifact.Artifact {
 	t.Helper()
 
-	built, err := artifact.Compile(&script.Source{Entry: MAIN, Text: []byte(src)})
+	built, err := artifact.Compile(&script.Source{
+		Entry: MAIN,
+		Text:  []byte(src),
+	})
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
 	return built
@@ -94,7 +132,9 @@ func _Compiled(t *testing.T, src string) *artifact.Artifact {
 // Revisions:
 //   - 2026-10-02 01:28: initial creation
 func TestRun_AModuleLevelSpawnHasARunToJoin(t *testing.T) {
-	built := _Compiled(t, `
+	var built = _Compiled(
+		t,
+		`
 def work():
     return 1
 
@@ -103,15 +143,25 @@ GOT = join(handle)
 
 def main():
     return GOT
-`)
+`,
+	)
 
-	value, err := artifact.Run(t.Context(), built)
+	value, err := artifact.Run(
+		t.Context(),
+		built,
+	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != "[1]" {
-		t.Fatalf("got %s, want [1]", value)
+		t.Fatalf(
+			"got %s, want [1]",
+			value,
+		)
 	}
 }
 
@@ -125,7 +175,10 @@ def main():
 //   - 2026-10-02 13:12: reads the print from the run's transcript
 //   - 2026-10-02 16:21: reads the print from the run's logger
 func TestRun_AModuleLevelCallIsALineOfTheSpine(t *testing.T) {
-	built := _Compiled(t, `
+	var (
+		built = _Compiled(
+			t,
+			`
 def label():
     pass
 
@@ -134,11 +187,14 @@ print("top")
 
 def main():
     label()
-`)
-
-	into := new(_Spine)
-
-	logger := slog.New(slog.NewJSONHandler(into, nil))
+`,
+		)
+		into   = new(_Spine)
+		logger = slog.New(slog.NewJSONHandler(
+			into,
+			nil,
+		))
+	)
 
 	_, err := artifact.Run(
 		t.Context(),
@@ -147,7 +203,10 @@ def main():
 		artifact.Reporting(into),
 	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	want := []string{
@@ -160,7 +219,17 @@ def main():
 		"end thread_0 main true",
 	}
 
-	if strings.Join(into.lines, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("got %q, want %q", into.lines, want)
+	if strings.Join(
+		into.lines,
+		"\n",
+	) != strings.Join(
+		want,
+		"\n",
+	) {
+		t.Fatalf(
+			"got %q, want %q",
+			into.lines,
+			want,
+		)
 	}
 }

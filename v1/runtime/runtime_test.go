@@ -93,8 +93,14 @@ type _Disk struct{}
 //
 // Revisions:
 //   - 2026-09-19 23:32: initial creation
-func (d *_Disk) Resolve(from string, target string) (string, error) {
-	return path.Join(path.Dir(from), target), nil
+func (d *_Disk) Resolve(
+	from string,
+	target string,
+) (string, error) {
+	return path.Join(
+		path.Dir(from),
+		target,
+	), nil
 }
 
 // Load reads the file at name.
@@ -102,9 +108,16 @@ func (d *_Disk) Resolve(from string, target string) (string, error) {
 // Revisions:
 //   - 2026-09-19 23:32: initial creation
 func (d *_Disk) Load(name string) ([]byte, error) {
-	src, err := os.ReadFile(filepath.Join(FIXTURE_DIR, name))
+	src, err := os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		name,
+	))
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", name, err)
+		return nil, fmt.Errorf(
+			"read %s: %w",
+			name,
+			err,
+		)
 	}
 
 	return src, nil
@@ -114,12 +127,22 @@ func (d *_Disk) Load(name string) ([]byte, error) {
 //
 // Revisions:
 //   - 2026-09-19 23:33: initial creation
-func _Compiled(t *testing.T, name string) *runtime.Artifact {
+func _Compiled(
+	t *testing.T,
+	name string,
+) *runtime.Artifact {
 	t.Helper()
 
-	src, err := os.ReadFile(filepath.Join(FIXTURE_DIR, name))
+	src, err := os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		name,
+	))
 	if err != nil {
-		t.Fatalf("read fixture %s: %v", name, err)
+		t.Fatalf(
+			"read fixture %s: %v",
+			name,
+			err,
+		)
 	}
 
 	built, err := runtime.Compile(&runtime.Source{
@@ -128,7 +151,11 @@ func _Compiled(t *testing.T, name string) *runtime.Artifact {
 		Loader: &_Disk{},
 	})
 	if err != nil {
-		t.Fatalf("compile %s: %v", name, err)
+		t.Fatalf(
+			"compile %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return built
@@ -138,14 +165,24 @@ func _Compiled(t *testing.T, name string) *runtime.Artifact {
 //
 // Revisions:
 //   - 2026-10-02 23:31: initial creation
-func _Flow(t *testing.T, raw string) *runtime.Flow {
+func _Flow(
+	t *testing.T,
+	raw string,
+) *runtime.Flow {
 	t.Helper()
 
-	flow := new(runtime.Flow)
-
-	err := protojson.Unmarshal([]byte(raw), flow)
+	var (
+		flow = new(runtime.Flow)
+		err  = protojson.Unmarshal(
+			[]byte(raw),
+			flow,
+		)
+	)
 	if err != nil {
-		t.Fatalf("flow: %v", err)
+		t.Fatalf(
+			"flow: %v",
+			err,
+		)
 	}
 
 	return flow
@@ -162,13 +199,26 @@ func _Flow(t *testing.T, raw string) *runtime.Flow {
 // Revisions:
 //   - 2026-09-19 23:34: initial creation
 func TestHost_OneImportIsEnough(t *testing.T) {
-	value, err := runtime.Start(t.Context(), _Compiled(t, HOST_FIXTURE)).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		_Compiled(
+			t,
+			HOST_FIXTURE,
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != fmt.Sprint(EXPECTED_SUM) {
-		t.Fatalf("got %s, want %d", value.String(), EXPECTED_SUM)
+		t.Fatalf(
+			"got %s, want %d",
+			value.String(),
+			EXPECTED_SUM,
+		)
 	}
 }
 
@@ -179,12 +229,27 @@ func TestHost_OneImportIsEnough(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 23:35: initial creation
 func TestHost_CanMatchAFailure(t *testing.T) {
-	_, err := runtime.Start(t.Context(), _Compiled(t, BROKEN_FIXTURE)).Wait()
-	if !errors.Is(err, runtime.ERR_ASSERT) {
-		t.Fatalf("got %v, want ERR_ASSERT", err)
+	_, err := runtime.Start(
+		t.Context(),
+		_Compiled(
+			t,
+			BROKEN_FIXTURE,
+		),
+	).Wait()
+	if !errors.Is(
+		err,
+		runtime.ErrAssert,
+	) {
+		t.Fatalf(
+			"got %v, want ErrAssert",
+			err,
+		)
 	}
 
-	t.Logf("the host matched it: %v", err)
+	t.Logf(
+		"the host matched it: %v",
+		err,
+	)
 }
 
 // TestHost_RunsABundleItSaved proves a host can compile once and run elsewhere
@@ -197,23 +262,42 @@ func TestHost_CanMatchAFailure(t *testing.T) {
 //   - 2026-10-02 01:39: a bundle carries no graph
 //   - 2026-10-03 00:27: reads the bundle back and runs it, since Load now does
 func TestHost_RunsABundleItSaved(t *testing.T) {
-	saved, err := _Compiled(t, HOST_FIXTURE).Save()
+	saved, err := _Compiled(
+		t,
+		HOST_FIXTURE,
+	).Save()
 	if err != nil {
-		t.Fatalf("save: %v", err)
+		t.Fatalf(
+			"save: %v",
+			err,
+		)
 	}
 
 	loaded, err := runtime.Load(saved)
 	if err != nil {
-		t.Fatalf("load: %v", err)
+		t.Fatalf(
+			"load: %v",
+			err,
+		)
 	}
 
-	value, err := runtime.Start(t.Context(), loaded).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		loaded,
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != EXPECTED_TOTAL {
-		t.Fatalf("got %s, want %s", value, EXPECTED_TOTAL)
+		t.Fatalf(
+			"got %s, want %s",
+			value,
+			EXPECTED_TOTAL,
+		)
 	}
 }
 
@@ -230,27 +314,52 @@ func TestHost_RunsABundleItSaved(t *testing.T) {
 func TestHost_SeesTheGraphAndTheTranscript(t *testing.T) {
 	var out bytes.Buffer
 
-	logger := slog.New(slog.NewJSONHandler(&out, nil))
-
-	built := _Compiled(t, SPEAKING_FIXTURE)
-
-	run := runtime.Start(t.Context(), built, runtime.WithLogger(logger))
+	var (
+		logger = slog.New(slog.NewJSONHandler(
+			&out,
+			nil,
+		))
+		built = _Compiled(
+			t,
+			SPEAKING_FIXTURE,
+		)
+		run = runtime.Start(
+			t.Context(),
+			built,
+			runtime.WithLogger(logger),
+		)
+	)
 
 	_, err := run.Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
-	graph := run.Status()
-
-	functions := len(graph.GetFunctions())
+	var (
+		graph     = run.Status()
+		functions = len(graph.GetFunctions())
+	)
 	if functions != SPEAKERS || len(graph.GetCalls()) != SPOKEN {
-		t.Fatalf("want main calling two functions, got %v", graph)
+		t.Fatalf(
+			"want main calling two functions, got %v",
+			graph,
+		)
 	}
 
-	lines := strings.Count(out.String(), "\n")
+	lines := strings.Count(
+		out.String(),
+		"\n",
+	)
 	if lines != SPOKEN {
-		t.Fatalf("the transcript has %d lines, want %d: %q", lines, SPOKEN, out.String())
+		t.Fatalf(
+			"the transcript has %d lines, want %d: %q",
+			lines,
+			SPOKEN,
+			out.String(),
+		)
 	}
 }
 
@@ -286,28 +395,45 @@ func (n *_Named) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-10-02 15:56: initial creation
 func TestHost_KeepsTheRuntimesPluginsBesideItsOwn(t *testing.T) {
-	greetings := &_Named{
-		plugin: "greetings",
-		names:  starlark.StringDict{"greeting": starlark.String("hello")},
-	}
-
-	plugins := runtime.WithPlugins(greetings)
+	var (
+		greetings = &_Named{
+			plugin: "greetings",
+			names:  starlark.StringDict{"greeting": starlark.String("hello")},
+		}
+		plugins = runtime.WithPlugins(greetings)
+	)
 
 	built, err := runtime.Compile(
-		&runtime.Source{Entry: "plugins.star", Text: []byte(PLUGINS)},
+		&runtime.Source{
+			Entry: "plugins.star",
+			Text:  []byte(PLUGINS),
+		},
 		plugins,
 	)
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
-	value, err := runtime.Start(t.Context(), built).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != GREETED {
-		t.Fatalf("got %s, want %s", value, GREETED)
+		t.Fatalf(
+			"got %s, want %s",
+			value,
+			GREETED,
+		)
 	}
 }
 
@@ -318,9 +444,18 @@ func TestHost_KeepsTheRuntimesPluginsBesideItsOwn(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 17:12: initial creation
 func TestHost_GivesNoFilesystemByItself(t *testing.T) {
-	_, err := runtime.Compile(&runtime.Source{Entry: "disk.star", Text: []byte(DISK)})
-	if err == nil || !strings.Contains(err.Error(), "undefined: file") {
-		t.Fatalf("got %v, want file undefined", err)
+	_, err := runtime.Compile(&runtime.Source{
+		Entry: "disk.star",
+		Text:  []byte(DISK),
+	})
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"undefined: file",
+	) {
+		t.Fatalf(
+			"got %v, want file undefined",
+			err,
+		)
 	}
 }
 
@@ -333,7 +468,10 @@ func TestHost_GivesNoFilesystemByItself(t *testing.T) {
 //   - 2026-10-02 23:51: initial creation
 //   - 2026-10-03 00:17: takes the flow Derive returns, nothing being reported beside it
 func TestHost_DerivesAFlowItCanEmitBack(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(FIXTURE_DIR, HOST_FIXTURE))
+	src, err := os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		HOST_FIXTURE,
+	))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,49 +482,96 @@ func TestHost_DerivesAFlowItCanEmitBack(t *testing.T) {
 		Loader: &_Disk{},
 	})
 	if err != nil {
-		t.Fatalf("derive: %v", err)
+		t.Fatalf(
+			"derive: %v",
+			err,
+		)
 	}
 
 	emitted, err := runtime.Emit(flow)
 	if err != nil {
-		t.Fatalf("emit: %v", err)
+		t.Fatalf(
+			"emit: %v",
+			err,
+		)
 	}
 
-	built, err := runtime.Compile(&runtime.Source{Entry: "emitted.star", Text: emitted})
+	built, err := runtime.Compile(&runtime.Source{
+		Entry: "emitted.star",
+		Text:  emitted,
+	})
 	if err != nil {
-		t.Fatalf("compile:\n%s\n%v", emitted, err)
+		t.Fatalf(
+			"compile:\n%s\n%v",
+			emitted,
+			err,
+		)
 	}
 
-	value, err := runtime.Start(t.Context(), built).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != EXPECTED_TOTAL {
-		t.Fatalf("got %s, want %s", value, EXPECTED_TOTAL)
+		t.Fatalf(
+			"got %s, want %s",
+			value,
+			EXPECTED_TOTAL,
+		)
 	}
 }
 
 // TestHost_MatchesOneNoMainInADeriveAndARun proves a module, which defines no
-// entry point, is refused with the one ERR_NO_MAIN whether it is read into a
+// entry point, is refused with the one ErrNoMain whether it is read into a
 // flow or run.
 //
 // Revisions:
 //   - 2026-10-02 23:51: initial creation
 func TestHost_MatchesOneNoMainInADeriveAndARun(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(FIXTURE_DIR, LIBRARY_FIXTURE))
+	src, err := os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		LIBRARY_FIXTURE,
+	))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = runtime.Derive(&runtime.Source{Entry: LIBRARY_FIXTURE, Text: src})
-	if !errors.Is(err, runtime.ERR_NO_MAIN) {
-		t.Fatalf("deriving a module got %v, want ERR_NO_MAIN", err)
+	_, err = runtime.Derive(&runtime.Source{
+		Entry: LIBRARY_FIXTURE,
+		Text:  src,
+	})
+	if !errors.Is(
+		err,
+		runtime.ErrNoMain,
+	) {
+		t.Fatalf(
+			"deriving a module got %v, want ErrNoMain",
+			err,
+		)
 	}
 
-	_, err = runtime.Start(t.Context(), _Compiled(t, LIBRARY_FIXTURE)).Wait()
-	if !errors.Is(err, runtime.ERR_NO_MAIN) {
-		t.Fatalf("running a module got %v, want ERR_NO_MAIN", err)
+	_, err = runtime.Start(
+		t.Context(),
+		_Compiled(
+			t,
+			LIBRARY_FIXTURE,
+		),
+	).Wait()
+	if !errors.Is(
+		err,
+		runtime.ErrNoMain,
+	) {
+		t.Fatalf(
+			"running a module got %v, want ErrNoMain",
+			err,
+		)
 	}
 }
 
@@ -397,50 +582,95 @@ func TestHost_MatchesOneNoMainInADeriveAndARun(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 23:31: initial creation
 func TestHost_TurnsAFlowIntoAScript(t *testing.T) {
-	flow := _Flow(t, FLOW)
-
-	err := runtime.Check(flow)
+	var (
+		flow = _Flow(
+			t,
+			FLOW,
+		)
+		err = runtime.Check(flow)
+	)
 	if err != nil {
-		t.Fatalf("check: %v", err)
+		t.Fatalf(
+			"check: %v",
+			err,
+		)
 	}
 
 	src, err := runtime.Emit(flow)
 	if err != nil {
-		t.Fatalf("emit: %v", err)
+		t.Fatalf(
+			"emit: %v",
+			err,
+		)
 	}
 
-	built, err := runtime.Compile(&runtime.Source{Entry: "flow.star", Text: src})
+	built, err := runtime.Compile(&runtime.Source{
+		Entry: "flow.star",
+		Text:  src,
+	})
 	if err != nil {
-		t.Fatalf("compile:\n%s\n%v", src, err)
+		t.Fatalf(
+			"compile:\n%s\n%v",
+			src,
+			err,
+		)
 	}
 
-	value, err := runtime.Start(t.Context(), built).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != DOUBLED {
-		t.Fatalf("got %s, want %s", value, DOUBLED)
+		t.Fatalf(
+			"got %s, want %s",
+			value,
+			DOUBLED,
+		)
 	}
 }
 
 // TestHost_MatchesOneArityInAFlowAndAScript proves a call passing the wrong
-// number of arguments is refused with the one ERR_ARITY, whether a check finds
+// number of arguments is refused with the one ErrArity, whether a check finds
 // it in a flow or a compile finds it in a script.
 //
 // Revisions:
 //   - 2026-10-02 23:31: initial creation
 func TestHost_MatchesOneArityInAFlowAndAScript(t *testing.T) {
-	err := runtime.Check(_Flow(t, MISCALLED))
-	if !errors.Is(err, runtime.ERR_ARITY) {
-		t.Fatalf("checking a flow got %v, want ERR_ARITY", err)
+	err := runtime.Check(_Flow(
+		t,
+		MISCALLED,
+	))
+	if !errors.Is(
+		err,
+		runtime.ErrArity,
+	) {
+		t.Fatalf(
+			"checking a flow got %v, want ErrArity",
+			err,
+		)
 	}
 
 	script := "def double(x):\n    return x * 2\n\ndef main():\n    double(21, 1)\n"
 
-	_, err = runtime.Compile(&runtime.Source{Entry: "miscalled.star", Text: []byte(script)})
-	if !errors.Is(err, runtime.ERR_ARITY) {
-		t.Fatalf("compiling a script got %v, want ERR_ARITY", err)
+	_, err = runtime.Compile(&runtime.Source{
+		Entry: "miscalled.star",
+		Text:  []byte(script),
+	})
+	if !errors.Is(
+		err,
+		runtime.ErrArity,
+	) {
+		t.Fatalf(
+			"compiling a script got %v, want ErrArity",
+			err,
+		)
 	}
 }
 
@@ -451,22 +681,35 @@ func TestHost_MatchesOneArityInAFlowAndAScript(t *testing.T) {
 // Revisions:
 //   - 2026-10-03 16:32: initial creation
 func TestHost_RunsAScriptInOneCall(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(FIXTURE_DIR, HOST_FIXTURE))
+	src, err := os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		HOST_FIXTURE,
+	))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	value, err := runtime.Run(t.Context(), &runtime.Source{
-		Entry:  HOST_FIXTURE,
-		Text:   src,
-		Loader: &_Disk{},
-	})
+	value, err := runtime.Run(
+		t.Context(),
+		&runtime.Source{
+			Entry:  HOST_FIXTURE,
+			Text:   src,
+			Loader: &_Disk{},
+		},
+	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != EXPECTED_TOTAL {
-		t.Fatalf("got %s, want %s", value, EXPECTED_TOTAL)
+		t.Fatalf(
+			"got %s, want %s",
+			value,
+			EXPECTED_TOTAL,
+		)
 	}
 }
 
@@ -476,28 +719,50 @@ func TestHost_RunsAScriptInOneCall(t *testing.T) {
 // Revisions:
 //   - 2026-10-03 16:32: initial creation
 func TestHost_EmitRefusesWhatCheckRefuses(t *testing.T) {
-	_, err := runtime.Emit(_Flow(t, MISCALLED))
-	if !errors.Is(err, runtime.ERR_ARITY) {
-		t.Fatalf("got %v, want ERR_ARITY", err)
+	_, err := runtime.Emit(_Flow(
+		t,
+		MISCALLED,
+	))
+	if !errors.Is(
+		err,
+		runtime.ErrArity,
+	) {
+		t.Fatalf(
+			"got %v, want ErrArity",
+			err,
+		)
 	}
 }
 
 // TestHost_RefusesArgumentsJSONCannotHold proves an argument that is not a value
-// fails the run with ERR_NOT_JSON, before the script runs, since the option
+// fails the run with ErrNotJSON, before the script runs, since the option
 // that took it had nowhere to say so.
 //
 // Revisions:
 //   - 2026-10-03 16:32: initial creation
 func TestHost_RefusesArgumentsJSONCannotHold(t *testing.T) {
-	args := map[string]any{"callback": func() {}}
+	var args = map[string]any{
+		"callback": func() {
+			// Empty
+		},
+	}
 
 	_, err := runtime.Run(
 		t.Context(),
-		&runtime.Source{Entry: "said.star", Text: []byte(SAID)},
+		&runtime.Source{
+			Entry: "said.star",
+			Text:  []byte(SAID),
+		},
 		runtime.WithArgs(args),
 	)
-	if !errors.Is(err, runtime.ERR_NOT_JSON) {
-		t.Fatalf("got %v, want ERR_NOT_JSON", err)
+	if !errors.Is(
+		err,
+		runtime.ErrNotJSON,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNotJSON",
+			err,
+		)
 	}
 }
 
@@ -511,16 +776,29 @@ func TestHost_LogsToAWriterWithTheMessageLast(t *testing.T) {
 
 	_, err := runtime.Run(
 		t.Context(),
-		&runtime.Source{Entry: "said.star", Text: []byte(SAID)},
+		&runtime.Source{
+			Entry: "said.star",
+			Text:  []byte(SAID),
+		},
 		runtime.WithLog(&out),
 	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	line := strings.TrimSpace(out.String())
-	if !strings.HasSuffix(line, SAID_LINE) {
-		t.Fatalf("logged %q, want it to end %q", line, SAID_LINE)
+	if !strings.HasSuffix(
+		line,
+		SAID_LINE,
+	) {
+		t.Fatalf(
+			"logged %q, want it to end %q",
+			line,
+			SAID_LINE,
+		)
 	}
 }
 
@@ -531,20 +809,33 @@ func TestHost_LogsToAWriterWithTheMessageLast(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 15:56: initial creation
 func TestHost_CannotTakeARuntimeName(t *testing.T) {
-	mine := &_Named{
-		plugin: "mine",
-		names:  starlark.StringDict{"sleep": starlark.None},
-	}
-
-	plugins := runtime.WithPlugins(mine)
+	var (
+		mine = &_Named{
+			plugin: "mine",
+			names:  starlark.StringDict{"sleep": starlark.None},
+		}
+		plugins = runtime.WithPlugins(mine)
+	)
 
 	_, err := runtime.Compile(
-		&runtime.Source{Entry: "plugins.star", Text: []byte(PLUGINS)},
+		&runtime.Source{
+			Entry: "plugins.star",
+			Text:  []byte(PLUGINS),
+		},
 		plugins,
 	)
-	if !errors.Is(err, runtime.ERR_CONFLICT) {
-		t.Fatalf("got %v, want ERR_CONFLICT", err)
+	if !errors.Is(
+		err,
+		runtime.ErrConflict,
+	) {
+		t.Fatalf(
+			"got %v, want ErrConflict",
+			err,
+		)
 	}
 
-	t.Logf("refused: %v", err)
+	t.Logf(
+		"refused: %v",
+		err,
+	)
 }

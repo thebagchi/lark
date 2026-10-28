@@ -19,23 +19,33 @@ import (
 )
 
 var (
-	// ERR_ARITY is returned for a call passing a function arguments it does not
+	// ErrArity is returned for a call passing a function arguments it does not
 	// take, whether a compile finds it in a script or a check finds it in a
 	// flow.
-	ERR_ARITY = errors.New("a call passes arguments the function does not take")
+	ErrArity = errors.New("a call passes arguments the function does not take")
 
-	// ERR_NO_MAIN is returned for a script that defines no entry point, whether
+	// ErrNoMain is returned for a script that defines no entry point, whether
 	// it was to be run or read into a flow.
-	ERR_NO_MAIN = errors.New("no entry point")
+	ErrNoMain = errors.New("no entry point")
 
-	// ERR_CYCLE is returned for a script whose modules load each other in a
+	// ErrCycle is returned for a script whose modules load each other in a
 	// ring, whether it was being compiled or read into a flow.
-	ERR_CYCLE = errors.New("cycle in the load graph")
+	ErrCycle = errors.New("cycle in the load graph")
+
+	// ErrDepth is returned for a chain of loads longer than MAX_DEPTH.
+	// A chain that long overflows the stack before it returns an error.
+	ErrDepth = errors.New("load chain too deep")
 )
 
+// MAX_DEPTH is the longest chain of loads a compile or a derivation
+// follows before it refuses the script.
 const (
-	// ENTRY is the function a run starts at, and the one a graph's spine
-	// carries as its first step.
+	MAX_DEPTH = 256
+)
+
+// ENTRY is the function a run starts at, and the one a graph's spine
+// carries as its first step.
+const (
 	ENTRY = "main"
 
 	// THREAD prefixes every thread id and HANDLE prefixes a spawned thread's
@@ -101,10 +111,21 @@ const (
 //
 // Revisions:
 //   - 2026-09-27 00:10: initial creation, from the copies in scheduler and graph
-func Child(parent string, ordinal int) string {
+func Child(
+	parent string,
+	ordinal int,
+) string {
 	if parent == SPINE {
-		return fmt.Sprintf("%s%d", THREAD, ordinal)
+		return fmt.Sprintf(
+			"%s%d",
+			THREAD,
+			ordinal,
+		)
 	}
 
-	return fmt.Sprintf("%s_%d", parent, ordinal)
+	return fmt.Sprintf(
+		"%s_%d",
+		parent,
+		ordinal,
+	)
 }

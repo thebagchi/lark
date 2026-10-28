@@ -8,13 +8,17 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
-// ERR_NO_MAIN is returned for a script with no entry point, or one a run cannot
+// ErrNoMain is returned for a script with no entry point, or one a run cannot
 // call with no arguments. spelling's, so it is the value reading a script into
 // a flow refuses one with.
-var ERR_NO_MAIN = spelling.ERR_NO_MAIN
+var (
+	ErrNoMain = spelling.ErrNoMain
+)
 
 // ENTRY is the one top-level function a final compilation unit must define.
-const ENTRY = spelling.ENTRY
+const (
+	ENTRY = spelling.ENTRY
+)
 
 // _RequireEntry reports whether tree defines the entry point as a function that
 // can be called with no arguments.
@@ -42,14 +46,14 @@ func _RequireEntry(tree *syntax.File) error {
 				"%s at %s must take no required parameters: %w",
 				ENTRY,
 				def.Name.NamePos,
-				ERR_NO_MAIN,
+				ErrNoMain,
 			)
 		}
 
 		return nil
 	}
 
-	return ERR_NO_MAIN
+	return ErrNoMain
 }
 
 // _RequiredParams counts the parameters of def that a caller has to supply.

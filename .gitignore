@@ -5,19 +5,26 @@
 *.exe
 
 # Anything fetched that the module system does not manage lands here, unpacked,
-# and is reproducible from the pins. See .guidelines/bootstrapping.md.
+# and is reproducible from the pins.
 thirdparty/
 
 # The working record: how this was planned, proved, reviewed and logged, and
 # the conventions it was written to. Kept on disk, out of the repository.
 .claude/
-.guidelines/
+.guidelines
 .poc/
 CLAUDE.md
-plan.md
 review.md
-revision.md
-testing.md
+
+# The checkers and the gates, copied from the convention kit. The kit is their source.
+.tools/
+Makefile
+
+# Coverage profiles. The kit gates write these names.
+*.out
+coverage.*
+*.coverprofile
+profile.cov
 
 # A WSL utility for deleting Windows Zone.Identifier sidecars. It lives here
 # because that is where it is run from, not because it belongs to this project.

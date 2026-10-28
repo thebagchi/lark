@@ -45,35 +45,75 @@ greet()
 func TestSettings_LogsWhenWhereAndWhoPrinted(t *testing.T) {
 	var out bytes.Buffer
 
-	thread := &starlark.Thread{Name: "printing"}
+	thread := &starlark.Thread{
+		Name: "printing",
+	}
 
-	settings := &scheduler.Settings{Logger: slog.New(slog.NewJSONHandler(&out, nil))}
-	finish := scheduler.Begin(t.Context(), thread, spelling.ENTRY, settings)
+	var (
+		settings = &scheduler.Settings{
+			Logger: slog.New(slog.NewJSONHandler(
+				&out,
+				nil,
+			)),
+		}
+		finish = scheduler.Begin(
+			t.Context(),
+			thread,
+			spelling.ENTRY,
+			settings,
+		)
+	)
 
-	_, err := starlark.ExecFileOptions(dialect.OPTIONS, thread, "printing.star", PRINTING, nil)
+	_, err := starlark.ExecFileOptions(
+		dialect.OPTIONS,
+		thread,
+		"printing.star",
+		PRINTING,
+		nil,
+	)
 
 	err = finish(err)
-
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
-	want := [][]string{
-		{"from the top", scheduler.SPINE, TOPLEVEL},
-		{"from greet", scheduler.SPINE, "greet"},
-	}
-
-	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	var (
+		want = [][]string{
+			{"from the top", scheduler.SPINE, TOPLEVEL},
+			{"from greet", scheduler.SPINE, "greet"},
+		}
+		lines = strings.Split(
+			strings.TrimSuffix(
+				out.String(),
+				"\n",
+			),
+			"\n",
+		)
+	)
 	if len(lines) != len(want) {
-		t.Fatalf("got %q, want %d records", lines, len(want))
+		t.Fatalf(
+			"got %q, want %d records",
+			lines,
+			len(want),
+		)
 	}
 
 	for idx, line := range lines {
 		record := map[string]any{}
 
-		err = json.Unmarshal([]byte(line), &record)
+		err = json.Unmarshal(
+			[]byte(line),
+			&record,
+		)
 		if err != nil {
-			t.Fatalf("record %q: %v", line, err)
+			t.Fatalf(
+				"record %q: %v",
+				line,
+				err,
+			)
 		}
 
 		got := []any{
@@ -82,12 +122,23 @@ func TestSettings_LogsWhenWhereAndWhoPrinted(t *testing.T) {
 			record[scheduler.ATTR_FUNCTION],
 		}
 		if fmt.Sprint(got) != fmt.Sprint(want[idx]) {
-			t.Fatalf("got %v, want %v", got, want[idx])
+			t.Fatalf(
+				"got %v, want %v",
+				got,
+				want[idx],
+			)
 		}
 
-		_, err = time.Parse(time.RFC3339Nano, fmt.Sprint(record[slog.TimeKey]))
+		_, err = time.Parse(
+			time.RFC3339Nano,
+			fmt.Sprint(record[slog.TimeKey]),
+		)
 		if err != nil {
-			t.Fatalf("want the handler's time in %q: %v", line, err)
+			t.Fatalf(
+				"want the handler's time in %q: %v",
+				line,
+				err,
+			)
 		}
 	}
 }

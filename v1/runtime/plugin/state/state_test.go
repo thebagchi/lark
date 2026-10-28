@@ -45,8 +45,14 @@ type _Disk struct{}
 //
 // Revisions:
 //   - 2026-09-20 00:36: initial creation
-func (d *_Disk) Resolve(from string, target string) (string, error) {
-	return path.Join(path.Dir(from), target), nil
+func (d *_Disk) Resolve(
+	from string,
+	target string,
+) (string, error) {
+	return path.Join(
+		path.Dir(from),
+		target,
+	), nil
 }
 
 // Load reads the fixture at name.
@@ -54,19 +60,32 @@ func (d *_Disk) Resolve(from string, target string) (string, error) {
 // Revisions:
 //   - 2026-09-20 00:36: initial creation
 func (d *_Disk) Load(name string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(FIXTURE_DIR, name))
+	return os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		name,
+	))
 }
 
 // _Built compiles the named fixture or ends the test.
 //
 // Revisions:
 //   - 2026-09-20 00:36: initial creation
-func _Built(t *testing.T, name string) *runtime.Artifact {
+func _Built(
+	t *testing.T,
+	name string,
+) *runtime.Artifact {
 	t.Helper()
 
-	src, err := os.ReadFile(filepath.Join(FIXTURE_DIR, name))
+	src, err := os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		name,
+	))
 	if err != nil {
-		t.Fatalf("read fixture %s: %v", name, err)
+		t.Fatalf(
+			"read fixture %s: %v",
+			name,
+			err,
+		)
 	}
 
 	built, err := runtime.Compile(&runtime.Source{
@@ -75,7 +94,11 @@ func _Built(t *testing.T, name string) *runtime.Artifact {
 		Loader: &_Disk{},
 	})
 	if err != nil {
-		t.Fatalf("compile %s: %v", name, err)
+		t.Fatalf(
+			"compile %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return built
@@ -87,18 +110,34 @@ func _Built(t *testing.T, name string) *runtime.Artifact {
 // Revisions:
 //   - 2026-09-20 00:37: initial creation
 func TestState_IsSharedBetweenThreadsOfOneRun(t *testing.T) {
-	value, err := runtime.Start(t.Context(), _Built(t, SHARE_SCRIPT)).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			SHARE_SCRIPT,
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	text, ok := value.(starlark.String)
 	if !ok {
-		t.Fatalf("got %T, want starlark.String", value)
+		t.Fatalf(
+			"got %T, want starlark.String",
+			value,
+		)
 	}
 
 	if string(text) != EXPECTED {
-		t.Fatalf("got %q, want %q", string(text), EXPECTED)
+		t.Fatalf(
+			"got %q, want %q",
+			string(text),
+			EXPECTED,
+		)
 	}
 }
 
@@ -112,12 +151,22 @@ func TestState_IsSharedBetweenThreadsOfOneRun(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 00:38: initial creation
 func TestState_IsPerExecutionNotPerCompile(t *testing.T) {
-	built := _Built(t, COUNT_SCRIPT)
+	built := _Built(
+		t,
+		COUNT_SCRIPT,
+	)
 
 	for attempt := range 2 {
-		value, err := runtime.Start(t.Context(), built).Wait()
+		value, err := runtime.Start(
+			t.Context(),
+			built,
+		).Wait()
 		if err != nil {
-			t.Fatalf("run %d: %v", attempt, err)
+			t.Fatalf(
+				"run %d: %v",
+				attempt,
+				err,
+			)
 		}
 
 		if value.String() != FIRST_RUN {
@@ -138,13 +187,25 @@ func TestState_IsPerExecutionNotPerCompile(t *testing.T) {
 //   - 2026-09-20 00:39: initial creation
 //   - 2026-10-03 00:21: runs a fixture of its own, a run calling main and nothing else
 func TestState_MissingKeyIsNone(t *testing.T) {
-	value, err := runtime.Start(t.Context(), _Built(t, UNSET_SCRIPT)).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			UNSET_SCRIPT,
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value != starlark.None {
-		t.Fatalf("got %v, want None", value)
+		t.Fatalf(
+			"got %v, want None",
+			value,
+		)
 	}
 }
 
@@ -161,13 +222,25 @@ func TestState_MissingKeyIsNone(t *testing.T) {
 //   - 2026-09-20 00:42: initial creation, as TestState_FreezesWhatItStores
 //   - 2026-09-20 00:50: reversed, for the copy that replaced the refusal
 func TestState_ReadsAreCopies(t *testing.T) {
-	value, err := runtime.Start(t.Context(), _Built(t, MUTATE_SCRIPT)).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			MUTATE_SCRIPT,
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != `["one", "two", "three"]` {
-		t.Fatalf("got %s", value.String())
+		t.Fatalf(
+			"got %s",
+			value.String(),
+		)
 	}
 }
 
@@ -181,13 +254,26 @@ func TestState_ReadsAreCopies(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 00:46: initial creation
 func TestUpdate_IsAtomic(t *testing.T) {
-	value, err := runtime.Start(t.Context(), _Built(t, ATOMIC_SCRIPT)).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			ATOMIC_SCRIPT,
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != EXPECTED_TOTAL {
-		t.Fatalf("counted %s, want %s", value.String(), EXPECTED_TOTAL)
+		t.Fatalf(
+			"counted %s, want %s",
+			value.String(),
+			EXPECTED_TOTAL,
+		)
 	}
 }
 
@@ -197,13 +283,25 @@ func TestUpdate_IsAtomic(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 00:47: initial creation
 func TestUpdate_SeesNoneWhenNothingIsStored(t *testing.T) {
-	value, err := runtime.Start(t.Context(), _Built(t, MISSING_SCRIPT)).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			MISSING_SCRIPT,
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != "0" {
-		t.Fatalf("got %s, want 0", value.String())
+		t.Fatalf(
+			"got %s, want 0",
+			value.String(),
+		)
 	}
 }
 
@@ -241,22 +339,49 @@ func TestUpdate_RefusesToNest(t *testing.T) {
 	}
 
 	for _, script := range scripts {
-		t.Run(script, func(t *testing.T) {
-			started := time.Now()
+		t.Run(
+			script,
+			func(t *testing.T) {
+				var (
+					started = time.Now()
+					err     error
+				)
 
-			_, err := runtime.Start(t.Context(), _Built(t, script)).Wait()
-			if !errors.Is(err, runtime.ERR_NESTED) {
-				t.Fatalf("want ERR_NESTED, got %v", err)
-			}
+				_, err = runtime.Start(
+					t.Context(),
+					_Built(
+						t,
+						script,
+					),
+				).Wait()
+				if !errors.Is(
+					err,
+					runtime.ErrNested,
+				) {
+					t.Fatalf(
+						"want ErrNested, got %v",
+						err,
+					)
+				}
 
-			if !strings.Contains(err.Error(), "cannot start another") {
-				t.Fatalf("refused without saying so: %v", err)
-			}
+				if !strings.Contains(
+					err.Error(),
+					"cannot start another",
+				) {
+					t.Fatalf(
+						"refused without saying so: %v",
+						err,
+					)
+				}
 
-			if time.Since(started) > PROMPT {
-				t.Fatalf("a refusal took %s", time.Since(started))
-			}
-		})
+				if time.Since(started) > PROMPT {
+					t.Fatalf(
+						"a refusal took %s",
+						time.Since(started),
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -267,11 +392,26 @@ func TestUpdate_RefusesToNest(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestUpdate_AContendedNameEndsWithTheRun(t *testing.T) {
-	started := time.Now()
+	var (
+		started = time.Now()
+		err     error
+	)
 
-	_, err := runtime.Start(t.Context(), _Built(t, "contended.star")).Wait()
-	if !errors.Is(err, runtime.ERR_ASSERT) {
-		t.Fatalf("want the assertion, got %v", err)
+	_, err = runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			"contended.star",
+		),
+	).Wait()
+	if !errors.Is(
+		err,
+		runtime.ErrAssert,
+	) {
+		t.Fatalf(
+			"want the assertion, got %v",
+			err,
+		)
 	}
 
 	if time.Since(started) > PROMPT {
@@ -289,15 +429,28 @@ func TestUpdate_AContendedNameEndsWithTheRun(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestState_CopiesATuple(t *testing.T) {
-	value, err := runtime.Start(t.Context(), _Built(t, "tuple.star")).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			"tuple.star",
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	want := `[(1, 2), [("a", 1), {"k": ("b", 2)}]]`
 
 	if value.String() != want {
-		t.Fatalf("got %s, want %s", value.String(), want)
+		t.Fatalf(
+			"got %s, want %s",
+			value.String(),
+			want,
+		)
 	}
 }
 
@@ -308,9 +461,18 @@ func TestState_CopiesATuple(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 00:51: initial creation
 func TestState_AChangeIsInvisibleUntilPublished(t *testing.T) {
-	value, err := runtime.Start(t.Context(), _Built(t, UNPUBLISHED_SCRIPT)).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			UNPUBLISHED_SCRIPT,
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != `[["one"], ["one", "two"]]` {
@@ -333,13 +495,25 @@ func TestState_AChangeIsInvisibleUntilPublished(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 00:52: initial creation
 func TestState_CopiesSurviveCyclesAndSharing(t *testing.T) {
-	value, err := runtime.Start(t.Context(), _Built(t, CYCLIC_SCRIPT)).Wait()
+	value, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			CYCLIC_SCRIPT,
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if value.String() != `[3, [9, 8]]` {
-		t.Fatalf("got %s, want [3, [9, 8]]", value.String())
+		t.Fatalf(
+			"got %s, want [3, [9, 8]]",
+			value.String(),
+		)
 	}
 }
 
@@ -354,9 +528,18 @@ func TestState_CopiesSurviveCyclesAndSharing(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 16:15: initial creation
 func TestSet_IsNotLostToAnUpdateThatStartedEarlier(t *testing.T) {
-	got, err := runtime.Start(t.Context(), _Built(t, "setwins.star")).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			"setwins.star",
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if got.String() != `"from-set"` {
@@ -374,17 +557,32 @@ func TestSet_IsNotLostToAnUpdateThatStartedEarlier(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 16:15: initial creation
 func TestSet_FromInsideAnUpdateIsRefusedRatherThanWaited(t *testing.T) {
-	done := make(chan error, 1)
+	done := make(
+		chan error,
+		1,
+	)
 
 	go func() {
-		_, err := runtime.Start(t.Context(), _Built(t, "setinside.star")).Wait()
+		_, err := runtime.Start(
+			t.Context(),
+			_Built(
+				t,
+				"setinside.star",
+			),
+		).Wait()
 		done <- err
 	}()
 
 	select {
 	case err := <-done:
-		if !errors.Is(err, runtime.ERR_NESTED) {
-			t.Fatalf("got %v, want ERR_NESTED", err)
+		if !errors.Is(
+			err,
+			runtime.ErrNested,
+		) {
+			t.Fatalf(
+				"got %v, want ErrNested",
+				err,
+			)
 		}
 	case <-time.After(PROMPT):
 		t.Fatal("a set inside an update hung rather than being refused")
@@ -410,27 +608,51 @@ func TestSet_FromInsideAnUpdateIsRefusedRatherThanWaited(t *testing.T) {
 func TestUpdate_AChildIsRefusedAfterTheUpdateHasFinished(t *testing.T) {
 	var out bytes.Buffer
 
-	logger := slog.New(slog.NewTextHandler(&out, nil))
+	var (
+		logger = slog.New(slog.NewTextHandler(
+			&out,
+			nil,
+		))
+		err error
+	)
 
-	_, err := runtime.Start(
+	_, err = runtime.Start(
 		t.Context(),
-		_Built(t, "afterupdate.star"),
+		_Built(
+			t,
+			"afterupdate.star",
+		),
 		runtime.WithLogger(logger),
 	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	said := out.String()
 
 	// It got as far as the store, which is what makes the next line a
 	// refusal rather than a thread that never ran.
-	if !strings.Contains(said, "child reached the store") {
-		t.Fatalf("the child never ran: %q", said)
+	if !strings.Contains(
+		said,
+		"child reached the store",
+	) {
+		t.Fatalf(
+			"the child never ran: %q",
+			said,
+		)
 	}
 
-	if strings.Contains(said, "child stored") {
-		t.Fatalf("a child spawned inside an update stored after it returned: %q", said)
+	if strings.Contains(
+		said,
+		"child stored",
+	) {
+		t.Fatalf(
+			"a child spawned inside an update stored after it returned: %q",
+			said,
+		)
 	}
 }
 
@@ -440,13 +662,31 @@ func TestUpdate_AChildIsRefusedAfterTheUpdateHasFinished(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 16:55: initial creation
 func TestUpdate_ANestedUpdateStillSaysItIsUpdating(t *testing.T) {
-	_, err := runtime.Start(t.Context(), _Built(t, NESTED_SCRIPT)).Wait()
-	if !errors.Is(err, runtime.ERR_NESTED) {
-		t.Fatalf("got %v, want ERR_NESTED", err)
+	_, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			NESTED_SCRIPT,
+		),
+	).Wait()
+	if !errors.Is(
+		err,
+		runtime.ErrNested,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNested",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), "already updating") {
-		t.Fatalf("an evaluation holding the name was not told so: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"already updating",
+	) {
+		t.Fatalf(
+			"an evaluation holding the name was not told so: %v",
+			err,
+		)
 	}
 }
 
@@ -468,21 +708,45 @@ func TestUpdate_ANestedUpdateStillSaysItIsUpdating(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 17:12: initial creation
 func TestJoin_UnderAHeldNameIsRefused(t *testing.T) {
-	started := time.Now()
+	var (
+		started = time.Now()
+		err     error
+	)
 
-	_, err := runtime.Start(t.Context(), _Built(t, "join_under_lock.star")).Wait()
-	if !errors.Is(err, runtime.ERR_NESTED) {
-		t.Fatalf("got %v, want ERR_NESTED", err)
+	_, err = runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			"join_under_lock.star",
+		),
+	).Wait()
+	if !errors.Is(
+		err,
+		runtime.ErrNested,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNested",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), "join") {
-		t.Fatalf("the refusal does not say what was refused: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"join",
+	) {
+		t.Fatalf(
+			"the refusal does not say what was refused: %v",
+			err,
+		)
 	}
 
 	// It refuses rather than waits, so this returns at once. Before the
 	// refusal the same script ran until something killed it.
 	if taken := time.Since(started); taken > PROMPT {
-		t.Fatalf("refusing took %s, which is a wait rather than a refusal", taken)
+		t.Fatalf(
+			"refusing took %s, which is a wait rather than a refusal",
+			taken,
+		)
 	}
 }
 
@@ -492,13 +756,25 @@ func TestJoin_UnderAHeldNameIsRefused(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 17:12: initial creation
 func TestJoin_AfterTheUpdateHasReturnedIsLegal(t *testing.T) {
-	got, err := runtime.Start(t.Context(), _Built(t, "joinafter.star")).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			"joinafter.star",
+		),
+	).Wait()
 	if err != nil {
-		t.Fatalf("joining after an update returned was refused: %v", err)
+		t.Fatalf(
+			"joining after an update returned was refused: %v",
+			err,
+		)
 	}
 
 	if got.String() != `"joined"` {
-		t.Fatalf("got %s, want the joined value", got.String())
+		t.Fatalf(
+			"got %s, want the joined value",
+			got.String(),
+		)
 	}
 }
 
@@ -547,19 +823,37 @@ def main():
 	}
 
 	for name, script := range cases {
-		t.Run(name, func(t *testing.T) {
-			built, err := runtime.Compile(
-				&runtime.Source{Entry: name + ".star", Text: []byte(script)},
-			)
-			if err != nil {
-				t.Fatalf("compile: %v", err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				built, err := runtime.Compile(
+					&runtime.Source{
+						Entry: name + ".star",
+						Text:  []byte(script),
+					},
+				)
+				if err != nil {
+					t.Fatalf(
+						"compile: %v",
+						err,
+					)
+				}
 
-			_, err = runtime.Start(t.Context(), built).Wait()
-			if !errors.Is(err, state.ERR_NOT_DATA) {
-				t.Fatalf("got %v, want ERR_NOT_DATA", err)
-			}
-		})
+				_, err = runtime.Start(
+					t.Context(),
+					built,
+				).Wait()
+				if !errors.Is(
+					err,
+					state.ErrNotData,
+				) {
+					t.Fatalf(
+						"got %v, want ErrNotData",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -585,14 +879,28 @@ func TestSet_RefusesAVisibleFunctionBeforeItRuns(t *testing.T) {
 	}
 
 	for name, script := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := runtime.Compile(
-				&runtime.Source{Entry: name + ".star", Text: []byte(script)},
-			)
-			if !errors.Is(err, state.ERR_NOT_DATA) {
-				t.Fatalf("compiling gave %v, want ERR_NOT_DATA before it ran", err)
-			}
-		})
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := runtime.Compile(
+					&runtime.Source{
+						Entry: name + ".star",
+						Text:  []byte(script),
+					},
+				)
+				if !errors.Is(
+					err,
+					state.ErrNotData,
+				) {
+					t.Fatalf(
+						"compiling"+
+							" gave %v, want ErrNotData "+
+							"before it ran",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -608,18 +916,33 @@ def main():
     return state.get("k")
 `
 
-	built, err := runtime.Compile(&runtime.Source{Entry: "data.star", Text: []byte(SCRIPT)})
+	built, err := runtime.Compile(&runtime.Source{
+		Entry: "data.star",
+		Text:  []byte(SCRIPT),
+	})
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
-	got, err := runtime.Start(t.Context(), built).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if got.String() != `[1, {"a": (2, 3)}, None, True, b"x", 1.5]` {
-		t.Fatalf("got %s", got.String())
+		t.Fatalf(
+			"got %s",
+			got.String(),
+		)
 	}
 }
 
@@ -657,18 +980,33 @@ def main():
     return "done"
 `
 
-	built, err := runtime.Compile(&runtime.Source{Entry: "guarded.star", Text: []byte(SCRIPT)})
+	built, err := runtime.Compile(&runtime.Source{
+		Entry: "guarded.star",
+		Text:  []byte(SCRIPT),
+	})
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
-	got, err := runtime.Start(t.Context(), built).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	if got.String() != `"done"` {
-		t.Fatalf("got %s", got.String())
+		t.Fatalf(
+			"got %s",
+			got.String(),
+		)
 	}
 }
 
@@ -688,19 +1026,37 @@ def main():
 func TestSet_StoringSomethingElseStopsTheWholeRun(t *testing.T) {
 	var out bytes.Buffer
 
-	logger := slog.New(slog.NewTextHandler(&out, nil))
+	var (
+		logger = slog.New(slog.NewTextHandler(
+			&out,
+			nil,
+		))
+		err error
+	)
 
-	_, err := runtime.Start(
+	_, err = runtime.Start(
 		t.Context(),
-		_Built(t, "spawnstore.star"),
+		_Built(
+			t,
+			"spawnstore.star",
+		),
 		runtime.WithLogger(logger),
 	).Wait()
-	if !errors.Is(err, state.ERR_NOT_DATA) {
-		t.Fatalf("got %v, want the run stopped with ERR_NOT_DATA", err)
+	if !errors.Is(
+		err,
+		state.ErrNotData,
+	) {
+		t.Fatalf(
+			"got %v, want the run stopped with ErrNotData",
+			err,
+		)
 	}
 
 	for line := range strings.Lines(out.String()) {
-		if strings.Contains(line, "run survived") {
+		if strings.Contains(
+			line,
+			"run survived",
+		) {
 			t.Fatal("the run finished, so an unjoined thread's mistake went unsaid")
 		}
 	}
@@ -729,19 +1085,34 @@ def main():
 `
 
 	built, err := runtime.Compile(
-		&runtime.Source{Entry: "aliased.star", Text: []byte(ALIASED)},
+		&runtime.Source{
+			Entry: "aliased.star",
+			Text:  []byte(ALIASED),
+		},
 	)
 	if err != nil {
-		t.Fatalf("compiling a script with its own state was refused: %v", err)
+		t.Fatalf(
+			"compiling a script with its own state was refused: %v",
+			err,
+		)
 	}
 
 	// It fails when it runs, for the reason it should: that value has no set.
-	_, err = runtime.Start(t.Context(), built).Wait()
+	_, err = runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err == nil {
 		t.Fatal("want the run to fail on the aliased value")
 	}
 
-	if errors.Is(err, state.ERR_NOT_DATA) {
-		t.Fatalf("the store was blamed for a call it never saw: %v", err)
+	if errors.Is(
+		err,
+		state.ErrNotData,
+	) {
+		t.Fatalf(
+			"the store was blamed for a call it never saw: %v",
+			err,
+		)
 	}
 }

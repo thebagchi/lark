@@ -44,15 +44,15 @@ const (
 	// TICK is what now answers with.
 	TICK = "tick"
 
-	// _SETTLED is how long to wait for a plugin to be installed, or for one
+	// SETTLED is how long to wait for a plugin to be installed, or for one
 	// that was refused to have failed. Enormous next to the milliseconds
 	// either takes.
-	_SETTLED = 10 * time.Second
+	SETTLED = 10 * time.Second
 
-	// _STALLED is how long a one-second timeout is given to return before the
+	// STALLED is how long a one-second timeout is given to return before the
 	// call is taken not to be watching its caller at all. Generous, because
 	// what is being told apart is "a moment late" from "never".
-	_STALLED = 15 * time.Second
+	STALLED = 15 * time.Second
 )
 
 // _Listening is a listener, holding only what attaches: a compiler adds that
@@ -69,7 +69,10 @@ func _Listening(t *testing.T) (*remote.Listener, string) {
 
 	// A short path, because a unix socket has a low length limit and a test
 	// name is not short.
-	dir, err := os.MkdirTemp("", "lk")
+	dir, err := os.MkdirTemp(
+		"",
+		"lk",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,9 +81,17 @@ func _Listening(t *testing.T) (*remote.Listener, string) {
 		_ = os.RemoveAll(dir)
 	})
 
-	socket := filepath.Join(dir, "s")
+	socket := filepath.Join(
+		dir,
+		"s",
+	)
 
-	listener, err := remote.Listen(socket, TOKEN)
+	var listener *remote.Listener
+
+	listener, err = remote.Listen(
+		socket,
+		TOKEN,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +103,15 @@ func _Listening(t *testing.T) (*remote.Listener, string) {
 	return listener, socket
 }
 
+// _Guest is a plugin that dials the test listener and answers one name.
+type _Guest struct {
+	socket string
+	token  string
+	called string
+	named  []string
+	answer func(*pluginpb.Ask) *pluginpb.Answer
+}
+
 // _Answering is a plugin dialling in from this process, announcing named and
 // answering with answer until the test ends.
 //
@@ -99,23 +119,35 @@ func _Listening(t *testing.T) (*remote.Listener, string) {
 //
 // Revisions:
 //   - 2026-09-25 06:40: initial creation
+//   - 2026-10-24 18:29: takes the plugin's fields in one struct
 func _Answering(
 	t *testing.T,
-	socket string,
-	token string,
-	called string,
-	named []string,
-	answer func(*pluginpb.Ask) *pluginpb.Answer,
+	guest *_Guest,
 ) func() {
 	t.Helper()
+
+	var (
+		socket = guest.socket
+		token  = guest.token
+		called = guest.called
+		named  = guest.named
+		answer = guest.answer
+	)
 
 	held, err := grpc.NewClient(
 		"unix:"+socket,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+		grpc.WithContextDialer(func(
+			ctx context.Context,
+			_ string,
+		) (net.Conn, error) {
 			var dialer net.Dialer
 
-			return dialer.DialContext(ctx, "unix", socket)
+			return dialer.DialContext(
+				ctx,
+				"unix",
+				socket,
+			)
 		}),
 	)
 	if err != nil {
@@ -129,7 +161,11 @@ func _Answering(
 
 	err = stream.Send(&pluginpb.Request{
 		Of: &pluginpb.Request_Register{
-			Register: &pluginpb.Register{Token: token, Name: called, Names: named},
+			Register: &pluginpb.Register{
+				Token: token,
+				Name:  called,
+				Names: named,
+			},
 		},
 	})
 	if err != nil {
@@ -149,7 +185,9 @@ func _Answering(
 			}
 
 			err = stream.Send(&pluginpb.Request{
-				Of: &pluginpb.Request_Answer{Answer: answer(ask)},
+				Of: &pluginpb.Request_Answer{
+					Answer: answer(ask),
+				},
 			})
 			if err != nil {
 				return
@@ -174,7 +212,10 @@ func _Answering(
 func _Clock(ask *pluginpb.Ask) *pluginpb.Answer {
 	switch ask.GetName() {
 	case NOW:
-		return &pluginpb.Answer{Id: ask.GetId(), Result: structpb.NewStringValue(TICK)}
+		return &pluginpb.Answer{
+			Id:     ask.GetId(),
+			Result: structpb.NewStringValue(TICK),
+		}
 
 	case ADD:
 		total := float64(0)
@@ -183,10 +224,16 @@ func _Clock(ask *pluginpb.Ask) *pluginpb.Answer {
 			total += given.GetNumberValue()
 		}
 
-		return &pluginpb.Answer{Id: ask.GetId(), Result: structpb.NewNumberValue(total)}
+		return &pluginpb.Answer{
+			Id:     ask.GetId(),
+			Result: structpb.NewNumberValue(total),
+		}
 	}
 
-	return &pluginpb.Answer{Id: ask.GetId(), Failed: "no such name: " + ask.GetName()}
+	return &pluginpb.Answer{
+		Id:     ask.GetId(),
+		Failed: "no such name: " + ask.GetName(),
+	}
 }
 
 // _Installed waits until the listener is carrying count names.
@@ -196,10 +243,14 @@ func _Clock(ask *pluginpb.Ask) *pluginpb.Answer {
 //
 // Revisions:
 //   - 2026-09-25 06:40: initial creation
-func _Installed(t *testing.T, listener *remote.Listener, count int) {
+func _Installed(
+	t *testing.T,
+	listener *remote.Listener,
+	count int,
+) {
 	t.Helper()
 
-	deadline := time.Now().Add(_SETTLED)
+	deadline := time.Now().Add(SETTLED)
 
 	for time.Now().Before(deadline) {
 		if len(listener.Names()) >= count {
@@ -209,25 +260,39 @@ func _Installed(t *testing.T, listener *remote.Listener, count int) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	t.Fatalf("only %d names were installed, want %d", len(listener.Names()), count)
+	t.Fatalf(
+		"only %d names were installed, want %d",
+		len(listener.Names()),
+		count,
+	)
 }
 
 // _Ran compiles and runs src with the listener's plugins.
 //
 // Revisions:
 //   - 2026-09-25 06:40: initial creation
-func _Ran(t *testing.T, listener *remote.Listener, src string) (string, error) {
+func _Ran(
+	t *testing.T,
+	listener *remote.Listener,
+	src string,
+) (string, error) {
 	t.Helper()
 
 	built, err := runtime.Compile(
-		&runtime.Source{Entry: SCRIPT, Text: []byte(src)},
+		&runtime.Source{
+			Entry: SCRIPT,
+			Text:  []byte(src),
+		},
 		runtime.WithPlugins(listener.Plugins()...),
 	)
 	if err != nil {
 		return "", err
 	}
 
-	value, err := runtime.Start(context.Background(), built).Wait()
+	value, err := runtime.Start(
+		context.Background(),
+		built,
+	).Wait()
 	if err != nil {
 		return "", err
 	}
@@ -243,19 +308,42 @@ func _Ran(t *testing.T, listener *remote.Listener, src string) (string, error) {
 func TestRemote_AScriptCannotTell(t *testing.T) {
 	listener, socket := _Listening(t)
 
-	_Answering(t, socket, TOKEN, CLOCK, []string{NOW, ADD}, _Clock)
-	_Installed(t, listener, 2)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{NOW, ADD},
+			answer: _Clock,
+		},
+	)
+	_Installed(
+		t,
+		listener,
+		2,
+	)
 
-	got, err := _Ran(t, listener, `
+	got, err := _Ran(
+		t,
+		listener,
+		`
 def main():
     return [clock.now(), clock.add(2, 3), type(clock)]
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("calling across a socket: %v", err)
+		t.Fatalf(
+			"calling across a socket: %v",
+			err,
+		)
 	}
 
 	if got != `["tick", 5.0, "module"]` {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -271,13 +359,45 @@ def main():
 func TestRemote_AConflictIsStillTheRegistrysToRefuse(t *testing.T) {
 	listener, socket := _Listening(t)
 
-	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, _Clock)
-	_Answering(t, socket, TOKEN, "clock2", []string{NOW}, _Clock)
-	_Installed(t, listener, 2)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{NOW},
+			answer: _Clock,
+		},
+	)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: "clock2",
+			named:  []string{NOW},
+			answer: _Clock,
+		},
+	)
+	_Installed(
+		t,
+		listener,
+		2,
+	)
 
-	_, err := _Ran(t, listener, "def main():\n    return clock.now()\n")
-	if !errors.Is(err, plugin.ERR_CONFLICT) {
-		t.Fatalf("got %v, want ERR_CONFLICT", err)
+	_, err := _Ran(
+		t,
+		listener,
+		"def main():\n    return clock.now()\n",
+	)
+	if !errors.Is(
+		err,
+		plugin.ErrConflict,
+	) {
+		t.Fatalf(
+			"got %v, want ErrConflict",
+			err,
+		)
 	}
 }
 
@@ -294,8 +414,21 @@ func TestRemote_AConflictIsStillTheRegistrysToRefuse(t *testing.T) {
 func TestRemote_AFunctionNeverCrosses(t *testing.T) {
 	listener, socket := _Listening(t)
 
-	_Answering(t, socket, TOKEN, CLOCK, []string{NOW, ADD}, _Clock)
-	_Installed(t, listener, 2)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{NOW, ADD},
+			answer: _Clock,
+		},
+	)
+	_Installed(
+		t,
+		listener,
+		2,
+	)
 
 	cases := map[string]string{
 		"a declared function": "def helper():\n    return 1\n\n" +
@@ -310,22 +443,45 @@ func TestRemote_AFunctionNeverCrosses(t *testing.T) {
 	}
 
 	for name, src := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := _Ran(t, listener, src)
-			if !errors.Is(err, remote.ERR_ARGUMENT) {
-				t.Fatalf("got %v, want ERR_ARGUMENT", err)
-			}
-		})
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Ran(
+					t,
+					listener,
+					src,
+				)
+				if !errors.Is(
+					err,
+					remote.ErrArgument,
+				) {
+					t.Fatalf(
+						"got %v, want ErrArgument",
+						err,
+					)
+				}
+			},
+		)
 	}
 
 	// And data still crosses.
-	got, err := _Ran(t, listener, "def main():\n    return clock.add(1, 2, 3)\n")
+	got, err := _Ran(
+		t,
+		listener,
+		"def main():\n    return clock.add(1, 2, 3)\n",
+	)
 	if err != nil {
-		t.Fatalf("data was refused: %v", err)
+		t.Fatalf(
+			"data was refused: %v",
+			err,
+		)
 	}
 
 	if got != "6.0" {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -340,17 +496,33 @@ func TestRemote_AFunctionNeverCrosses(t *testing.T) {
 func TestRemote_AStrangerInstallsNothing(t *testing.T) {
 	listener, socket := _Listening(t)
 
-	_Answering(t, socket, "not-the-token", CLOCK, []string{NOW}, _Clock)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  "not-the-token",
+			called: CLOCK,
+			named:  []string{NOW},
+			answer: _Clock,
+		},
+	)
 
 	// Long enough that an accepted registration would have landed.
 	time.Sleep(200 * time.Millisecond)
 
 	held := listener.Names()
 	if len(held) != 0 {
-		t.Fatalf("a stranger installed %v", held)
+		t.Fatalf(
+			"a stranger installed %v",
+			held,
+		)
 	}
 
-	_, err := _Ran(t, listener, "def main():\n    return clock.now()\n")
+	_, err := _Ran(
+		t,
+		listener,
+		"def main():\n    return clock.now()\n",
+	)
 	if err == nil {
 		t.Fatal("clock was reachable after a refused registration")
 	}
@@ -366,26 +538,54 @@ func TestRemote_AStrangerInstallsNothing(t *testing.T) {
 // Revisions:
 //   - 2026-09-25 06:40: initial creation
 func TestRemote_APluginThatLeavesFailsItsNames(t *testing.T) {
-	listener, socket := _Listening(t)
+	var (
+		listener, socket = _Listening(t)
+		leave            = _Answering(
+			t,
+			&_Guest{
+				socket: socket,
+				token:  TOKEN,
+				called: CLOCK,
+				named:  []string{NOW},
+				answer: _Clock,
+			},
+		)
+	)
+	_Installed(
+		t,
+		listener,
+		1,
+	)
 
-	leave := _Answering(t, socket, TOKEN, CLOCK, []string{NOW}, _Clock)
-	_Installed(t, listener, 1)
-
-	got, err := _Ran(t, listener, "def main():\n    return clock.now()\n")
+	got, err := _Ran(
+		t,
+		listener,
+		"def main():\n    return clock.now()\n",
+	)
 	if err != nil {
-		t.Fatalf("before leaving: %v", err)
+		t.Fatalf(
+			"before leaving: %v",
+			err,
+		)
 	}
 
 	if got != `"tick"` {
-		t.Fatalf("before leaving, got %s", got)
+		t.Fatalf(
+			"before leaving, got %s",
+			got,
+		)
 	}
 
 	leave()
 
-	deadline := time.Now().Add(_SETTLED)
+	deadline := time.Now().Add(SETTLED)
 
 	for time.Now().Before(deadline) {
-		_, err = _Ran(t, listener, "def main():\n    return clock.now()\n")
+		_, err = _Ran(
+			t,
+			listener,
+			"def main():\n    return clock.now()\n",
+		)
 		if err != nil {
 			break
 		}
@@ -393,8 +593,14 @@ func TestRemote_APluginThatLeavesFailsItsNames(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if !errors.Is(err, remote.ERR_GONE) {
-		t.Fatalf("after leaving: %v, want ERR_GONE", err)
+	if !errors.Is(
+		err,
+		remote.ErrGone,
+	) {
+		t.Fatalf(
+			"after leaving: %v, want ErrGone",
+			err,
+		)
 	}
 }
 
@@ -404,26 +610,65 @@ func TestRemote_APluginThatLeavesFailsItsNames(t *testing.T) {
 // Revisions:
 //   - 2026-09-25 06:40: initial creation
 func TestRemote_WhatThePluginRefusedReachesTheScript(t *testing.T) {
-	listener, socket := _Listening(t)
+	var (
+		listener, socket = _Listening(t)
+		broken           = func(ask *pluginpb.Ask) *pluginpb.Answer {
+			return &pluginpb.Answer{
+				Id:     ask.GetId(),
+				Failed: "the clock is broken",
+			}
+		}
+	)
 
-	broken := func(ask *pluginpb.Ask) *pluginpb.Answer {
-		return &pluginpb.Answer{Id: ask.GetId(), Failed: "the clock is broken"}
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{NOW},
+			answer: broken,
+		},
+	)
+	_Installed(
+		t,
+		listener,
+		1,
+	)
+
+	_, err := _Ran(
+		t,
+		listener,
+		"def main():\n    return clock.now()\n",
+	)
+	if !errors.Is(
+		err,
+		remote.ErrRemote,
+	) {
+		t.Fatalf(
+			"got %v, want ErrRemote",
+			err,
+		)
 	}
 
-	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, broken)
-	_Installed(t, listener, 1)
-
-	_, err := _Ran(t, listener, "def main():\n    return clock.now()\n")
-	if !errors.Is(err, remote.ERR_REMOTE) {
-		t.Fatalf("got %v, want ERR_REMOTE", err)
+	if !strings.Contains(
+		err.Error(),
+		"the clock is broken",
+	) {
+		t.Fatalf(
+			"the refusal lost what the plugin said: %v",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), "the clock is broken") {
-		t.Fatalf("the refusal lost what the plugin said: %v", err)
-	}
-
-	if !strings.Contains(err.Error(), NOW) {
-		t.Fatalf("the refusal does not say which name: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		NOW,
+	) {
+		t.Fatalf(
+			"the refusal does not say which name: %v",
+			err,
+		)
 	}
 }
 
@@ -441,13 +686,29 @@ func TestRemote_WhatThePluginRefusedReachesTheScript(t *testing.T) {
 func TestRemote_ThreadsShareOnePlugin(t *testing.T) {
 	listener, socket := _Listening(t)
 
-	_Answering(t, socket, TOKEN, CLOCK, []string{ADD}, _Clock)
-	_Installed(t, listener, 1)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{ADD},
+			answer: _Clock,
+		},
+	)
+	_Installed(
+		t,
+		listener,
+		1,
+	)
 
 	// Each thread sends a different pair, so an answer handed to the wrong
 	// caller shows up as a wrong number. Twenty threads all adding the same
 	// thing would pass however badly the ids were paired.
-	got, err := _Ran(t, listener, `
+	got, err := _Ran(
+		t,
+		listener,
+		`
 def main():
     held = []
 
@@ -455,9 +716,13 @@ def main():
         held.append(spawn(lambda: clock.add(i, i)))
 
     return [join(h)[0] for h in held]
-`)
+`,
+	)
 	if err != nil {
-		t.Fatalf("twenty threads through one plugin: %v", err)
+		t.Fatalf(
+			"twenty threads through one plugin: %v",
+			err,
+		)
 	}
 
 	want := starlark.NewList(nil)
@@ -470,7 +735,11 @@ def main():
 	}
 
 	if got != want.String() {
-		t.Fatalf("got %s, want %s", got, want)
+		t.Fatalf(
+			"got %s, want %s",
+			got,
+			want,
+		)
 	}
 }
 
@@ -488,50 +757,82 @@ def main():
 // Revisions:
 //   - 2026-09-26 01:38: initial creation
 func TestRemote_ATimeoutCutsAStalledCall(t *testing.T) {
-	listener, socket := _Listening(t)
-
-	stuck := make(chan struct{})
+	var (
+		listener, socket = _Listening(t)
+		stuck            = make(chan struct{})
+	)
 
 	t.Cleanup(func() {
 		close(stuck)
 	})
 
-	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, func(*pluginpb.Ask) *pluginpb.Answer {
-		// Takes the ask, answers nothing, until the test is over.
-		<-stuck
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{NOW},
+			answer: func(*pluginpb.Ask) *pluginpb.Answer {
+				// Takes the ask, answers nothing, until the test is over.
+				<-stuck
 
-		return nil
-	})
-	_Installed(t, listener, 1)
+				return nil
+			},
+		},
+	)
+	_Installed(
+		t,
+		listener,
+		1,
+	)
 
-	type outcome struct {
+	type _Outcome struct {
 		got string
 		err error
 	}
 
-	answered := make(chan outcome, 1)
+	answered := make(
+		chan _Outcome,
+		1,
+	)
 
 	go func() {
-		got, err := _Ran(t, listener, `
+		got, err := _Ran(
+			t,
+			listener,
+			`
 def ask():
     return clock.now()
 
 def main():
     return timeout(1000, ask)
-`)
+`,
+		)
 
-		answered <- outcome{got: got, err: err}
+		answered <- _Outcome{
+			got: got,
+			err: err,
+		}
 	}()
 
 	select {
 	case held := <-answered:
-		if !errors.Is(held.err, flow.ERR_TIMEOUT) {
-			t.Fatalf("got %v, want ERR_TIMEOUT", held.err)
+		if !errors.Is(
+			held.err,
+			flow.ErrTimeout,
+		) {
+			t.Fatalf(
+				"got %v, want ErrTimeout",
+				held.err,
+			)
 		}
 
-	case <-time.After(_STALLED):
-		t.Fatalf("a timeout of one second did not return within %v: the call is "+
-			"not waiting on its caller", _STALLED)
+	case <-time.After(STALLED):
+		t.Fatalf(
+			"a timeout of one second did not return within %v: the call is "+
+				"not waiting on its caller", STALLED,
+		)
 	}
 }
 
@@ -548,27 +849,62 @@ def main():
 func TestRemote_OneNameIsAnsweredByOneProcess(t *testing.T) {
 	listener, socket := _Listening(t)
 
-	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, _Clock)
-	_Installed(t, listener, 1)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{NOW},
+			answer: _Clock,
+		},
+	)
+	_Installed(
+		t,
+		listener,
+		1,
+	)
 
 	// A second process, same plugin name, while the first is still answering.
-	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, _Clock)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{NOW},
+			answer: _Clock,
+		},
+	)
 
 	// Long enough that a second registration would have landed.
 	time.Sleep(200 * time.Millisecond)
 
 	if len(listener.Live()) != 1 {
-		t.Fatalf("%v are live, want one", listener.Live())
+		t.Fatalf(
+			"%v are live, want one",
+			listener.Live(),
+		)
 	}
 
 	// And the first one is still the one answering.
-	got, err := _Ran(t, listener, "def main():\n    return clock.now()\n")
+	got, err := _Ran(
+		t,
+		listener,
+		"def main():\n    return clock.now()\n",
+	)
 	if err != nil {
-		t.Fatalf("the surviving plugin: %v", err)
+		t.Fatalf(
+			"the surviving plugin: %v",
+			err,
+		)
 	}
 
 	if got != `"tick"` {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -577,63 +913,207 @@ func TestRemote_OneNameIsAnsweredByOneProcess(t *testing.T) {
 //
 // Its old names are already in environments that were built from them, and the
 // registry has no removal. A plugin that came back supplying something else
-// would leave the first set answering ERR_GONE forever with nothing able to take
+// would leave the first set answering ErrGone forever with nothing able to take
 // them away.
 //
 // Revisions:
 //   - 2026-09-26 02:00: initial creation
 func TestRemote_ARestartMayNotChangeWhatItSupplies(t *testing.T) {
-	listener, socket := _Listening(t)
-
-	leave := _Answering(t, socket, TOKEN, CLOCK, []string{NOW, ADD}, _Clock)
-	_Installed(t, listener, 2)
+	var (
+		listener, socket = _Listening(t)
+		leave            = _Answering(
+			t,
+			&_Guest{
+				socket: socket,
+				token:  TOKEN,
+				called: CLOCK,
+				named:  []string{NOW, ADD},
+				answer: _Clock,
+			},
+		)
+	)
+	_Installed(
+		t,
+		listener,
+		2,
+	)
 
 	leave()
 
-	deadline := time.Now().Add(_SETTLED)
+	deadline := time.Now().Add(SETTLED)
 
 	for time.Now().Before(deadline) && len(listener.Live()) > 0 {
 		time.Sleep(5 * time.Millisecond)
 	}
 
 	// Back with fewer names than it had.
-	_Answering(t, socket, TOKEN, CLOCK, []string{NOW}, _Clock)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{NOW},
+			answer: _Clock,
+		},
+	)
 
 	time.Sleep(200 * time.Millisecond)
 
 	if len(listener.Live()) != 0 {
-		t.Fatalf("%v are live, want none: a renamed plugin was accepted", listener.Live())
+		t.Fatalf(
+			"%v are live, want none: a renamed plugin was accepted",
+			listener.Live(),
+		)
 	}
 
 	// The names it had are still the names it has, so a script still compiles
 	// against them.
 	held := listener.Names()
 	if len(held) != 2 {
-		t.Fatalf("carries %v, want both of the original names", held)
+		t.Fatalf(
+			"carries %v, want both of the original names",
+			held,
+		)
 	}
 
 	// Back with the same names, in a different order, and it is the same set.
-	_Answering(t, socket, TOKEN, CLOCK, []string{ADD, NOW}, _Clock)
-	_Live(t, listener)
+	_Answering(
+		t,
+		&_Guest{
+			socket: socket,
+			token:  TOKEN,
+			called: CLOCK,
+			named:  []string{ADD, NOW},
+			answer: _Clock,
+		},
+	)
+	_Live(
+		t,
+		listener,
+	)
 
-	got, err := _Ran(t, listener, "def main():\n    return clock.add(2, 3)\n")
+	got, err := _Ran(
+		t,
+		listener,
+		"def main():\n    return clock.add(2, 3)\n",
+	)
 	if err != nil {
-		t.Fatalf("after a restart announcing the same set: %v", err)
+		t.Fatalf(
+			"after a restart announcing the same set: %v",
+			err,
+		)
 	}
 
 	if got != "5.0" {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
+}
+
+// TestRegression_Check catches a data race on the name list in Check.
+//
+// Check ranges names with no lock. _Attach assigns names under guard. A
+// compile that overlaps a restart races on the slice header.
+//
+// Revisions:
+//   - 2026-10-24 16:05: initial creation
+func TestRegression_Check(t *testing.T) {
+	var (
+		listener, socket = _Listening(t)
+		leave            = _Answering(
+			t,
+			&_Guest{
+				socket: socket,
+				token:  TOKEN,
+				called: CLOCK,
+				named:  []string{NOW},
+				answer: _Clock,
+			},
+		)
+	)
+	_Installed(
+		t,
+		listener,
+		1,
+	)
+
+	var (
+		src = &runtime.Source{
+			Entry: SCRIPT,
+			Text:  []byte("def main():\n    return clock.now()\n"),
+		}
+		plugins = listener.Plugins()
+		stop    = make(chan struct{})
+		done    = make(chan struct{})
+	)
+
+	go func() {
+		defer close(done)
+
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			leave()
+
+			deadline := time.Now().Add(SETTLED)
+
+			for time.Now().Before(deadline) && len(listener.Live()) > 0 {
+				time.Sleep(time.Millisecond)
+			}
+
+			leave = _Answering(
+				t,
+				&_Guest{
+					socket: socket,
+					token:  TOKEN,
+					called: CLOCK,
+					named:  []string{NOW},
+					answer: _Clock,
+				},
+			)
+			_Installed(
+				t,
+				listener,
+				1,
+			)
+
+			deadline = time.Now().Add(SETTLED)
+
+			for time.Now().Before(deadline) && len(listener.Live()) == 0 {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}()
+
+	for range 200 {
+		_, _ = runtime.Compile(
+			src,
+			runtime.WithPlugins(plugins...),
+		)
+	}
+
+	close(stop)
+	<-done
 }
 
 // _Live waits until a plugin is answering.
 //
 // Revisions:
 //   - 2026-09-26 02:00: initial creation
-func _Live(t *testing.T, listener *remote.Listener) {
+func _Live(
+	t *testing.T,
+	listener *remote.Listener,
+) {
 	t.Helper()
 
-	deadline := time.Now().Add(_SETTLED)
+	deadline := time.Now().Add(SETTLED)
 
 	for time.Now().Before(deadline) {
 		if len(listener.Live()) > 0 {

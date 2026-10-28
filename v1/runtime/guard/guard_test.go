@@ -8,10 +8,14 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/guard"
 )
 
-var ERR_BOOM = errors.New("guard: boom")
+var (
+	ErrBoom = errors.New("guard: boom")
+)
 
 // WHY is the text a contained panic carries, so a test can look for it.
-const WHY = "a host's callback blew up"
+const (
+	WHY = "a host's callback blew up"
+)
 
 const (
 	VALUE     = 7
@@ -38,7 +42,12 @@ func TestWithRecover_PassesAValueThrough(t *testing.T) {
 	)
 
 	if err != nil || got != VALUE {
-		t.Fatalf("got %d, %v, want %d, nil", got, err, VALUE)
+		t.Fatalf(
+			"got %d, %v, want %d, nil",
+			got,
+			err,
+			VALUE,
+		)
 	}
 }
 
@@ -56,12 +65,18 @@ func TestWithRecover_PassesAnErrorThrough(t *testing.T) {
 		&got,
 		&err,
 		func() (int, error) {
-			return 0, ERR_BOOM
+			return 0, ErrBoom
 		},
 	)
 
-	if !errors.Is(err, ERR_BOOM) {
-		t.Fatalf("got %v, want ERR_BOOM", err)
+	if !errors.Is(
+		err,
+		ErrBoom,
+	) {
+		t.Fatalf(
+			"got %v, want ErrBoom",
+			err,
+		)
 	}
 }
 
@@ -81,19 +96,31 @@ func TestWithRecover_KeepsAPanickedErrorReachable(t *testing.T) {
 		&got,
 		&err,
 		func() (int, error) {
-			panic(ERR_BOOM)
+			panic(ErrBoom)
 		},
 	)
 
-	if !errors.Is(err, ERR_BOOM) {
-		t.Fatalf("got %v, want ERR_BOOM reachable through the recovery", err)
+	if !errors.Is(
+		err,
+		ErrBoom,
+	) {
+		t.Fatalf(
+			"got %v, want ErrBoom reachable through the recovery",
+			err,
+		)
 	}
 
 	if got != 0 {
-		t.Fatalf("result is %d, want the zero value after a panic", got)
+		t.Fatalf(
+			"result is %d, want the zero value after a panic",
+			got,
+		)
 	}
 
-	t.Logf("panicked error survives errors.Is: %v", err)
+	t.Logf(
+		"panicked error survives errors.Is: %v",
+		err,
+	)
 }
 
 // TestWithRecover_WrapsAPanicThatIsNotAnError proves a panic of any other type
@@ -115,12 +142,25 @@ func TestWithRecover_WrapsAPanicThatIsNotAnError(t *testing.T) {
 		},
 	)
 
-	if err == nil || !strings.Contains(err.Error(), TEXT) {
-		t.Fatalf("got %v, want an error naming %q", err, TEXT)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		TEXT,
+	) {
+		t.Fatalf(
+			"got %v, want an error naming %q",
+			err,
+			TEXT,
+		)
 	}
 
-	if !strings.Contains(err.Error(), RECOVERED) {
-		t.Fatalf("error does not say it was recovered: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		RECOVERED,
+	) {
+		t.Fatalf(
+			"error does not say it was recovered: %v",
+			err,
+		)
 	}
 }
 
@@ -138,18 +178,28 @@ func TestContained_HandsBackThePanic(t *testing.T) {
 	blown := guard.Contained(func() {
 		panic(WHY)
 	})
-
 	if blown == nil {
 		t.Fatal("want the panic handed back")
 	}
 
-	if !strings.Contains(blown.Error(), WHY) {
-		t.Fatalf("want the panic's own words, got %v", blown)
+	if !strings.Contains(
+		blown.Error(),
+		WHY,
+	) {
+		t.Fatalf(
+			"want the panic's own words, got %v",
+			blown,
+		)
 	}
 
-	quiet := guard.Contained(func() {})
+	quiet := guard.Contained(func() {
+		// Empty
+	})
 	if quiet != nil {
-		t.Fatalf("want nothing for work that did not raise, got %v", quiet)
+		t.Fatalf(
+			"want nothing for work that did not raise, got %v",
+			quiet,
+		)
 	}
 }
 
@@ -159,13 +209,20 @@ func TestContained_HandsBackThePanic(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 12:00: initial creation
 func TestContained_KeepsAnErrorMatchable(t *testing.T) {
-	sentinel := errors.New("a host's own failure")
+	var (
+		sentinel = errors.New("a host's own failure")
+		blown    = guard.Contained(func() {
+			panic(sentinel)
+		})
+	)
 
-	blown := guard.Contained(func() {
-		panic(sentinel)
-	})
-
-	if !errors.Is(blown, sentinel) {
-		t.Fatalf("want the panic's error still matchable, got %v", blown)
+	if !errors.Is(
+		blown,
+		sentinel,
+	) {
+		t.Fatalf(
+			"want the panic's error still matchable, got %v",
+			blown,
+		)
 	}
 }

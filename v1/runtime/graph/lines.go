@@ -26,16 +26,28 @@ type _Lines struct {
 // Revisions:
 //   - 2026-10-03 20:39: initial creation
 func _NewLines(src string) *_Lines {
-	lines := strings.Split(src, NEWLINE)
-	starts := make([]int, len(lines))
-	at := 0
+	var (
+		lines = strings.Split(
+			src,
+			NEWLINE,
+		)
+		starts = make(
+			[]int,
+			len(lines),
+		)
+		at = 0
+	)
 
 	for idx, line := range lines {
 		starts[idx] = at
 		at += len(line) + len(NEWLINE)
 	}
 
-	return &_Lines{src: src, lines: lines, starts: starts}
+	return &_Lines{
+		src:    src,
+		lines:  lines,
+		starts: starts,
+	}
 }
 
 // _At is the byte offset of a one-based line and rune column, or MISSING when
@@ -47,13 +59,18 @@ func _NewLines(src string) *_Lines {
 // Revisions:
 //   - 2026-10-03 20:39: initial creation, replacing a walk from the start of the
 //     source in two places
-func (l *_Lines) _At(line int32, col int32) int {
+func (l *_Lines) _At(
+	line int32,
+	col int32,
+) int {
 	if line < FIRST || col < FIRST || int(line) > len(l.lines) {
 		return MISSING
 	}
 
-	start := l.starts[line-1]
-	runes := int32(FIRST)
+	var (
+		start = l.starts[line-1]
+		runes = int32(FIRST)
+	)
 
 	for idx := range l.lines[line-1] {
 		if runes == col {

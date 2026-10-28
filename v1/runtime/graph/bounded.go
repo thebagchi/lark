@@ -13,10 +13,10 @@ import (
 // that repeat, retry and bound a call out of a script, and writing them back.
 // A script and the schema both count milliseconds, so nothing converts.
 
+// WRAPPED is how many arguments a wrapper takes before its delay: how
+// much, and what to do that much of. DELAYED is the count with a delay
+// passed by position.
 const (
-	// WRAPPED is how many arguments a wrapper takes before its delay: how
-	// much, and what to do that much of. DELAYED is the count with a delay
-	// passed by position.
 	WRAPPED = 2
 	DELAYED = 3
 
@@ -42,9 +42,13 @@ func (r *_Reading) _Sleep(call *syntax.CallExpr) (*workflowpb.Statement, bool) {
 		return nil, false
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_Sleep{
-		Sleep: &workflowpb.Sleep{DurationMs: pause},
-	}}, true
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_Sleep{
+			Sleep: &workflowpb.Sleep{
+				DurationMs: pause,
+			},
+		},
+	}, true
 }
 
 // _Attempts is the statement a repeat or a retry is, and whether it models.
@@ -84,7 +88,10 @@ func (r *_Reading) _Attempts(
 		return nil, false
 	}
 
-	target, ok := r._Target(positional[1], scope)
+	target, ok := r._Target(
+		positional[1],
+		scope,
+	)
 	if !ok {
 		return nil, false
 	}
@@ -98,22 +105,55 @@ func (r *_Reading) _Attempts(
 		}
 	}
 
+	return _AttemptStmt(
+		name,
+		target,
+		count,
+		pause,
+	)
+}
+
+// _AttemptStmt is the repeat or the retry the call modelled.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _AttemptStmt(
+	name string,
+	target *workflowpb.Call,
+	count int32,
+	pause int32,
+) (*workflowpb.Statement, bool) {
 	if name == REPEAT {
-		return &workflowpb.Statement{Action: &workflowpb.Statement_Repeat{
-			Repeat: &workflowpb.Repeat{Call: target, Count: count, DelayMs: pause},
-		}}, true
+		return &workflowpb.Statement{
+			Action: &workflowpb.Statement_Repeat{
+				Repeat: &workflowpb.Repeat{
+					Call:    target,
+					Count:   count,
+					DelayMs: pause,
+				},
+			},
+		}, true
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_Retry{
-		Retry: &workflowpb.Retry{Call: target, Attempts: count, DelayMs: pause},
-	}}, true
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_Retry{
+			Retry: &workflowpb.Retry{
+				Call:     target,
+				Attempts: count,
+				DelayMs:  pause,
+			},
+		},
+	}, true
 }
 
 // _Timeout is the statement a timeout is, and whether it models.
 //
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
-func (r *_Reading) _Timeout(call *syntax.CallExpr, scope *_Scope) (*workflowpb.Statement, bool) {
+func (r *_Reading) _Timeout(
+	call *syntax.CallExpr,
+	scope *_Scope,
+) (*workflowpb.Statement, bool) {
 	if len(call.Args) != WRAPPED {
 		return nil, false
 	}
@@ -123,14 +163,22 @@ func (r *_Reading) _Timeout(call *syntax.CallExpr, scope *_Scope) (*workflowpb.S
 		return nil, false
 	}
 
-	target, ok := r._Target(call.Args[1], scope)
+	target, ok := r._Target(
+		call.Args[1],
+		scope,
+	)
 	if !ok {
 		return nil, false
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_Timeout{
-		Timeout: &workflowpb.Timeout{Call: target, TimeoutMs: budget},
-	}}, true
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_Timeout{
+			Timeout: &workflowpb.Timeout{
+				Call:      target,
+				TimeoutMs: budget,
+			},
+		},
+	}, true
 }
 
 // _Delayed is a wrapper's arguments split in two: those passed by position,
@@ -154,7 +202,10 @@ func _Delayed(args []syntax.Expr) ([]syntax.Expr, syntax.Expr, bool) {
 
 		keyword, ok := arg.(*syntax.BinaryExpr)
 		if !ok || keyword.Op != syntax.EQ {
-			positional = append(positional, arg)
+			positional = append(
+				positional,
+				arg,
+			)
 
 			continue
 		}
@@ -178,9 +229,15 @@ func _Delayed(args []syntax.Expr) ([]syntax.Expr, syntax.Expr, bool) {
 //   - 2026-10-03 20:50: the number _Natural reads, held to at least one, rather than
 //     a second copy of the reading with another lower bound
 func _Count(expr syntax.Expr) (int32, bool) {
-	count, ok := _Natural(expr)
+	var (
+		count   int32
+		ok      bool
+		counted bool
+	)
 
-	counted := ok && count >= ONCE
+	count, ok = _Natural(expr)
+
+	counted = ok && count >= ONCE
 	if !counted {
 		return 0, false
 	}
@@ -197,12 +254,20 @@ func _Count(expr syntax.Expr) (int32, bool) {
 //     builtin now takes
 func _Sleep(sleep *workflowpb.Sleep) (syntax.Stmt, error) {
 	if sleep == nil || sleep.GetDurationMs() < 0 {
-		return nil, fmt.Errorf("sleep: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"sleep: %w",
+			ErrForm,
+		)
 	}
 
 	pause := _Num(strconv.Itoa(int(sleep.GetDurationMs())))
 
-	return &syntax.ExprStmt{X: _Bare(SLEEP, []syntax.Expr{pause})}, nil
+	return &syntax.ExprStmt{
+		X: _Bare(
+			SLEEP,
+			[]syntax.Expr{pause},
+		),
+	}, nil
 }
 
 // _Repeat is a repeat. A delay is written only when there is one.
@@ -212,7 +277,12 @@ func _Sleep(sleep *workflowpb.Sleep) (syntax.Stmt, error) {
 //   - 2026-10-01 13:08: returns the statement node
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Repeat
 func _Repeat(rep *workflowpb.Repeat) (syntax.Stmt, error) {
-	return _Attempts(REPEAT, rep.GetCall(), rep.GetCount(), rep.GetDelayMs())
+	return _Attempts(
+		REPEAT,
+		rep.GetCall(),
+		rep.GetCount(),
+		rep.GetDelayMs(),
+	)
 }
 
 // _Retry is a retry. A delay is written only when there is one.
@@ -222,7 +292,12 @@ func _Repeat(rep *workflowpb.Repeat) (syntax.Stmt, error) {
 //   - 2026-10-01 13:08: returns the statement node
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Retry
 func _Retry(ret *workflowpb.Retry) (syntax.Stmt, error) {
-	return _Attempts(RETRY, ret.GetCall(), ret.GetAttempts(), ret.GetDelayMs())
+	return _Attempts(
+		RETRY,
+		ret.GetCall(),
+		ret.GetAttempts(),
+		ret.GetDelayMs(),
+	)
 }
 
 // _Attempts is repeat or retry: a count, a target, and a delay when one is set.
@@ -232,9 +307,18 @@ func _Retry(ret *workflowpb.Retry) (syntax.Stmt, error) {
 //   - 2026-10-01 13:08: returns the statement node
 //   - 2026-10-02 00:04: lifted into graph, writing the delay in milliseconds,
 //     which the builtin now takes
-func _Attempts(word string, call *workflowpb.Call, count, delay int32) (syntax.Stmt, error) {
+func _Attempts(
+	word string,
+	call *workflowpb.Call,
+	count,
+	delay int32,
+) (syntax.Stmt, error) {
 	if count < 0 || delay < 0 {
-		return nil, fmt.Errorf("%s: %w", word, ERR_FORM)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			word,
+			ErrForm,
+		)
 	}
 
 	target, err := _Target(call)
@@ -245,10 +329,18 @@ func _Attempts(word string, call *workflowpb.Call, count, delay int32) (syntax.S
 	args := []syntax.Expr{_Num(strconv.Itoa(int(count))), target}
 
 	if delay != 0 {
-		args = append(args, _Num(strconv.Itoa(int(delay))))
+		args = append(
+			args,
+			_Num(strconv.Itoa(int(delay))),
+		)
 	}
 
-	return &syntax.ExprStmt{X: _Bare(word, args)}, nil
+	return &syntax.ExprStmt{
+		X: _Bare(
+			word,
+			args,
+		),
+	}, nil
 }
 
 // _Timeout is a timeout, in the milliseconds the builtin and the schema count.
@@ -260,7 +352,10 @@ func _Attempts(word string, call *workflowpb.Call, count, delay int32) (syntax.S
 //     builtin now takes
 func _Timeout(held *workflowpb.Timeout) (syntax.Stmt, error) {
 	if held == nil || held.GetTimeoutMs() < 0 {
-		return nil, fmt.Errorf("timeout: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"timeout: %w",
+			ErrForm,
+		)
 	}
 
 	target, err := _Target(held.GetCall())
@@ -270,5 +365,10 @@ func _Timeout(held *workflowpb.Timeout) (syntax.Stmt, error) {
 
 	args := []syntax.Expr{_Num(strconv.Itoa(int(held.GetTimeoutMs()))), target}
 
-	return &syntax.ExprStmt{X: _Bare(TIMEOUT, args)}, nil
+	return &syntax.ExprStmt{
+		X: _Bare(
+			TIMEOUT,
+			args,
+		),
+	}, nil
 }

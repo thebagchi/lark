@@ -29,40 +29,70 @@ const (
 // Revisions:
 //   - 2026-10-03 20:28: initial creation
 func TestHosting_LeavesNothingWhenItFails(t *testing.T) {
-	short := t.TempDir()
-	long := filepath.Join(t.TempDir(), strings.Repeat("d", LONG))
+	var (
+		short = t.TempDir()
+		long  = filepath.Join(
+			t.TempDir(),
+			strings.Repeat(
+				"d",
+				LONG,
+			),
+		)
+	)
 
-	err := os.Mkdir(long, PRIVATE)
+	err := os.Mkdir(
+		long,
+		PRIVATE,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	cases := []struct{ name, temp, plugins string }{
-		{"a socket path too long to listen on", long, short},
+		{
+			"a socket path too long to listen on",
+			long,
+			short,
+		},
 		{
 			"a plugin directory the search cannot read",
 			short,
-			filepath.Join(short, UNPATTERNED),
+			filepath.Join(
+				short,
+				UNPATTERNED,
+			),
 		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			t.Setenv("TMPDIR", item.temp)
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				t.Setenv(
+					"TMPDIR",
+					item.temp,
+				)
 
-			_, _, err := _Hosting(item.plugins)
-			if err == nil {
-				t.Fatal("hosting started")
-			}
+				_, _, err := _Hosting(item.plugins)
+				if err == nil {
+					t.Fatal("hosting started")
+				}
 
-			left, err := os.ReadDir(item.temp)
-			if err != nil {
-				t.Fatal(err)
-			}
+				left, err := os.ReadDir(item.temp)
+				if err != nil {
+					t.Fatal(err)
+				}
 
-			for _, entry := range left {
-				t.Errorf("left %s behind", filepath.Join(item.temp, entry.Name()))
-			}
-		})
+				for _, entry := range left {
+					t.Errorf(
+						"left %s behind",
+						filepath.Join(
+							item.temp,
+							entry.Name(),
+						),
+					)
+				}
+			},
+		)
 	}
 }

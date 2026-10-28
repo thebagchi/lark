@@ -4,17 +4,17 @@ import (
 	"fmt"
 )
 
-// _Failed is a call in this module that did not work, carrying ERR_FILE
+// _FileError is a call in this module that did not work, carrying ErrFile
 // without saying it.
 //
-// ERR_FILE answers "did a file call fail", which every refusal here has to
+// ErrFile answers "did a file call fail", which every refusal here has to
 // answer yes to, so every refusal used to wrap it with %w. That put its words
 // at the end of every message, where they read as a claim rather than as the
 // category they are: a line of the wrong type and a read past the run's memory
 // are not things the filesystem refused, and both said so. Carrying the
 // sentinel through Unwrap instead keeps the question answerable and leaves the
 // message to say only what happened.
-type _Failed struct {
+type _FileError struct {
 	cause error
 }
 
@@ -22,7 +22,8 @@ type _Failed struct {
 //
 // Revisions:
 //   - 2026-09-24 23:45: initial creation
-func (f *_Failed) Error() string {
+//   - 2026-10-24 18:29: the receiver type is _FileError
+func (f *_FileError) Error() string {
 	return f.cause.Error()
 }
 
@@ -30,8 +31,9 @@ func (f *_Failed) Error() string {
 //
 // Revisions:
 //   - 2026-09-24 23:45: initial creation
-func (f *_Failed) Unwrap() []error {
-	return []error{f.cause, ERR_FILE}
+//   - 2026-10-24 18:29: the receiver type is _FileError
+func (f *_FileError) Unwrap() []error {
+	return []error{f.cause, ErrFile}
 }
 
 // _Refused is a failure the filesystem reported.
@@ -42,9 +44,18 @@ func (f *_Failed) Unwrap() []error {
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-//   - 2026-09-24 23:45: carries ERR_FILE rather than wrapping its words in
-func _Refused(who string, cause error) error {
-	return &_Failed{cause: fmt.Errorf("%s: %w", who, cause)}
+//   - 2026-09-24 23:45: carries ErrFile rather than wrapping its words in
+func _Refused(
+	who string,
+	cause error,
+) error {
+	return &_FileError{
+		cause: fmt.Errorf(
+			"%s: %w",
+			who,
+			cause,
+		),
+	}
 }
 
 // _Rejected is a failure this module decided on rather than the filesystem.
@@ -54,6 +65,17 @@ func _Refused(who string, cause error) error {
 //
 // Revisions:
 //   - 2026-09-24 23:45: initial creation
-func _Rejected(who string, named string, cause error) error {
-	return &_Failed{cause: fmt.Errorf("%s: %s: %w", who, named, cause)}
+func _Rejected(
+	who string,
+	named string,
+	cause error,
+) error {
+	return &_FileError{
+		cause: fmt.Errorf(
+			"%s: %s: %w",
+			who,
+			named,
+			cause,
+		),
+	}
 }

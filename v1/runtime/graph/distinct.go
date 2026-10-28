@@ -13,10 +13,12 @@ import (
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 )
 
-// ERR_DUPLICATE is returned when a flow declares one name twice: two functions,
+// ErrDuplicate is returned when a flow declares one name twice: two functions,
 // a function named main, which is the spine, or a function, constant or
 // argument sharing a name with another.
-var ERR_DUPLICATE = errors.New("a name is declared twice")
+var (
+	ErrDuplicate = errors.New("a name is declared twice")
+)
 
 // _Defined is every Function.name in flow, in the order listed.
 //
@@ -25,11 +27,20 @@ var ERR_DUPLICATE = errors.New("a name is declared twice")
 //   - 2026-10-02 00:13: reads a Flow
 //   - 2026-10-03 08:26: unexported as _Defined, nothing outside this package reading it
 func _Defined(flow *workflowpb.Flow) []string {
-	fns := flow.GetFunctions()
-	names := make([]string, 0, len(fns))
+	var (
+		fns   = flow.GetFunctions()
+		names = make(
+			[]string,
+			0,
+			len(fns),
+		)
+	)
 
 	for _, fn := range fns {
-		names = append(names, fn.GetName())
+		names = append(
+			names,
+			fn.GetName(),
+		)
 	}
 
 	return names
@@ -52,11 +63,18 @@ func _Defined(flow *workflowpb.Flow) []string {
 //     function and a constant or an argument
 //   - 2026-10-03 08:26: unexported, a host checking a flow through Check
 func _Distinct(flow *workflowpb.Flow) error {
-	seen := make(map[string]bool, len(flow.GetFunctions()))
+	seen := make(
+		map[string]bool,
+		len(flow.GetFunctions()),
+	)
 
 	for _, name := range _Defined(flow) {
 		if seen[name] || name == ENTRY {
-			return fmt.Errorf("%s: %w", name, ERR_DUPLICATE)
+			return fmt.Errorf(
+				"%s: %w",
+				name,
+				ErrDuplicate,
+			)
 		}
 
 		seen[name] = true
@@ -64,7 +82,11 @@ func _Distinct(flow *workflowpb.Flow) error {
 
 	for _, name := range slices.Sorted(maps.Keys(flow.GetConstants())) {
 		if seen[name] {
-			return fmt.Errorf("%s: %w", name, ERR_DUPLICATE)
+			return fmt.Errorf(
+				"%s: %w",
+				name,
+				ErrDuplicate,
+			)
 		}
 
 		seen[name] = true
@@ -72,7 +94,11 @@ func _Distinct(flow *workflowpb.Flow) error {
 
 	for name := range flow.GetArgs() {
 		if seen[name] {
-			return fmt.Errorf("%s: %w", name, ERR_DUPLICATE)
+			return fmt.Errorf(
+				"%s: %w",
+				name,
+				ErrDuplicate,
+			)
 		}
 	}
 

@@ -257,7 +257,9 @@ type _Kinds struct {
 //   - 2026-10-02 11:04: parses SOURCE once, for every pass that writes a part
 //   - 2026-10-03 20:43: leaves SOURCE to PARSED, which parses it once for every file
 func _Print(prog *_Program) ([]byte, error) {
-	written, err := _Rendered(&_Part{Gen: prog})
+	written, err := _Rendered(&_Part{
+		Gen: prog,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -274,14 +276,23 @@ func _Print(prog *_Program) ([]byte, error) {
 func _Rendered(part *_Part) (string, error) {
 	held, err := PARSED()
 	if err != nil {
-		return "", fmt.Errorf("template: %w", err)
+		return "", fmt.Errorf(
+			"template: %w",
+			err,
+		)
 	}
 
 	var out strings.Builder
 
-	err = held.Execute(&out, part)
+	err = held.Execute(
+		&out,
+		part,
+	)
 	if err != nil {
-		return "", fmt.Errorf("script: %w", err)
+		return "", fmt.Errorf(
+			"script: %w",
+			err,
+		)
 	}
 
 	return out.String(), nil
@@ -330,8 +341,17 @@ func (p *_Program) Main() *syntax.DefStmt {
 // Revisions:
 //   - 2026-10-02 11:04: initial creation, in place of Body, which took a def
 //   - 2026-10-02 11:26: the pass itself, rather than through _RenderBody, which is gone
-func (p *_Program) Suite(stmts []syntax.Stmt, indent string) (string, error) {
-	return _Rendered(&_Part{Gen: p, Suite: &_Suite{Stmts: stmts}, Indent: indent})
+func (p *_Program) Suite(
+	stmts []syntax.Stmt,
+	indent string,
+) (string, error) {
+	return _Rendered(&_Part{
+		Gen: p,
+		Suite: &_Suite{
+			Stmts: stmts,
+		},
+		Indent: indent,
+	})
 }
 
 // Items is the expressions of a list a script separates with commas, written
@@ -340,23 +360,38 @@ func (p *_Program) Suite(stmts []syntax.Stmt, indent string) (string, error) {
 // Revisions:
 //   - 2026-10-02 11:26: initial creation
 func (p *_Program) Items(exprs []syntax.Expr) (string, error) {
-	return _Rendered(&_Part{Gen: p, Items: &_Items{Exprs: exprs}})
+	return _Rendered(&_Part{
+		Gen: p,
+		Items: &_Items{
+			Exprs: exprs,
+		},
+	})
 }
 
 // Node is one node at indent, written by a pass of SOURCE.
 //
-// Returns ERR_FORM for no node at all, which a pass would otherwise read as the
+// Returns ErrForm for no node at all, which a pass would otherwise read as the
 // whole file.
 //
 // Revisions:
 //   - 2026-10-02 11:04: initial creation
 //   - 2026-10-02 11:26: refuses no node, which would be read as the file
-func (p *_Program) Node(node syntax.Node, indent string) (string, error) {
+func (p *_Program) Node(
+	node syntax.Node,
+	indent string,
+) (string, error) {
 	if node == nil {
-		return "", fmt.Errorf("node: %w", ERR_FORM)
+		return "", fmt.Errorf(
+			"node: %w",
+			ErrForm,
+		)
 	}
 
-	return _Rendered(&_Part{Gen: p, Node: node, Indent: indent})
+	return _Rendered(&_Part{
+		Gen:    p,
+		Node:   node,
+		Indent: indent,
+	})
 }
 
 // As is node as each kind SOURCE writes, with only its own kind's field set,
@@ -423,7 +458,10 @@ func (p *_Program) As(node syntax.Node) *_Kinds {
 //   - 2026-10-01 16:08: initial creation
 func (p *_Program) Name(node *syntax.DefStmt) (string, error) {
 	if node == nil || node.Name == nil {
-		return "", fmt.Errorf("def: %w", ERR_FORM)
+		return "", fmt.Errorf(
+			"def: %w",
+			ErrForm,
+		)
 	}
 
 	return node.Name.Name, nil
@@ -474,7 +512,10 @@ func (p *_Program) Notes(stmt syntax.Stmt) []syntax.Comment {
 // Revisions:
 //   - 2026-10-02 11:26: initial creation
 func (p *_Program) Span(node syntax.Node) string {
-	text, ok := _Span(p, node)
+	text, ok := _Span(
+		p,
+		node,
+	)
 	if !ok {
 		return ""
 	}
@@ -499,7 +540,10 @@ func (p *_Program) Chained(node *syntax.IfStmt) bool {
 // Revisions:
 //   - 2026-10-02 11:26: initial creation
 func (p *_Program) Elif(node *syntax.IfStmt) *syntax.IfStmt {
-	return _ElifOf(node, p)
+	return _ElifOf(
+		node,
+		p,
+	)
 }
 
 // Elses is the comments written above an if's else.
@@ -512,11 +556,15 @@ func (p *_Program) Elses(node *syntax.IfStmt) []syntax.Comment {
 
 // Refuse is the failure for a node no branch of SOURCE writes.
 //
-// Returns ERR_FORM, always: a node the flow built that is none of the kinds a
+// Returns ErrForm, always: a node the flow built that is none of the kinds a
 // script is written with is a flow this cannot write.
 //
 // Revisions:
 //   - 2026-10-02 11:26: initial creation
 func (p *_Program) Refuse(node syntax.Node) (string, error) {
-	return "", fmt.Errorf("%T: %w", node, ERR_FORM)
+	return "", fmt.Errorf(
+		"%T: %w",
+		node,
+		ErrForm,
+	)
 }

@@ -9,7 +9,9 @@ import (
 )
 
 // SPAWN is the builtin whose lambda this dialect compiles differently.
-const SPAWN = spelling.SPAWN
+const (
+	SPAWN = spelling.SPAWN
+)
 
 // _At is where a lambda begins, as a line and a column.
 //
@@ -65,32 +67,75 @@ func Compile(
 	src []byte,
 	predeclared func(string) bool,
 ) (*syntax.File, *starlark.Program, error) {
-	written, err := OPTIONS.Parse(path, src, 0)
+	written, err := OPTIONS.Parse(
+		path,
+		src,
+		0,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	err = resolve.File(written, predeclared, starlark.Universe.Has)
+	err = resolve.File(
+		written,
+		predeclared,
+		starlark.Universe.Has,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// The same source again. It parsed once, so it parses again; the error is
-	// checked all the same, because nothing here should be believed unread.
-	compiled, err := OPTIONS.Parse(path, src, 0)
+	compiled, err := _Marked(
+		path,
+		src,
+		written,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	_Take(compiled, _Taken(written))
-	_Apply(compiled, _Marks(written))
-
-	program, err := starlark.FileProgram(compiled, predeclared)
+	program, err := starlark.FileProgram(
+		compiled,
+		predeclared,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return written, program, nil
+}
+
+// _Marked parses the source again and copies the marks off the first parse.
+//
+// The same source parsed once, so it parses again. The error is checked
+// all the same, because nothing here should be believed unread.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Marked(
+	path string,
+	src []byte,
+	written *syntax.File,
+) (*syntax.File, error) {
+	compiled, err := OPTIONS.Parse(
+		path,
+		src,
+		0,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	_Take(
+		compiled,
+		_Taken(written),
+	)
+	_Apply(
+		compiled,
+		_Marks(written),
+	)
+
+	return compiled, nil
 }
 
 // _Taken is every lambda written as spawn's argument, with the variables each
@@ -104,25 +149,31 @@ func Compile(
 func _Taken(written *syntax.File) map[_At][]string {
 	taken := make(map[_At][]string)
 
-	syntax.Walk(written, func(node syntax.Node) bool {
-		lambda := _Spawned(node)
-		if lambda == nil {
+	syntax.Walk(
+		written,
+		func(node syntax.Node) bool {
+			lambda := _Spawned(node)
+			if lambda == nil {
+				return true
+			}
+
+			fn, ok := lambda.Function.(*resolve.Function)
+			if !ok || fn.HasVarargs || fn.HasKwargs {
+				return true
+			}
+
+			at := _Where(lambda.Lambda)
+
+			for _, bind := range fn.FreeVars {
+				taken[at] = append(
+					taken[at],
+					bind.First.Name,
+				)
+			}
+
 			return true
-		}
-
-		fn, ok := lambda.Function.(*resolve.Function)
-		if !ok || fn.HasVarargs || fn.HasKwargs {
-			return true
-		}
-
-		at := _Where(lambda.Lambda)
-
-		for _, bind := range fn.FreeVars {
-			taken[at] = append(taken[at], bind.First.Name)
-		}
-
-		return true
-	})
+		},
+	)
 
 	return taken
 }
@@ -167,23 +218,35 @@ func _Predeclared(name *syntax.Ident) bool {
 //
 // Revisions:
 //   - 2026-09-29 23:30: initial creation
-func _Take(compiled *syntax.File, taken map[_At][]string) {
+func _Take(
+	compiled *syntax.File,
+	taken map[_At][]string,
+) {
 	if len(taken) == 0 {
 		return
 	}
 
-	syntax.Walk(compiled, func(node syntax.Node) bool {
-		lambda, ok := node.(*syntax.LambdaExpr)
-		if !ok {
+	syntax.Walk(
+		compiled,
+		func(node syntax.Node) bool {
+			lambda, ok := node.(*syntax.LambdaExpr)
+			if !ok {
+				return true
+			}
+
+			for _, name := range taken[_Where(lambda.Lambda)] {
+				lambda.Params = append(
+					lambda.Params,
+					_Default(
+						name,
+						lambda.Lambda,
+					),
+				)
+			}
+
 			return true
-		}
-
-		for _, name := range taken[_Where(lambda.Lambda)] {
-			lambda.Params = append(lambda.Params, _Default(name, lambda.Lambda))
-		}
-
-		return true
-	})
+		},
+	)
 }
 
 // _Default is the parameter name=name.
@@ -193,12 +256,21 @@ func _Take(compiled *syntax.File, taken map[_At][]string) {
 //
 // Revisions:
 //   - 2026-09-29 23:30: initial creation
-func _Default(name string, at syntax.Position) syntax.Expr {
+func _Default(
+	name string,
+	at syntax.Position,
+) syntax.Expr {
 	return &syntax.BinaryExpr{
-		X:     &syntax.Ident{NamePos: at, Name: name},
+		X: &syntax.Ident{
+			NamePos: at,
+			Name:    name,
+		},
 		OpPos: at,
 		Op:    syntax.EQ,
-		Y:     &syntax.Ident{NamePos: at, Name: name},
+		Y: &syntax.Ident{
+			NamePos: at,
+			Name:    name,
+		},
 	}
 }
 

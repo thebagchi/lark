@@ -26,18 +26,28 @@ import (
 //   - 2026-09-30 00:41: reads on a lane, so a call may pass a parameter
 //   - 2026-10-02 00:04: returns the Call alone, taking a name as an operand
 //     and refusing a function the scope binds to something else
-func (r *_Reading) _Call(call *syntax.CallExpr, scope *_Scope) (*workflowpb.Call, bool) {
+func (r *_Reading) _Call(
+	call *syntax.CallExpr,
+	scope *_Scope,
+) (*workflowpb.Call, bool) {
 	name := _Callee(call)
 	if !scope._Callable(name) {
 		return nil, false
 	}
 
-	args, operands, ok := _Carries(call.Args, scope)
+	args, operands, ok := _Carries(
+		call.Args,
+		scope,
+	)
 	if !ok {
 		return nil, false
 	}
 
-	return &workflowpb.Call{Function: name, Args: args, Operands: operands}, true
+	return &workflowpb.Call{
+		Function: name,
+		Args:     args,
+		Operands: operands,
+	}, true
 }
 
 // _Carries is a call's arguments as the flow carries them: every one a value,
@@ -61,13 +71,22 @@ func _Carries(
 	)
 
 	for _, expr := range exprs {
-		operand, ok := _Carried(expr, scope)
+		operand, ok := _Carried(
+			expr,
+			scope,
+		)
 		if !ok {
 			return nil, nil, false
 		}
 
-		operands = append(operands, operand)
-		values = append(values, operand.GetLiteral())
+		operands = append(
+			operands,
+			operand,
+		)
+		values = append(
+			values,
+			operand.GetLiteral(),
+		)
 		named = named || operand.GetName() != ""
 	}
 
@@ -86,11 +105,16 @@ func _Carries(
 // Revisions:
 //   - 2026-09-30 00:41: initial creation
 //   - 2026-10-02 00:04: an Operand, a literal or a name the scope sees
-func _Carried(expr syntax.Expr, scope *_Scope) (*workflowpb.Operand, bool) {
+func _Carried(
+	expr syntax.Expr,
+	scope *_Scope,
+) (*workflowpb.Operand, bool) {
 	value, ok := _Arg(expr)
 	if ok {
 		return &workflowpb.Operand{
-			Source: &workflowpb.Operand_Literal{Literal: value},
+			Source: &workflowpb.Operand_Literal{
+				Literal: value,
+			},
 		}, true
 	}
 
@@ -99,7 +123,11 @@ func _Carried(expr syntax.Expr, scope *_Scope) (*workflowpb.Operand, bool) {
 		return nil, false
 	}
 
-	return &workflowpb.Operand{Source: &workflowpb.Operand_Name{Name: name.Name}}, true
+	return &workflowpb.Operand{
+		Source: &workflowpb.Operand_Name{
+			Name: name.Name,
+		},
+	}, true
 }
 
 // _Target is the call a builtin taking a function makes, and whether the flow
@@ -115,14 +143,19 @@ func _Carried(expr syntax.Expr, scope *_Scope) (*workflowpb.Operand, bool) {
 //   - 2026-09-30 00:41: carries a parameter as well as a value, and says when
 //     it could not carry an argument rather than dropping it
 //   - 2026-10-02 00:04: reads in a scope, and returns the call alone
-func (r *_Reading) _Target(expr syntax.Expr, scope *_Scope) (*workflowpb.Call, bool) {
+func (r *_Reading) _Target(
+	expr syntax.Expr,
+	scope *_Scope,
+) (*workflowpb.Call, bool) {
 	switch actual := expr.(type) {
 	case *syntax.Ident:
 		if !scope._Callable(actual.Name) {
 			return nil, false
 		}
 
-		return &workflowpb.Call{Function: actual.Name}, true
+		return &workflowpb.Call{
+			Function: actual.Name,
+		}, true
 
 	case *syntax.LambdaExpr:
 		if len(actual.Params) > 0 {
@@ -134,7 +167,10 @@ func (r *_Reading) _Target(expr syntax.Expr, scope *_Scope) (*workflowpb.Call, b
 			return nil, false
 		}
 
-		return r._Call(inner, scope)
+		return r._Call(
+			inner,
+			scope,
+		)
 	}
 
 	return nil, false
@@ -157,11 +193,18 @@ func _Both(call *workflowpb.Call) bool {
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Call
 func _CallExpr(call *workflowpb.Call) (syntax.Expr, error) {
 	if call == nil || call.GetFunction() == "" {
-		return nil, fmt.Errorf("call: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"call: %w",
+			ErrForm,
+		)
 	}
 
 	if _Both(call) {
-		return nil, fmt.Errorf("%s: %w", call.GetFunction(), ERR_FORM)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			call.GetFunction(),
+			ErrForm,
+		)
 	}
 
 	parts, err := _Parts(call)
@@ -169,7 +212,10 @@ func _CallExpr(call *workflowpb.Call) (syntax.Expr, error) {
 		return nil, err
 	}
 
-	return _Bare(call.GetFunction(), parts), nil
+	return _Bare(
+		call.GetFunction(),
+		parts,
+	), nil
 }
 
 // _Parts is a call's argument list. Operands win when any argument is a name.
@@ -191,7 +237,10 @@ func _Parts(call *workflowpb.Call) ([]syntax.Expr, error) {
 			return nil, err
 		}
 
-		parts = append(parts, value)
+		parts = append(
+			parts,
+			value,
+		)
 	}
 
 	return parts, nil
@@ -212,7 +261,10 @@ func _Operands(ops []*workflowpb.Operand) ([]syntax.Expr, error) {
 			return nil, err
 		}
 
-		parts = append(parts, value)
+		parts = append(
+			parts,
+			value,
+		)
 	}
 
 	return parts, nil
@@ -226,7 +278,10 @@ func _Operands(ops []*workflowpb.Operand) ([]syntax.Expr, error) {
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Operand
 func _Operand(op *workflowpb.Operand) (syntax.Expr, error) {
 	if op == nil {
-		return nil, fmt.Errorf("operand: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"operand: %w",
+			ErrForm,
+		)
 	}
 
 	switch src := op.GetSource().(type) {
@@ -235,13 +290,19 @@ func _Operand(op *workflowpb.Operand) (syntax.Expr, error) {
 
 	case *workflowpb.Operand_Name:
 		if src.Name == "" {
-			return nil, fmt.Errorf("operand: %w", ERR_FORM)
+			return nil, fmt.Errorf(
+				"operand: %w",
+				ErrForm,
+			)
 		}
 
 		return _Name(src.Name), nil
 
 	default:
-		return nil, fmt.Errorf("operand: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"operand: %w",
+			ErrForm,
+		)
 	}
 }
 
@@ -257,7 +318,10 @@ func _Call(call *workflowpb.Call) (syntax.Stmt, error) {
 		return nil, err
 	}
 
-	return _Emit(call.GetResult(), expr), nil
+	return _Emit(
+		call.GetResult(),
+		expr,
+	), nil
 }
 
 // _Target is a function a builtin takes: the bare name when the call passes
@@ -269,11 +333,18 @@ func _Call(call *workflowpb.Call) (syntax.Stmt, error) {
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Call
 func _Target(call *workflowpb.Call) (syntax.Expr, error) {
 	if call == nil || call.GetFunction() == "" {
-		return nil, fmt.Errorf("call: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"call: %w",
+			ErrForm,
+		)
 	}
 
 	if call.GetResult() != "" {
-		return nil, fmt.Errorf("%s: %w", call.GetFunction(), ERR_FORM)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			call.GetFunction(),
+			ErrForm,
+		)
 	}
 
 	if len(call.GetArgs()) == 0 && len(call.GetOperands()) == 0 {

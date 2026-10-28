@@ -52,11 +52,18 @@ func (f *_Fixed) Values() starlark.StringDict {
 func TestEnvironment_ImportingAPluginEnablesIt(t *testing.T) {
 	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	if _, found := env[JSON_NAME]; !found {
-		t.Fatalf("environment has %v, want %s", env.Keys(), JSON_NAME)
+		t.Fatalf(
+			"environment has %v, want %s",
+			env.Keys(),
+			JSON_NAME,
+		)
 	}
 }
 
@@ -68,29 +75,47 @@ func TestEnvironment_ImportingAPluginEnablesIt(t *testing.T) {
 func TestEnvironment_APluginsNamesReachAScript(t *testing.T) {
 	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	src := "out = json.encode({\"a\": 1})\n"
 
-	globals, err := starlark.ExecFileOptions(
+	var globals starlark.StringDict
+
+	globals, err = starlark.ExecFileOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT_NAME},
+		&starlark.Thread{
+			Name: SCRIPT_NAME,
+		},
 		SCRIPT_NAME,
 		[]byte(src),
 		env,
 	)
 	if err != nil {
-		t.Fatalf("execute: %v", err)
+		t.Fatalf(
+			"execute: %v",
+			err,
+		)
 	}
 
 	got, ok := globals[OUT].(starlark.String)
 	if !ok {
-		t.Fatalf("%s is %T, want starlark.String", OUT, globals[OUT])
+		t.Fatalf(
+			"%s is %T, want starlark.String",
+			OUT,
+			globals[OUT],
+		)
 	}
 
 	if string(got) != ENCODED {
-		t.Fatalf("got %s, want %s", string(got), ENCODED)
+		t.Fatalf(
+			"got %s, want %s",
+			string(got),
+			ENCODED,
+		)
 	}
 }
 
@@ -106,21 +131,38 @@ func TestEnvironment_APluginsNamesReachAScript(t *testing.T) {
 //     package's
 //   - 2026-10-03 08:29: builds its own list, there being no registry
 func TestEnvironment_RefusesAConflictNamingBoth(t *testing.T) {
-	clashing := &_Fixed{
-		name: CLASH_SOURCE,
-		values: starlark.StringDict{
-			JSON_NAME: starlark.None,
-		},
-	}
-
-	_, err := plugin.Environment(slices.Concat(plugin.DEFAULT, []plugin.Plugin{clashing}))
-	if !errors.Is(err, plugin.ERR_CONFLICT) {
-		t.Fatalf("got %v, want ERR_CONFLICT", err)
+	var (
+		clashing = &_Fixed{
+			name: CLASH_SOURCE,
+			values: starlark.StringDict{
+				JSON_NAME: starlark.None,
+			},
+		}
+		_, err = plugin.Environment(slices.Concat(
+			plugin.DEFAULT,
+			[]plugin.Plugin{clashing},
+		))
+	)
+	if !errors.Is(
+		err,
+		plugin.ErrConflict,
+	) {
+		t.Fatalf(
+			"got %v, want ErrConflict",
+			err,
+		)
 	}
 
 	for _, want := range []string{CLASH_SOURCE, JSON_NAME} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("refusal does not name %s: %v", want, err)
+		if !strings.Contains(
+			err.Error(),
+			want,
+		) {
+			t.Fatalf(
+				"refusal does not name %s: %v",
+				want,
+				err,
+			)
 		}
 	}
 }
@@ -134,29 +176,37 @@ func TestEnvironment_RefusesAConflictNamingBoth(t *testing.T) {
 //   - 2026-09-21 09:46: builds its own registry
 //   - 2026-10-03 08:29: builds its own list, there being no registry
 func TestEnvironment_ReportsOneConflictTheSameWayEveryRun(t *testing.T) {
-	plugins := []plugin.Plugin{
-		&_Fixed{
-			name: JSON_NAME,
-			values: starlark.StringDict{
-				"alpha": starlark.None,
-				"omega": starlark.None,
+	var (
+		plugins = []plugin.Plugin{
+			&_Fixed{
+				name: JSON_NAME,
+				values: starlark.StringDict{
+					"alpha": starlark.None,
+					"omega": starlark.None,
+				},
 			},
-		},
-		&_Fixed{
-			name: CLASH_SOURCE,
-			values: starlark.StringDict{
-				"alpha": starlark.None,
-				"omega": starlark.None,
+			&_Fixed{
+				name: CLASH_SOURCE,
+				values: starlark.StringDict{
+					"alpha": starlark.None,
+					"omega": starlark.None,
+				},
 			},
-		},
-	}
-
-	first := ""
+		}
+		first = ""
+	)
 
 	for attempt := range 20 {
 		_, err := plugin.Environment(plugins)
-		if !errors.Is(err, plugin.ERR_CONFLICT) {
-			t.Fatalf("attempt %d gave %v, want ERR_CONFLICT", attempt, err)
+		if !errors.Is(
+			err,
+			plugin.ErrConflict,
+		) {
+			t.Fatalf(
+				"attempt %d gave %v, want ErrConflict",
+				attempt,
+				err,
+			)
 		}
 
 		if attempt == 0 {
@@ -166,8 +216,12 @@ func TestEnvironment_ReportsOneConflictTheSameWayEveryRun(t *testing.T) {
 		}
 
 		if err.Error() != first {
-			t.Fatalf("attempt %d reported %q, first reported %q",
-				attempt, err.Error(), first)
+			t.Fatalf(
+				"attempt %d reported %q, first reported %q",
+				attempt,
+				err.Error(),
+				first,
+			)
 		}
 	}
 }
@@ -187,7 +241,10 @@ func TestEnvironment_OfNoPluginsSuppliesNothing(t *testing.T) {
 	}
 
 	if len(env) != 0 {
-		t.Fatalf("want no plugins to supply nothing, got %v", env.Keys())
+		t.Fatalf(
+			"want no plugins to supply nothing, got %v",
+			env.Keys(),
+		)
 	}
 
 	if len(plugin.DEFAULT) == 0 {

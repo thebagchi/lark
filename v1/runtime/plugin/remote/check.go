@@ -26,6 +26,8 @@ import (
 //
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
+//   - 2026-10-24 16:05: copy the name list under the lock, so a compile that
+//     overlaps a restart does not race on the slice header
 func (r *_Remote) Check(tree *syntax.File) error {
 	declared := map[string]bool{}
 
@@ -36,33 +38,83 @@ func (r *_Remote) Check(tree *syntax.File) error {
 		}
 	}
 
+	r.guard.Lock()
+	names := make(
+		[]string,
+		len(r.names),
+	)
+	copy(
+		names,
+		r.names,
+	)
+	r.guard.Unlock()
+
 	mine := map[string]bool{}
 
-	for _, named := range r.names {
+	for _, named := range names {
 		mine[named] = true
 	}
 
+	return _Checked(
+		tree,
+		declared,
+		mine,
+	)
+}
+
+// _Checked walks the file and refuses a call this plugin cannot answer.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Checked(
+	tree *syntax.File,
+	declared map[string]bool,
+	mine map[string]bool,
+) error {
+	return _Walked(
+		tree,
+		mine,
+		declared,
+	)
+}
+
+// _Walked refuses a call of a plugin name whose arguments do not match.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Walked(
+	tree *syntax.File,
+	mine map[string]bool,
+	declared map[string]bool,
+) error {
 	var failure error
 
-	syntax.Walk(tree, func(node syntax.Node) bool {
-		if failure != nil {
-			return false
-		}
+	syntax.Walk(
+		tree,
+		func(node syntax.Node) bool {
+			if failure != nil {
+				return false
+			}
 
-		call, ok := node.(*syntax.CallExpr)
-		if !ok {
-			return true
-		}
+			call, ok := node.(*syntax.CallExpr)
+			if !ok {
+				return true
+			}
 
-		called := _Called(call.Fn)
-		if !mine[called] {
-			return true
-		}
+			called := _Called(call.Fn)
+			if !mine[called] {
+				return true
+			}
 
-		failure = _Handed(called, call, declared)
+			failure = _Handed(
+				called,
+				call,
+				declared,
+			)
 
-		return failure == nil
-	})
+			return failure == nil
+		},
+	)
 
 	return failure
 }
@@ -96,15 +148,28 @@ func _Called(fn syntax.Expr) string {
 //
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
-func _Handed(called string, call *syntax.CallExpr, declared map[string]bool) error {
+func _Handed(
+	called string,
+	call *syntax.CallExpr,
+	declared map[string]bool,
+) error {
 	for index, given := range call.Args {
-		named := _Names(given, declared)
+		named := _Names(
+			given,
+			declared,
+		)
 		if named == "" {
 			continue
 		}
 
-		return fmt.Errorf("%s at %s is given %s as argument %d: %w",
-			called, call.Lparen, named, index, ERR_ARGUMENT)
+		return fmt.Errorf(
+			"%s at %s is given %s as argument %d: %w",
+			called,
+			call.Lparen,
+			named,
+			index,
+			ErrArgument,
+		)
 	}
 
 	return nil
@@ -115,7 +180,10 @@ func _Handed(called string, call *syntax.CallExpr, declared map[string]bool) err
 //
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
-func _Names(arg syntax.Expr, declared map[string]bool) string {
+func _Names(
+	arg syntax.Expr,
+	declared map[string]bool,
+) string {
 	switch held := _Bare(arg).(type) {
 	case *syntax.LambdaExpr:
 		return "a lambda"

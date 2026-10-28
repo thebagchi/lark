@@ -25,11 +25,13 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
-// ERR_ENCODED is returned for text that is not the encoding it was handed to.
-var ERR_ENCODED = errors.New("not the encoding this reads")
+// ErrEncoded is returned for text that is not the encoding it was handed to.
+var (
+	ErrEncoded = errors.New("not the encoding this reads")
+)
 
+// NAME is the module, and the four names it holds.
 const (
-	// NAME is the module, and the four names it holds.
 	NAME      = "base64"
 	ENCODE    = "encode"
 	DECODE    = "decode"
@@ -70,10 +72,22 @@ func (b *_Base64) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				ENCODE:    starlark.NewBuiltin(NAME+"."+ENCODE, _Encode),
-				DECODE:    starlark.NewBuiltin(NAME+"."+DECODE, _Decode),
-				URLENCODE: starlark.NewBuiltin(NAME+"."+URLENCODE, _URLEncode),
-				URLDECODE: starlark.NewBuiltin(NAME+"."+URLDECODE, _URLDecode),
+				ENCODE: starlark.NewBuiltin(
+					NAME+"."+ENCODE,
+					_Encode,
+				),
+				DECODE: starlark.NewBuiltin(
+					NAME+"."+DECODE,
+					_Decode,
+				),
+				URLENCODE: starlark.NewBuiltin(
+					NAME+"."+URLENCODE,
+					_URLEncode,
+				),
+				URLDECODE: starlark.NewBuiltin(
+					NAME+"."+URLDECODE,
+					_URLDecode,
+				),
 			},
 		},
 	}
@@ -93,7 +107,11 @@ func _Encode(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(fn, args, kwargs)
+	data, err := unpack.Data(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -112,12 +130,20 @@ func _Decode(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Read(fn.Name(), text, base64.RawStdEncoding)
+	return _Read(
+		fn.Name(),
+		text,
+		base64.RawStdEncoding,
+	)
 }
 
 // _URLEncode is the URL and filename safe alphabet, unpadded, which is RFC
@@ -135,7 +161,11 @@ func _URLEncode(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(fn, args, kwargs)
+	data, err := unpack.Data(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -154,12 +184,20 @@ func _URLDecode(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	text, err := unpack.Text(fn, args, kwargs)
+	text, err := unpack.Text(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Read(fn.Name(), text, base64.RawURLEncoding)
+	return _Read(
+		fn.Name(),
+		text,
+		base64.RawURLEncoding,
+	)
 }
 
 // _Read decodes text through encoding, with any padding taken off first.
@@ -172,10 +210,22 @@ func _URLDecode(
 // Revisions:
 //   - 2026-09-21 15:25: initial creation, as codec's _Decoded
 //   - 2026-09-23 23:20: reads for the base64 module
-func _Read(who string, text string, encoding *base64.Encoding) (starlark.Value, error) {
-	data, err := encoding.DecodeString(strings.TrimRight(text, PADDING))
+func _Read(
+	who string,
+	text string,
+	encoding *base64.Encoding,
+) (starlark.Value, error) {
+	data, err := encoding.DecodeString(strings.TrimRight(
+		text,
+		PADDING,
+	))
 	if err != nil {
-		return nil, fmt.Errorf("%s got %q: %w", who, text, ERR_ENCODED)
+		return nil, fmt.Errorf(
+			"%s got %q: %w",
+			who,
+			text,
+			ErrEncoded,
+		)
 	}
 
 	return starlark.Bytes(data), nil

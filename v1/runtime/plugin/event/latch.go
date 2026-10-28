@@ -47,8 +47,8 @@ type _Events struct {
 // and cannot appear in a select - which a wait watching a timeout and a
 // cancellation at once has to do.
 type _Latch struct {
-	done   chan struct{}
 	guard  sync.Mutex
+	done   chan struct{}
 	value  starlark.Value
 	posted bool
 }
@@ -58,9 +58,15 @@ type _Latch struct {
 // Revisions:
 //   - 2026-09-30 21:01: initial creation
 func _Of(thread *starlark.Thread) (*_Events, error) {
-	return scheduler.Shared(thread, EVENTS, func() *_Events {
-		return &_Events{held: map[string]*_Latch{}}
-	})
+	return scheduler.Shared(
+		thread,
+		EVENTS,
+		func() *_Events {
+			return &_Events{
+				held: map[string]*_Latch{},
+			}
+		},
+	)
 }
 
 // _Named is the event of that name, made if this is the first mention of it.
@@ -69,11 +75,14 @@ func _Of(thread *starlark.Thread) (*_Events, error) {
 // waiter arrive before the poster does - and is why making one is charged here
 // rather than where it is posted.
 //
-// Returns ERR_MEMORY when the run cannot afford another, having made nothing.
+// Returns ErrMemory when the run cannot afford another, having made nothing.
 //
 // Revisions:
 //   - 2026-09-30 21:01: initial creation
-func (e *_Events) _Named(budget *scheduler.Budget, name string) (*_Latch, error) {
+func (e *_Events) _Named(
+	budget *scheduler.Budget,
+	name string,
+) (*_Latch, error) {
 	e.guard.Lock()
 	defer e.guard.Unlock()
 
@@ -87,7 +96,9 @@ func (e *_Events) _Named(budget *scheduler.Budget, name string) (*_Latch, error)
 		return nil, err
 	}
 
-	held = &_Latch{done: make(chan struct{})}
+	held = &_Latch{
+		done: make(chan struct{}),
+	}
 	e.held[name] = held
 
 	return held, nil
@@ -97,13 +108,23 @@ func (e *_Events) _Named(budget *scheduler.Budget, name string) (*_Latch, error)
 //
 // Revisions:
 //   - 2026-09-30 21:01: initial creation
-func (e *_Events) _Post(budget *scheduler.Budget, name string, value starlark.Value) error {
-	held, err := e._Named(budget, name)
+func (e *_Events) _Post(
+	budget *scheduler.Budget,
+	name string,
+	value starlark.Value,
+) error {
+	held, err := e._Named(
+		budget,
+		name,
+	)
 	if err != nil {
 		return err
 	}
 
-	return held._Post(budget, value)
+	return held._Post(
+		budget,
+		value,
+	)
 }
 
 // _Post hands this latch its value and releases every waiter.
@@ -112,16 +133,22 @@ func (e *_Events) _Post(budget *scheduler.Budget, name string, value starlark.Va
 // once and nothing deletes it - so what it holds is held for the life of the
 // run, which is the reason the store charges too.
 //
-// Returns ERR_POSTED when it has already been posted.
+// Returns ErrPosted when it has already been posted.
 //
 // Revisions:
 //   - 2026-09-30 21:01: initial creation
-func (l *_Latch) _Post(budget *scheduler.Budget, value starlark.Value) error {
+func (l *_Latch) _Post(
+	budget *scheduler.Budget,
+	value starlark.Value,
+) error {
 	l.guard.Lock()
 	defer l.guard.Unlock()
 
 	if l.posted {
-		return fmt.Errorf("%w", ERR_POSTED)
+		return fmt.Errorf(
+			"%w",
+			ErrPosted,
+		)
 	}
 
 	err := budget.Charge(deep.Size(value))
@@ -140,7 +167,7 @@ func (l *_Latch) _Post(budget *scheduler.Budget, value starlark.Value) error {
 // _Await waits for this latch, for the time given, or for the caller to be
 // cancelled - whichever comes first. A latch already posted is not waited for.
 //
-// Answers with the value and whether the wait ran out. Returns ERR_CANCELLED
+// Answers with the value and whether the wait ran out. Returns ErrCancelled
 // wrapping the context's error when the caller went first, because then there is
 // nothing left to hand an answer to.
 //
@@ -148,7 +175,10 @@ func (l *_Latch) _Post(budget *scheduler.Budget, value starlark.Value) error {
 //   - 2026-09-30 21:01: initial creation
 //   - 2026-09-30 21:50: looks at the latch before arming the timer, so a wait
 //     shorter than getting here cannot miss a post that came first
-func (l *_Latch) _Await(ctx context.Context, bound time.Duration) (starlark.Value, bool, error) {
+func (l *_Latch) _Await(
+	ctx context.Context,
+	bound time.Duration,
+) (starlark.Value, bool, error) {
 	// Before the timer, because a select choosing between cases that are both
 	// ready picks one at random. A bound already run out - zero, or anything
 	// shorter than reaching the select - answered that the wait expired about
@@ -171,7 +201,11 @@ func (l *_Latch) _Await(ctx context.Context, bound time.Duration) (starlark.Valu
 		return starlark.None, true, nil
 
 	case <-ctx.Done():
-		return nil, false, fmt.Errorf("%w: %w", scheduler.ERR_CANCELLED, ctx.Err())
+		return nil, false, fmt.Errorf(
+			"%w: %w",
+			scheduler.ErrCancelled,
+			ctx.Err(),
+		)
 	}
 }
 

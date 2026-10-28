@@ -13,7 +13,9 @@ import (
 
 // CLOSED is the fewest statements a suite holds when one of them is a closer:
 // the closer, and one statement it closes.
-const CLOSED = 2
+const (
+	CLOSED = 2
+)
 
 // Closed is a suite without its closing pass: the pass that ends a suite
 // holding at least one other statement.
@@ -49,7 +51,10 @@ func Closed(body []syntax.Stmt) []syntax.Stmt {
 // Revisions:
 //   - 2026-10-02 01:13: initial creation, from derive's _Matched, so the
 //     dialect and derive read a match one way
-func Matched(body []syntax.Stmt, idx int) (*syntax.AssignStmt, *syntax.IfStmt, bool) {
+func Matched(
+	body []syntax.Stmt,
+	idx int,
+) (*syntax.AssignStmt, *syntax.IfStmt, bool) {
 	if idx+1 >= len(body) {
 		return nil, nil, false
 	}

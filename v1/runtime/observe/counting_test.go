@@ -50,7 +50,10 @@ func _NewCounter() *_Counter {
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
 //   - 2026-10-02 01:35: takes a Line
-func (c *_Counter) Started(thread string, line *scheduler.Line) {
+func (c *_Counter) Started(
+	thread string,
+	line *scheduler.Line,
+) {
 	c.guard.Lock()
 	defer c.guard.Unlock()
 
@@ -61,7 +64,11 @@ func (c *_Counter) Started(thread string, line *scheduler.Line) {
 //
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
-func (c *_Counter) Ended(thread string, name string, err error) {
+func (c *_Counter) Ended(
+	thread string,
+	name string,
+	err error,
+) {
 	c.guard.Lock()
 	defer c.guard.Unlock()
 
@@ -89,11 +96,18 @@ func (c *_Counter) _Tally(name string) (int, int) {
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
 func TestReport_EndsAWrapperOnceHoweverManyAttempts(t *testing.T) {
-	counter := _NewCounter()
-
-	built := _Compile(t, RETRYING)
-
-	_, err := artifact.Run(t.Context(), built, artifact.Reporting(counter))
+	var (
+		counter = _NewCounter()
+		built   = _Compile(
+			t,
+			RETRYING,
+		)
+		_, err = artifact.Run(
+			t.Context(),
+			built,
+			artifact.Reporting(counter),
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,11 +115,19 @@ func TestReport_EndsAWrapperOnceHoweverManyAttempts(t *testing.T) {
 	began, ended := counter._Tally("flaky")
 
 	if began != TRIES {
-		t.Fatalf("want %d attempts begun, got %d", TRIES, began)
+		t.Fatalf(
+			"want %d attempts begun, got %d",
+			TRIES,
+			began,
+		)
 	}
 
 	if ended != 1 {
-		t.Fatalf("want one ending for %d attempts, got %d", TRIES, ended)
+		t.Fatalf(
+			"want one ending for %d attempts, got %d",
+			TRIES,
+			ended,
+		)
 	}
 }
 
@@ -115,9 +137,17 @@ func TestReport_EndsAWrapperOnceHoweverManyAttempts(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
 func TestReport_EndsARepeatOnce(t *testing.T) {
-	counter := _NewCounter()
-
-	_, err := artifact.Run(t.Context(), _Compile(t, REPEATING), artifact.Reporting(counter))
+	var (
+		counter = _NewCounter()
+		_, err  = artifact.Run(
+			t.Context(),
+			_Compile(
+				t,
+				REPEATING,
+			),
+			artifact.Reporting(counter),
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +155,12 @@ func TestReport_EndsARepeatOnce(t *testing.T) {
 	began, ended := counter._Tally("step")
 
 	if began != TRIES || ended != 1 {
-		t.Fatalf("want %d begun and 1 ended, got %d and %d", TRIES, began, ended)
+		t.Fatalf(
+			"want %d begun and 1 ended, got %d and %d",
+			TRIES,
+			began,
+			ended,
+		)
 	}
 }
 
@@ -142,7 +177,10 @@ type _Exploding struct {
 // Revisions:
 //   - 2026-09-20 12:01: initial creation
 //   - 2026-10-02 01:35: takes a Line
-func (e *_Exploding) Started(thread string, line *scheduler.Line) {
+func (e *_Exploding) Started(
+	thread string,
+	line *scheduler.Line,
+) {
 	e._Maybe(STARTED)
 }
 
@@ -150,7 +188,11 @@ func (e *_Exploding) Started(thread string, line *scheduler.Line) {
 //
 // Revisions:
 //   - 2026-09-20 12:01: initial creation
-func (e *_Exploding) Ended(thread string, name string, err error) {
+func (e *_Exploding) Ended(
+	thread string,
+	name string,
+	err error,
+) {
 	e._Maybe(ENDED)
 }
 
@@ -183,19 +225,35 @@ func (e *_Exploding) _Maybe(moment string) {
 //   - 2026-09-20 12:01: initial creation
 func TestReport_APanickingReporterEndsTheRun(t *testing.T) {
 	for _, moment := range []string{STARTED, ENDED} {
-		blows := &_Exploding{on: moment}
-
-		_, err := artifact.Run(
-			t.Context(),
-			_Compile(t, BRANCHING),
-			artifact.Reporting(blows),
+		var (
+			blows = &_Exploding{
+				on: moment,
+			}
+			_, err = artifact.Run(
+				t.Context(),
+				_Compile(
+					t,
+					BRANCHING,
+				),
+				artifact.Reporting(blows),
+			)
 		)
 		if err == nil {
-			t.Fatalf("%s: want a run whose reporter raised to fail", moment)
+			t.Fatalf(
+				"%s: want a run whose reporter raised to fail",
+				moment,
+			)
 		}
 
-		if !strings.Contains(err.Error(), BLEW_UP) {
-			t.Fatalf("%s: want the panic's own words, got %v", moment, err)
+		if !strings.Contains(
+			err.Error(),
+			BLEW_UP,
+		) {
+			t.Fatalf(
+				"%s: want the panic's own words, got %v",
+				moment,
+				err,
+			)
 		}
 	}
 }
@@ -206,11 +264,24 @@ func TestReport_APanickingReporterEndsTheRun(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 12:01: initial creation
 func TestReport_AWorkingReporterDoesNotEndTheRun(t *testing.T) {
-	quiet := &_Exploding{on: NEVER}
-
-	_, err := artifact.Run(t.Context(), _Compile(t, BRANCHING), artifact.Reporting(quiet))
+	var (
+		quiet = &_Exploding{
+			on: NEVER,
+		}
+		_, err = artifact.Run(
+			t.Context(),
+			_Compile(
+				t,
+				BRANCHING,
+			),
+			artifact.Reporting(quiet),
+		)
+	)
 	if err != nil {
-		t.Fatalf("want a run with a working reporter to succeed, got %v", err)
+		t.Fatalf(
+			"want a run with a working reporter to succeed, got %v",
+			err,
+		)
 	}
 
 	if quiet.told == 0 {

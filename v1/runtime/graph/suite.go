@@ -46,7 +46,11 @@ type _Program struct {
 func (p *_Program) _File(name string) string {
 	p.seq++
 
-	return fmt.Sprintf("%s-%d.star", name, p.seq)
+	return fmt.Sprintf(
+		"%s-%d.star",
+		name,
+		p.seq,
+	)
 }
 
 // _Close appends pass to every suite that does not return and does not
@@ -57,22 +61,34 @@ func (p *_Program) _File(name string) string {
 //   - 2026-10-01 13:08: initial creation
 func _Close(prog *_Program) {
 	for _, def := range prog.functions {
-		_CloseDef(def, prog)
+		_CloseDef(
+			def,
+			prog,
+		)
 	}
 
-	_CloseDef(prog.main, prog)
+	_CloseDef(
+		prog.main,
+		prog,
+	)
 }
 
 // _CloseDef closes a function and the suites inside it.
 //
 // Revisions:
 //   - 2026-10-01 13:08: initial creation
-func _CloseDef(def *syntax.DefStmt, prog *_Program) {
+func _CloseDef(
+	def *syntax.DefStmt,
+	prog *_Program,
+) {
 	if def == nil {
 		return
 	}
 
-	_CloseBody(&def.Body, prog)
+	_CloseBody(
+		&def.Body,
+		prog,
+	)
 }
 
 // _CloseBody closes each statement, then the list itself when it needs a
@@ -80,16 +96,25 @@ func _CloseDef(def *syntax.DefStmt, prog *_Program) {
 //
 // Revisions:
 //   - 2026-10-01 13:08: initial creation
-func _CloseBody(body *[]syntax.Stmt, prog *_Program) {
+func _CloseBody(
+	body *[]syntax.Stmt,
+	prog *_Program,
+) {
 	for _, stmt := range *body {
-		_CloseStmt(stmt, prog)
+		_CloseStmt(
+			stmt,
+			prog,
+		)
 	}
 
 	if _Ended(*body) {
 		return
 	}
 
-	*body = append(*body, _Pass())
+	*body = append(
+		*body,
+		_Pass(),
+	)
 }
 
 // _CloseStmt closes the suites one statement contains.
@@ -97,17 +122,26 @@ func _CloseBody(body *[]syntax.Stmt, prog *_Program) {
 // Revisions:
 //   - 2026-10-01 13:08: initial creation
 //   - 2026-10-03 20:49: reaches a def's, a for's or a while's suite through _SuiteOf
-func _CloseStmt(stmt syntax.Stmt, prog *_Program) {
+func _CloseStmt(
+	stmt syntax.Stmt,
+	prog *_Program,
+) {
 	branch, ok := stmt.(*syntax.IfStmt)
 	if ok {
-		_CloseIf(branch, prog)
+		_CloseIf(
+			branch,
+			prog,
+		)
 
 		return
 	}
 
 	suite := _SuiteOf(stmt)
 	if suite != nil {
-		_CloseBody(suite, prog)
+		_CloseBody(
+			suite,
+			prog,
+		)
 	}
 }
 
@@ -141,11 +175,23 @@ func _SuiteOf(stmt syntax.Stmt) *[]syntax.Stmt {
 //
 // Revisions:
 //   - 2026-10-01 13:08: initial creation
-func _CloseIf(node *syntax.IfStmt, prog *_Program) {
-	_CloseBody(&node.True, prog)
+func _CloseIf(
+	node *syntax.IfStmt,
+	prog *_Program,
+) {
+	_CloseBody(
+		&node.True,
+		prog,
+	)
 
-	if inner := _ElifOf(node, prog); inner != nil {
-		_CloseIf(inner, prog)
+	if inner := _ElifOf(
+		node,
+		prog,
+	); inner != nil {
+		_CloseIf(
+			inner,
+			prog,
+		)
 
 		return
 	}
@@ -154,7 +200,10 @@ func _CloseIf(node *syntax.IfStmt, prog *_Program) {
 		return
 	}
 
-	_CloseBody(&node.False, prog)
+	_CloseBody(
+		&node.False,
+		prog,
+	)
 }
 
 // _Ended reports that a suite is not given a closer: it is empty, it
@@ -191,7 +240,10 @@ func _Returned(stmt syntax.Stmt) bool {
 //
 // Revisions:
 //   - 2026-10-01 13:08: initial creation
-func _ElifOf(node *syntax.IfStmt, prog *_Program) *syntax.IfStmt {
+func _ElifOf(
+	node *syntax.IfStmt,
+	prog *_Program,
+) *syntax.IfStmt {
 	if len(node.False) != FIRST {
 		return nil
 	}
@@ -221,41 +273,122 @@ func _ElifOf(node *syntax.IfStmt, prog *_Program) *syntax.IfStmt {
 //   - 2026-10-02 00:11: works out where each line comment goes, and which
 //     end-of-line comments to cut
 //   - 2026-10-03 20:40: keeps the body as a text whose lines are found once
-func _Parsed(prog *_Program, name, body string) ([]syntax.Stmt, error) {
+func _Parsed(
+	prog *_Program,
+	name,
+	body string,
+) ([]syntax.Stmt, error) {
 	if _NotesOnly(body) {
-		return nil, fmt.Errorf("%s: %w", name, ERR_NO_BODY)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			name,
+			ErrNoBody,
+		)
 	}
 
-	wrapped := "def _():\n" + _Indent(body, INDENT)
-	if !strings.HasSuffix(wrapped, "\n") {
-		wrapped += "\n"
-	}
-
-	fileName := prog._File(name)
-
-	file, err := dialect.OPTIONS.Parse(fileName, wrapped, syntax.RetainComments)
-	if err != nil {
-		return nil, fmt.Errorf("script: %w", err)
-	}
-
-	def, ok := _Wrapped(file)
-	if !ok {
-		return nil, fmt.Errorf("script: %w", ERR_FORM)
-	}
-
-	text := _NewLines(wrapped)
-	prog.sources[fileName] = text
-
-	err = _Mark(text, def.Body, prog.elif)
+	var (
+		fileName           = prog._File(name)
+		file, wrapped, err = _WrappedSource(
+			fileName,
+			body,
+		)
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	prog.cuts[fileName] = _Suffixes(file)
+	def, ok := _Wrapped(file)
+	if !ok {
+		return nil, fmt.Errorf(
+			"script: %w",
+			ErrForm,
+		)
+	}
 
-	_Place(prog, file, def)
+	return _Noted(
+		&_Script{
+			prog:     prog,
+			file:     file,
+			def:      def,
+			wrapped:  wrapped,
+			fileName: fileName,
+		},
+	)
+}
 
-	return def.Body, nil
+// _Script is one body that has been parsed and is about to be recorded.
+type _Script struct {
+	prog     *_Program
+	file     *syntax.File
+	def      *syntax.DefStmt
+	wrapped  string
+	fileName string
+}
+
+// _WrappedSource parses body as the body of one function.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _WrappedSource(
+	fileName string,
+	body string,
+) (*syntax.File, string, error) {
+	wrapped := "def _():\n" + _Indent(
+		body,
+		INDENT,
+	)
+	if !strings.HasSuffix(
+		wrapped,
+		"\n",
+	) {
+		wrapped += "\n"
+	}
+
+	file, err := dialect.OPTIONS.Parse(
+		fileName,
+		wrapped,
+		syntax.RetainComments,
+	)
+	if err != nil {
+		return nil, "", fmt.Errorf(
+			"script: %w",
+			err,
+		)
+	}
+
+	return file, wrapped, nil
+}
+
+// _Noted records the source, the cuts, and where the function sits.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Noted(script *_Script) ([]syntax.Stmt, error) {
+	var (
+		fileName = script.fileName
+		text     = _NewLines(script.wrapped)
+	)
+
+	script.prog.sources[fileName] = text
+
+	err := _Mark(
+		text,
+		script.def.Body,
+		script.prog.elif,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	script.prog.cuts[fileName] = _Suffixes(script.file)
+
+	_Place(
+		script.prog,
+		script.file,
+		script.def,
+	)
+
+	return script.def.Body, nil
 }
 
 // _NotesOnly reports that every line is blank or a comment, so the body
@@ -264,9 +397,15 @@ func _Parsed(prog *_Program, name, body string) ([]syntax.Stmt, error) {
 // Revisions:
 //   - 2026-10-01 16:46: initial creation
 func _NotesOnly(body string) bool {
-	for _, line := range strings.Split(body, "\n") {
+	for _, line := range strings.Split(
+		body,
+		"\n",
+	) {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, COMMENT) {
+		if line == "" || strings.HasPrefix(
+			line,
+			COMMENT,
+		) {
 			continue
 		}
 
@@ -296,9 +435,17 @@ func _Wrapped(file *syntax.File) (*syntax.DefStmt, bool) {
 // Revisions:
 //   - 2026-10-01 13:08: initial creation
 //   - 2026-10-03 20:40: reads the word from a text whose lines are found once
-func _Mark(text *_Lines, stmts []syntax.Stmt, elif map[*syntax.IfStmt]struct{}) error {
+func _Mark(
+	text *_Lines,
+	stmts []syntax.Stmt,
+	elif map[*syntax.IfStmt]struct{},
+) error {
 	for _, stmt := range stmts {
-		err := _MarkStmt(text, stmt, elif)
+		err := _MarkStmt(
+			text,
+			stmt,
+			elif,
+		)
 		if err != nil {
 			return err
 		}
@@ -313,10 +460,18 @@ func _Mark(text *_Lines, stmts []syntax.Stmt, elif map[*syntax.IfStmt]struct{}) 
 //   - 2026-10-01 13:08: initial creation
 //   - 2026-10-03 20:40: reads the word from a text whose lines are found once
 //   - 2026-10-03 20:49: reaches a def's, a for's or a while's suite through _SuiteOf
-func _MarkStmt(text *_Lines, stmt syntax.Stmt, elif map[*syntax.IfStmt]struct{}) error {
+func _MarkStmt(
+	text *_Lines,
+	stmt syntax.Stmt,
+	elif map[*syntax.IfStmt]struct{},
+) error {
 	branch, ok := stmt.(*syntax.IfStmt)
 	if ok {
-		return _MarkIf(text, branch, elif)
+		return _MarkIf(
+			text,
+			branch,
+			elif,
+		)
 	}
 
 	suite := _SuiteOf(stmt)
@@ -324,7 +479,11 @@ func _MarkStmt(text *_Lines, stmt syntax.Stmt, elif map[*syntax.IfStmt]struct{})
 		return nil
 	}
 
-	return _Mark(text, *suite, elif)
+	return _Mark(
+		text,
+		*suite,
+		elif,
+	)
 }
 
 // _MarkIf remembers this if when its source word is elif, and walks both
@@ -333,13 +492,24 @@ func _MarkStmt(text *_Lines, stmt syntax.Stmt, elif map[*syntax.IfStmt]struct{})
 // Revisions:
 //   - 2026-10-01 13:08: initial creation
 //   - 2026-10-03 20:40: reads the word from a text whose lines are found once
-func _MarkIf(text *_Lines, node *syntax.IfStmt, elif map[*syntax.IfStmt]struct{}) error {
-	err := _Mark(text, node.True, elif)
+func _MarkIf(
+	text *_Lines,
+	node *syntax.IfStmt,
+	elif map[*syntax.IfStmt]struct{},
+) error {
+	err := _Mark(
+		text,
+		node.True,
+		elif,
+	)
 	if err != nil {
 		return err
 	}
 
-	word, err := _Letters(text, node.If)
+	word, err := _Letters(
+		text,
+		node.If,
+	)
 	if err != nil {
 		return err
 	}
@@ -348,7 +518,11 @@ func _MarkIf(text *_Lines, node *syntax.IfStmt, elif map[*syntax.IfStmt]struct{}
 		elif[node] = struct{}{}
 	}
 
-	return _Mark(text, node.False, elif)
+	return _Mark(
+		text,
+		node.False,
+		elif,
+	)
 }
 
 // _Located is the source a node was parsed from, and the byte range of the
@@ -360,13 +534,18 @@ func _MarkIf(text *_Lines, node *syntax.IfStmt, elif map[*syntax.IfStmt]struct{}
 //     closing bracket, which the interpreter's Span stops short of
 //   - 2026-10-03 20:40: the source as a text whose lines are found once, so locating
 //     a node no longer walks the source from its start
-func _Located(prog *_Program, node syntax.Node) (*_Lines, int, int, bool) {
+func _Located(
+	prog *_Program,
+	node syntax.Node,
+) (*_Lines, int, int, bool) {
 	if prog == nil || node == nil {
 		return nil, 0, 0, false
 	}
 
-	start, _ := node.Span()
-	end := _End(node)
+	var (
+		start, _ = node.Span()
+		end      = _End(node)
+	)
 
 	if !start.IsValid() || !end.IsValid() {
 		return nil, 0, 0, false
@@ -377,8 +556,16 @@ func _Located(prog *_Program, node syntax.Node) (*_Lines, int, int, bool) {
 		return nil, 0, 0, false
 	}
 
-	from := text._At(start.Line, start.Col)
-	to := text._At(end.Line, end.Col)
+	var (
+		from = text._At(
+			start.Line,
+			start.Col,
+		)
+		to = text._At(
+			end.Line,
+			end.Col,
+		)
+	)
 	if from < 0 || to < from || to > len(text.src) {
 		return nil, 0, 0, false
 	}
@@ -399,17 +586,22 @@ func _Located(prog *_Program, node syntax.Node) (*_Lines, int, int, bool) {
 func _End(node syntax.Node) syntax.Position {
 	_, end := node.Span()
 
-	syntax.Walk(node, func(inner syntax.Node) bool {
-		reach, closes := _Bracket(inner)
-		further := closes &&
-			(reach.Line > end.Line || reach.Line == end.Line && reach.Col > end.Col)
+	syntax.Walk(
+		node,
+		func(inner syntax.Node) bool {
+			var reach, closes = _Bracket(inner)
 
-		if further {
-			end = reach
-		}
+			further := closes &&
+				(reach.Line > end.Line ||
+					reach.Line == end.Line && reach.Col > end.Col)
 
-		return true
-	})
+			if further {
+				end = reach
+			}
+
+			return true
+		},
+	)
 
 	return end
 }
@@ -449,15 +641,26 @@ func _Bracket(node syntax.Node) (syntax.Position, bool) {
 //   - 2026-10-01 13:08: initial creation
 //   - 2026-10-02 00:11: cuts the end-of-line comments inside the node
 //   - 2026-10-03 20:40: cuts from a text whose lines are found once
-func _Span(prog *_Program, node syntax.Node) (string, bool) {
-	text, from, to, ok := _Located(prog, node)
+func _Span(
+	prog *_Program,
+	node syntax.Node,
+) (string, bool) {
+	text, from, to, ok := _Located(
+		prog,
+		node,
+	)
 	if !ok {
 		return "", false
 	}
 
 	start, _ := node.Span()
 
-	return _Cut(text, from, to, prog.cuts[start.Filename()]), true
+	return _Cut(
+		text,
+		from,
+		to,
+		prog.cuts[start.Filename()],
+	), true
 }
 
 // _Suffixes is every end-of-line comment in a parsed file, in the order they
@@ -469,21 +672,33 @@ func _Suffixes(file *syntax.File) []syntax.Comment {
 	var found []syntax.Comment
 
 	// Walk calls back once more with nil after each node's children.
-	syntax.Walk(file, func(node syntax.Node) bool {
-		if node == nil {
-			return false
-		}
+	syntax.Walk(
+		file,
+		func(node syntax.Node) bool {
+			if node == nil {
+				return false
+			}
 
-		if notes := node.Comments(); notes != nil {
-			found = append(found, notes.Suffix...)
-		}
+			if notes := node.Comments(); notes != nil {
+				found = append(
+					found,
+					notes.Suffix...,
+				)
+			}
 
-		return true
-	})
+			return true
+		},
+	)
 
-	sort.Slice(found, func(i, j int) bool {
-		return found[i].Start.Line < found[j].Start.Line
-	})
+	sort.Slice(
+		found,
+		func(
+			i,
+			j int,
+		) bool {
+			return found[i].Start.Line < found[j].Start.Line
+		},
+	)
 
 	return found
 }
@@ -500,23 +715,43 @@ func _Suffixes(file *syntax.File) []syntax.Comment {
 //   - 2026-10-02 00:11: initial creation
 //   - 2026-10-03 20:40: reaches only the comments inside the range, in a text whose
 //     lines are found once
-func _Cut(text *_Lines, from, to int, cuts []syntax.Comment) string {
+func _Cut(
+	text *_Lines,
+	from,
+	to int,
+	cuts []syntax.Comment,
+) string {
 	var b strings.Builder
 
-	at := from
-
-	first := sort.Search(len(cuts), func(idx int) bool {
-		return text._At(cuts[idx].Start.Line, cuts[idx].Start.Col) >= from
-	})
+	var (
+		at    = from
+		first = sort.Search(
+			len(cuts),
+			func(idx int) bool {
+				return text._At(
+					cuts[idx].Start.Line,
+					cuts[idx].Start.Col,
+				) >= from
+			},
+		)
+	)
 
 	for _, note := range cuts[first:] {
-		start := text._At(note.Start.Line, note.Start.Col)
+		start := text._At(
+			note.Start.Line,
+			note.Start.Col,
+		)
 		if start >= to {
 			break
 		}
 
-		end := start + len(note.Text)
-		lead := strings.TrimRight(text.src[at:start], " \t")
+		var (
+			end  = start + len(note.Text)
+			lead = strings.TrimRight(
+				text.src[at:start],
+				" \t",
+			)
+		)
 
 		b.WriteString(lead)
 
@@ -535,10 +770,19 @@ func _Cut(text *_Lines, from, to int, cuts []syntax.Comment) string {
 //   - 2026-10-01 11:57: initial creation, as _Word
 //   - 2026-10-02 00:11: named apart from _Word, which reads a bare word's value
 //   - 2026-10-03 20:40: reads from a text whose lines are found once
-func _Letters(text *_Lines, pos syntax.Position) (string, error) {
-	at := text._At(pos.Line, pos.Col)
+func _Letters(
+	text *_Lines,
+	pos syntax.Position,
+) (string, error) {
+	at := text._At(
+		pos.Line,
+		pos.Col,
+	)
 	if at == MISSING {
-		return "", fmt.Errorf("pass: %w", ERR_FORM)
+		return "", fmt.Errorf(
+			"pass: %w",
+			ErrForm,
+		)
 	}
 
 	var b strings.Builder

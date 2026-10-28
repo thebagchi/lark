@@ -11,7 +11,9 @@ import (
 )
 
 // HANDLE_TYPE is what a script's type() reports for a handle.
-const HANDLE_TYPE = "handle"
+const (
+	HANDLE_TYPE = "handle"
+)
 
 // Handle is one evaluation running beside its caller, as a script sees it. A
 // script may hold one, pass it around and join it; it has no attributes and no
@@ -36,7 +38,12 @@ type Handle struct {
 //   - 2026-09-19 20:26: initial creation
 //   - 2026-09-21 00:59: a thread id is a string
 func (h *Handle) String() string {
-	return fmt.Sprintf("<%s %s #%s>", HANDLE_TYPE, h.name, h.thread)
+	return fmt.Sprintf(
+		"<%s %s #%s>",
+		HANDLE_TYPE,
+		h.name,
+		h.thread,
+	)
 }
 
 // Thread is the id of the lane this handle's evaluation runs on.
@@ -113,5 +120,8 @@ func (h *Handle) Truth() starlark.Bool {
 // Revisions:
 //   - 2026-09-19 20:26: initial creation
 func (h *Handle) Hash() (uint32, error) {
-	return 0, fmt.Errorf("%s is unhashable", HANDLE_TYPE)
+	return 0, fmt.Errorf(
+		"%s is unhashable",
+		HANDLE_TYPE,
+	)
 }

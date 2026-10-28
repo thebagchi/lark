@@ -41,11 +41,22 @@ const (
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
 func TestArg_SuppliedWins(t *testing.T) {
-	got := _Ran(t, "declare.star", SUPPLIED)
-
-	want := `["db.internal", 5432, 0.25, True, None, ["a", "b"], {"tier": "gold"}, "supplied"]`
+	var (
+		got = _Ran(
+			t,
+			"declare.star",
+			SUPPLIED,
+		)
+		want = `["db.internal",` +
+			` 5432, 0.25, True, None, ["a", "b"], {"tier": "gold"}, ` +
+			`"supplied"]`
+	)
 	if got.String() != want {
-		t.Fatalf("got %s, want %s", got.String(), want)
+		t.Fatalf(
+			"got %s, want %s",
+			got.String(),
+			want,
+		)
 	}
 }
 
@@ -55,12 +66,21 @@ func TestArg_SuppliedWins(t *testing.T) {
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
 func TestArg_DefaultWhenNothingSupplied(t *testing.T) {
-	got := _Ran(t, "declare.star", "")
-
-	want := `["db.internal", 5432, 0.25, True, None, ["a", "b"], ` +
-		`{"tier": "gold"}, "set either way round"]`
+	var (
+		got = _Ran(
+			t,
+			"declare.star",
+			"",
+		)
+		want = `["db.internal", 5432, 0.25, True, None, ["a", "b"], ` +
+			`{"tier": "gold"}, "set either way round"]`
+	)
 	if got.String() != want {
-		t.Fatalf("got %s, want %s", got.String(), want)
+		t.Fatalf(
+			"got %s, want %s",
+			got.String(),
+			want,
+		)
 	}
 }
 
@@ -74,15 +94,26 @@ func TestArg_DefaultWhenNothingSupplied(t *testing.T) {
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
 func TestArg_NumbersArriveWhole(t *testing.T) {
-	got := _Ran(t, "declare.star", `{"port": 7}`)
-
-	held, ok := got.(*starlark.List)
+	var (
+		got = _Ran(
+			t,
+			"declare.star",
+			`{"port": 7}`,
+		)
+		held, ok = got.(*starlark.List)
+	)
 	if !ok {
-		t.Fatalf("returned a %T, want a list", got)
+		t.Fatalf(
+			"returned a %T, want a list",
+			got,
+		)
 	}
 
 	if held.Index(1).String() != "7" {
-		t.Fatalf("port arrived as %s, want 7", held.Index(1).String())
+		t.Fatalf(
+			"port arrived as %s, want 7",
+			held.Index(1).String(),
+		)
 	}
 }
 
@@ -92,18 +123,38 @@ func TestArg_NumbersArriveWhole(t *testing.T) {
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
 func TestArg_RequiredAndMissingFailsTheRun(t *testing.T) {
-	_, err := _Run(t, "required.star", "{}")
-	if !errors.Is(err, args.ERR_NOT_SUPPLIED) {
-		t.Fatalf("got %v, want ERR_NOT_SUPPLIED", err)
+	_, err := _Run(
+		t,
+		"required.star",
+		"{}",
+	)
+	if !errors.Is(
+		err,
+		args.ErrNotSupplied,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNotSupplied",
+			err,
+		)
 	}
 
-	got, err := _Run(t, "required.star", `{"token": "t-123"}`)
+	got, err := _Run(
+		t,
+		"required.star",
+		`{"token": "t-123"}`,
+	)
 	if err != nil {
-		t.Fatalf("supplied: %v", err)
+		t.Fatalf(
+			"supplied: %v",
+			err,
+		)
 	}
 
 	if got.String() != `"t-123"` {
-		t.Fatalf("got %s, want \"t-123\"", got.String())
+		t.Fatalf(
+			"got %s, want \"t-123\"",
+			got.String(),
+		)
 	}
 }
 
@@ -117,9 +168,19 @@ func TestArg_RequiredAndMissingFailsTheRun(t *testing.T) {
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
 func TestArg_InABodyIsRefused(t *testing.T) {
-	_, err := _Run(t, "inbody.star", `{"host": "db.internal"}`)
-	if !errors.Is(err, args.ERR_NOT_DECLARING) {
-		t.Fatalf("got %v, want ERR_NOT_DECLARING", err)
+	_, err := _Run(
+		t,
+		"inbody.star",
+		`{"host": "db.internal"}`,
+	)
+	if !errors.Is(
+		err,
+		args.ErrNotDeclaring,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNotDeclaring",
+			err,
+		)
 	}
 }
 
@@ -129,10 +190,17 @@ func TestArg_InABodyIsRefused(t *testing.T) {
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
 func TestArg_ALoadedModuleDeclaresItsOwn(t *testing.T) {
-	got := _Ran(t, "module.star", `{"prefix": "redis", "host": "cache.internal"}`)
+	got := _Ran(
+		t,
+		"module.star",
+		`{"prefix": "redis", "host": "cache.internal"}`,
+	)
 
 	if got.String() != `"redis://cache.internal"` {
-		t.Fatalf("got %s, want \"redis://cache.internal\"", got.String())
+		t.Fatalf(
+			"got %s, want \"redis://cache.internal\"",
+			got.String(),
+		)
 	}
 }
 
@@ -142,17 +210,35 @@ func TestArg_ALoadedModuleDeclaresItsOwn(t *testing.T) {
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
 func TestArg_TwoRunsOfOneArtifactDiffer(t *testing.T) {
-	art := _Compiled(t, "module.star")
-
-	first := _Result(t, art, `{"host": "db.internal"}`)
-	second := _Result(t, art, `{"prefix": "redis", "host": "cache.internal"}`)
+	var (
+		art = _Compiled(
+			t,
+			"module.star",
+		)
+		first = _Result(
+			t,
+			art,
+			`{"host": "db.internal"}`,
+		)
+		second = _Result(
+			t,
+			art,
+			`{"prefix": "redis", "host": "cache.internal"}`,
+		)
+	)
 
 	if first.String() != `"svc://db.internal"` {
-		t.Fatalf("first run got %s, want \"svc://db.internal\"", first.String())
+		t.Fatalf(
+			"first run got %s, want \"svc://db.internal\"",
+			first.String(),
+		)
 	}
 
 	if second.String() != `"redis://cache.internal"` {
-		t.Fatalf("second run got %s, want \"redis://cache.internal\"", second.String())
+		t.Fatalf(
+			"second run got %s, want \"redis://cache.internal\"",
+			second.String(),
+		)
 	}
 }
 
@@ -162,7 +248,10 @@ func TestArg_TwoRunsOfOneArtifactDiffer(t *testing.T) {
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
 func TestArg_ConcurrentRunsKeepTheirOwn(t *testing.T) {
-	art := _Compiled(t, "module.star")
+	art := _Compiled(
+		t,
+		"module.star",
+	)
 
 	var group sync.WaitGroup
 
@@ -172,13 +261,31 @@ func TestArg_ConcurrentRunsKeepTheirOwn(t *testing.T) {
 		go func() {
 			defer group.Done()
 
-			host := fmt.Sprintf("host-%d", run)
-
-			got := _Result(t, art, fmt.Sprintf(`{"host": %q}`, host))
-
-			want := fmt.Sprintf(`"svc://%s"`, host)
+			var (
+				host = fmt.Sprintf(
+					"host-%d",
+					run,
+				)
+				got = _Result(
+					t,
+					art,
+					fmt.Sprintf(
+						`{"host": %q}`,
+						host,
+					),
+				)
+				want = fmt.Sprintf(
+					`"svc://%s"`,
+					host,
+				)
+			)
 			if got.String() != want {
-				t.Errorf("run %d got %s, want %s", run, got.String(), want)
+				t.Errorf(
+					"run %d got %s, want %s",
+					run,
+					got.String(),
+					want,
+				)
 			}
 		}()
 	}
@@ -190,12 +297,24 @@ func TestArg_ConcurrentRunsKeepTheirOwn(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
-func _Ran(t *testing.T, name string, supplied string) starlark.Value {
+func _Ran(
+	t *testing.T,
+	name string,
+	supplied string,
+) starlark.Value {
 	t.Helper()
 
-	got, err := _Run(t, name, supplied)
+	got, err := _Run(
+		t,
+		name,
+		supplied,
+	)
 	if err != nil {
-		t.Fatalf("run %s: %v", name, err)
+		t.Fatalf(
+			"run %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return got
@@ -206,12 +325,23 @@ func _Ran(t *testing.T, name string, supplied string) starlark.Value {
 //
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
-func _Result(t *testing.T, art *runtime.Artifact, supplied string) starlark.Value {
+func _Result(
+	t *testing.T,
+	art *runtime.Artifact,
+	supplied string,
+) starlark.Value {
 	t.Helper()
 
-	got, err := _Invoked(t, art, supplied)
+	got, err := _Invoked(
+		t,
+		art,
+		supplied,
+	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	return got
@@ -221,10 +351,21 @@ func _Result(t *testing.T, art *runtime.Artifact, supplied string) starlark.Valu
 //
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
-func _Run(t *testing.T, name string, supplied string) (starlark.Value, error) {
+func _Run(
+	t *testing.T,
+	name string,
+	supplied string,
+) (starlark.Value, error) {
 	t.Helper()
 
-	return _Invoked(t, _Compiled(t, name), supplied)
+	return _Invoked(
+		t,
+		_Compiled(
+			t,
+			name,
+		),
+		supplied,
+	)
 }
 
 // _Invoked runs an artifact with supplied bound.
@@ -235,40 +376,75 @@ func _Run(t *testing.T, name string, supplied string) (starlark.Value, error) {
 //   - 2026-10-02 16:08: hands the run the arguments, as an option of it
 //   - 2026-10-02 16:18: reads the JSON into the Struct a run is handed
 //   - 2026-10-03 16:31: reads the JSON into the map a run is handed
-func _Invoked(t *testing.T, art *runtime.Artifact, supplied string) (starlark.Value, error) {
+func _Invoked(
+	t *testing.T,
+	art *runtime.Artifact,
+	supplied string,
+) (starlark.Value, error) {
 	t.Helper()
 
 	if supplied == "" {
-		return runtime.Start(t.Context(), art).Wait()
+		return runtime.Start(
+			t.Context(),
+			art,
+		).Wait()
 	}
 
 	var held map[string]any
 
-	err := json.Unmarshal([]byte(supplied), &held)
+	err := json.Unmarshal(
+		[]byte(supplied),
+		&held,
+	)
 	if err != nil {
-		t.Fatalf("arguments: %v", err)
+		t.Fatalf(
+			"arguments: %v",
+			err,
+		)
 	}
 
-	return runtime.Start(t.Context(), art, runtime.WithArgs(held)).Wait()
+	return runtime.Start(
+		t.Context(),
+		art,
+		runtime.WithArgs(held),
+	).Wait()
 }
 
 // _Compiled is a fixture compiled, with nothing run.
 //
 // Revisions:
 //   - 2026-09-22 22:56: initial creation
-func _Compiled(t *testing.T, name string) *runtime.Artifact {
+func _Compiled(
+	t *testing.T,
+	name string,
+) *runtime.Artifact {
 	t.Helper()
 
-	path := filepath.Join(FIXTURES, name)
-
-	src, err := os.ReadFile(path)
+	var (
+		path = filepath.Join(
+			FIXTURES,
+			name,
+		)
+		src, err = os.ReadFile(path)
+	)
 	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
+		t.Fatalf(
+			"read %s: %v",
+			name,
+			err,
+		)
 	}
 
-	art, err := runtime.Compile(&runtime.Source{Entry: path, Text: src})
+	art, err := runtime.Compile(&runtime.Source{
+		Entry: path,
+		Text:  src,
+	})
 	if err != nil {
-		t.Fatalf("compile %s: %v", name, err)
+		t.Fatalf(
+			"compile %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return art
@@ -285,22 +461,50 @@ func _Compiled(t *testing.T, name string) *runtime.Artifact {
 // Revisions:
 //   - 2026-09-22 23:34: initial creation
 func TestArg_AModuleLevelCheckValidatesWhatWasSupplied(t *testing.T) {
-	art := _Compiled(t, "validates.star")
-
-	got := _Result(t, art, `{"port": 5432}`)
+	var (
+		art = _Compiled(
+			t,
+			"validates.star",
+		)
+		got = _Result(
+			t,
+			art,
+			`{"port": 5432}`,
+		)
+	)
 	if got.String() != "5432" {
-		t.Fatalf("got %s, want 5432", got.String())
+		t.Fatalf(
+			"got %s, want 5432",
+			got.String(),
+		)
 	}
 
-	_, err := _Invoked(t, art, `{"port": -1}`)
-	if !errors.Is(err, runtime.ERR_ASSERT) {
-		t.Fatalf("got %v, want ERR_ASSERT", err)
+	_, err := _Invoked(
+		t,
+		art,
+		`{"port": -1}`,
+	)
+	if !errors.Is(
+		err,
+		runtime.ErrAssert,
+	) {
+		t.Fatalf(
+			"got %v, want ErrAssert",
+			err,
+		)
 	}
 
 	// And the same artifact still runs, so the refusal belonged to that run
 	// and not to the artifact.
-	got = _Result(t, art, `{"port": 80}`)
+	got = _Result(
+		t,
+		art,
+		`{"port": 80}`,
+	)
 	if got.String() != "80" {
-		t.Fatalf("got %s after the refused run, want 80", got.String())
+		t.Fatalf(
+			"got %s after the refused run, want 80",
+			got.String(),
+		)
 	}
 }

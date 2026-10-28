@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
+// SOCKET_ENV and TOKEN_ENV are how a launched plugin is told where to dial
+// and what to present.
+//
+// The environment rather than the command line, because the token is the
+// only thing standing between a local process and putting names into every
+// script compiled against this registry. An argument would be in the
+// process table, readable by anyone on the machine.
 const (
-	// SOCKET_ENV and TOKEN_ENV are how a launched plugin is told where to dial
-	// and what to present.
-	//
-	// The environment rather than the command line, because the token is the
-	// only thing standing between a local process and putting names into every
-	// script compiled against this registry. An argument would be in the
-	// process table, readable by anyone on the machine.
 	SOCKET_ENV = "LARK_PLUGIN_SOCKET"
 	TOKEN_ENV  = "LARK_PLUGIN_TOKEN"
 
@@ -48,12 +48,14 @@ const (
 	// for the same moment.
 	LEAVING = 2 * time.Second
 
-	// _POLL is how often a wait looks.
-	_POLL = 5 * time.Millisecond
+	// POLL is how often a wait looks.
+	POLL = 5 * time.Millisecond
 )
 
-// ERR_QUIET is returned for a plugin that started but never announced itself.
-var ERR_QUIET = errors.New("started but never announced itself")
+// ErrQuiet is returned for a plugin that started but never announced itself.
+var (
+	ErrQuiet = errors.New("started but never announced itself")
+)
 
 // Loading is what a Load did.
 //
@@ -75,7 +77,10 @@ type Loading struct {
 //
 // Revisions:
 //   - 2026-09-25 23:55: initial creation
-func Discovered(dir string, glob string) ([]string, error) {
+func Discovered(
+	dir string,
+	glob string,
+) ([]string, error) {
 	if glob == "" {
 		glob = GLOB
 
@@ -84,9 +89,17 @@ func Discovered(dir string, glob string) ([]string, error) {
 		}
 	}
 
-	held, err := filepath.Glob(filepath.Join(dir, glob))
+	held, err := filepath.Glob(filepath.Join(
+		dir,
+		glob,
+	))
 	if err != nil {
-		return nil, fmt.Errorf("searching %s for %s: %w", dir, glob, err)
+		return nil, fmt.Errorf(
+			"searching %s for %s: %w",
+			dir,
+			glob,
+			err,
+		)
 	}
 
 	// filepath.Glob sorts, so two plugins supplying one name report the same
@@ -109,8 +122,14 @@ func Discovered(dir string, glob string) ([]string, error) {
 //
 // Revisions:
 //   - 2026-09-25 23:55: initial creation
-func (l *Listener) Load(dir string, glob string) (*Loading, error) {
-	found, err := Discovered(dir, glob)
+func (l *Listener) Load(
+	dir string,
+	glob string,
+) (*Loading, error) {
+	found, err := Discovered(
+		dir,
+		glob,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -120,12 +139,18 @@ func (l *Listener) Load(dir string, glob string) (*Loading, error) {
 	for _, named := range found {
 		err := l._Start(named)
 		if err != nil {
-			loading.Skipped = append(loading.Skipped, err)
+			loading.Skipped = append(
+				loading.Skipped,
+				err,
+			)
 
 			continue
 		}
 
-		loading.Loaded = append(loading.Loaded, named)
+		loading.Loaded = append(
+			loading.Loaded,
+			named,
+		)
 	}
 
 	return loading, nil
@@ -147,23 +172,36 @@ func (l *Listener) Load(dir string, glob string) (*Loading, error) {
 //   - 2026-09-25 23:55: initial creation
 //   - 2026-09-30 06:47: waits on Live, so a restarted plugin is seen rather than
 //     timed out
+//   - 2026-10-24 16:05: kills a quiet process before returning, so it does not
+//     survive past the Load call that failed
 func (l *Listener) _Start(named string) error {
-	before := len(l.Live())
+	var (
+		before = len(l.Live())
+		held   = exec.Command(named)
+	)
 
-	held := exec.Command(named)
 	held.Stderr = os.Stderr
-	held.Env = append(os.Environ(),
+
+	held.Env = append(
+		os.Environ(),
 		SOCKET_ENV+"="+l.socket,
 		TOKEN_ENV+"="+l.token,
 	)
 
 	err := held.Start()
 	if err != nil {
-		return fmt.Errorf("starting %s: %w", named, err)
+		return fmt.Errorf(
+			"starting %s: %w",
+			named,
+			err,
+		)
 	}
 
 	l.guard.Lock()
-	l.started = append(l.started, held)
+	l.started = append(
+		l.started,
+		held,
+	)
 	l.guard.Unlock()
 
 	deadline := time.Now().Add(ANNOUNCED)
@@ -173,10 +211,64 @@ func (l *Listener) _Start(named string) error {
 			return nil
 		}
 
-		time.Sleep(_POLL)
+		time.Sleep(POLL)
 	}
 
-	return fmt.Errorf("%s: %w", named, ERR_QUIET)
+	return l._Quiet(
+		named,
+		held,
+	)
+}
+
+// _Quiet kills a process that started and never announced itself.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (l *Listener) _Quiet(
+	named string,
+	held *exec.Cmd,
+) error {
+	_ = held.Process.Kill()
+	_ = held.Wait()
+
+	l.guard.Lock()
+	l.started = _Without(
+		l.started,
+		held,
+	)
+	l.guard.Unlock()
+
+	return fmt.Errorf(
+		"%s: %w",
+		named,
+		ErrQuiet,
+	)
+}
+
+// _Without is started with held removed.
+//
+// Revisions:
+//   - 2026-10-24 16:05: initial creation
+func _Without(
+	started []*exec.Cmd,
+	held *exec.Cmd,
+) []*exec.Cmd {
+	kept := make(
+		[]*exec.Cmd,
+		0,
+		len(started),
+	)
+
+	for _, cmd := range started {
+		if cmd != held {
+			kept = append(
+				kept,
+				cmd,
+			)
+		}
+	}
+
+	return kept
 }
 
 // _Stop sees off every plugin this listener started.
@@ -196,7 +288,10 @@ func (l *Listener) _Stop() {
 	l.started = nil
 	l.guard.Unlock()
 
-	done := make(chan *exec.Cmd, len(started))
+	done := make(
+		chan *exec.Cmd,
+		len(started),
+	)
 
 	for _, held := range started {
 		go func() {
@@ -206,8 +301,10 @@ func (l *Listener) _Stop() {
 		}()
 	}
 
-	left := len(started)
-	deadline := time.After(LEAVING)
+	var (
+		left     = len(started)
+		deadline = time.After(LEAVING)
+	)
 
 	for left > 0 {
 		select {

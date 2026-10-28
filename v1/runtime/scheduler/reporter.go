@@ -27,8 +27,15 @@ import (
 // What a script prints is not a moment of the run, and is not here: it is the
 // run's transcript, which goes where WithTranscript says.
 type Reporter interface {
-	Started(thread string, line *Line)
-	Ended(thread string, name string, err error)
+	Started(
+		thread string,
+		line *Line,
+	)
+	Ended(
+		thread string,
+		name string,
+		err error,
+	)
 }
 
 // Line is one line a thread reports starting.
@@ -86,14 +93,20 @@ func _Lane(thread *starlark.Thread) string {
 // Revisions:
 //   - 2026-10-02 00:38: initial creation, from flow's _Began, so every builtin
 //     reports a line one way
-func Open(thread *starlark.Thread, line *Line) {
+func Open(
+	thread *starlark.Thread,
+	line *Line,
+) {
 	locals, err := _Of(thread)
 	if err != nil {
 		return
 	}
 
 	locals.run._Tell(func() {
-		locals.run.into.Started(locals.thread, line)
+		locals.run.into.Started(
+			locals.thread,
+			line,
+		)
 	})
 }
 
@@ -103,17 +116,27 @@ func Open(thread *starlark.Thread, line *Line) {
 // Revisions:
 //   - 2026-10-02 00:38: initial creation, from flow's _Finished, so every
 //     builtin reports a line one way
-func Close(thread *starlark.Thread, name string, err error) {
+func Close(
+	thread *starlark.Thread,
+	name string,
+	err error,
+) {
 	locals, failure := _Of(thread)
 	if failure != nil {
 		return
 	}
 
 	locals.run._Tell(func() {
-		locals.run.into.Ended(locals.thread, name, err)
+		locals.run.into.Ended(
+			locals.thread,
+			name,
+			err,
+		)
 	})
 }
 
 // LAMBDA is what the interpreter calls an anonymous function. Nothing refuses
 // one; this is here so a reporter can tell that a name is not one.
-const LAMBDA = "lambda"
+const (
+	LAMBDA = "lambda"
+)

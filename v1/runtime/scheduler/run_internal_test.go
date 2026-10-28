@@ -49,8 +49,17 @@ func _Started(ctx context.Context) *_Run {
 //   - 2026-09-19 22:03: initial creation
 //   - 2026-09-21 08:09: leaves the one local
 func _Thread(run *_Run) *starlark.Thread {
-	thread := &starlark.Thread{Name: THREAD_NAME}
-	thread.SetLocal(LOCALS_KEY, &_Locals{run: run, thread: SPINE, ctx: run.ctx})
+	thread := &starlark.Thread{
+		Name: THREAD_NAME,
+	}
+	thread.SetLocal(
+		LOCALS_KEY,
+		&_Locals{
+			run:    run,
+			thread: SPINE,
+			ctx:    run.ctx,
+		},
+	)
 
 	return thread
 }
@@ -64,11 +73,12 @@ func _Thread(run *_Run) *starlark.Thread {
 //     the spine
 //   - 2026-09-21 08:09: numbering is its own call, since nothing tracks handles
 func TestNumber_NamesAThreadAfterItsParent(t *testing.T) {
-	run := _Started(t.Context())
-
-	first := run._Number(SPINE)
-	second := run._Number(SPINE)
-	deep := run._Number(first)
+	var (
+		run    = _Started(t.Context())
+		first  = run._Number(SPINE)
+		second = run._Number(SPINE)
+		deep   = run._Number(first)
+	)
 
 	if first != "thread_1" || second != "thread_2" {
 		t.Fatalf(
@@ -79,7 +89,11 @@ func TestNumber_NamesAThreadAfterItsParent(t *testing.T) {
 	}
 
 	if deep != "thread_1_1" {
-		t.Fatalf("a child of %s is %s, want thread_1_1", first, deep)
+		t.Fatalf(
+			"a child of %s is %s, want thread_1_1",
+			first,
+			deep,
+		)
 	}
 }
 
@@ -90,13 +104,17 @@ func TestNumber_NamesAThreadAfterItsParent(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 00:59: initial creation
 func TestNumber_CountsPerParentRatherThanPerRun(t *testing.T) {
-	run := _Started(t.Context())
-
-	first := run._Number(SPINE)
+	var (
+		run   = _Started(t.Context())
+		first = run._Number(SPINE)
+	)
 	run._Number(first)
 
 	if second := run._Number(SPINE); second != "thread_2" {
-		t.Fatalf("a nephew started first made the second child %s", second)
+		t.Fatalf(
+			"a nephew started first made the second child %s",
+			second,
+		)
 	}
 }
 
@@ -134,7 +152,11 @@ func TestNumber_GivesRacingSpawnsDistinctIds(t *testing.T) {
 	group.Wait()
 
 	if len(seen) != RACING_COUNT {
-		t.Fatalf("%d spawns got %d ids", RACING_COUNT, len(seen))
+		t.Fatalf(
+			"%d spawns got %d ids",
+			RACING_COUNT,
+			len(seen),
+		)
 	}
 }
 
@@ -144,15 +166,22 @@ func TestNumber_GivesRacingSpawnsDistinctIds(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:01: initial creation
 func TestOf_FindsTheRunOnAThread(t *testing.T) {
-	run := _Started(t.Context())
-
-	found, err := _Of(_Thread(run))
+	var (
+		run        = _Started(t.Context())
+		found, err = _Of(_Thread(run))
+	)
 	if err != nil {
-		t.Fatalf("_Of: %v", err)
+		t.Fatalf(
+			"_Of: %v",
+			err,
+		)
 	}
 
 	if found.run != run || found.thread != SPINE {
-		t.Fatalf("_Of returned %+v", found)
+		t.Fatalf(
+			"_Of returned %+v",
+			found,
+		)
 	}
 }
 
@@ -162,9 +191,17 @@ func TestOf_FindsTheRunOnAThread(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:01: initial creation
 func TestOf_RefusesAThreadWithNoRun(t *testing.T) {
-	_, err := _Of(&starlark.Thread{Name: THREAD_NAME})
-	if !errors.Is(err, ERR_NO_RUN) {
-		t.Fatalf("got %v, want ERR_NO_RUN", err)
+	_, err := _Of(&starlark.Thread{
+		Name: THREAD_NAME,
+	})
+	if !errors.Is(
+		err,
+		ErrNoRun,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNoRun",
+			err,
+		)
 	}
 }
 
@@ -175,16 +212,31 @@ func TestOf_RefusesAThreadWithNoRun(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestFail_EndsTheRunUnlessSomethingIsCatching(t *testing.T) {
-	caught := _Started(t.Context())
-
-	catching := _Thread(caught)
+	var (
+		caught   = _Started(t.Context())
+		catching = _Thread(caught)
+	)
 	catching.SetLocal(
 		LOCALS_KEY,
-		&_Locals{run: caught, thread: SPINE, ctx: caught.ctx, catching: 1},
+		&_Locals{
+			run:      caught,
+			thread:   SPINE,
+			ctx:      caught.ctx,
+			catching: 1,
+		},
 	)
 
-	if err := Fail(catching, ERR_NESTED); !errors.Is(err, ERR_NESTED) {
-		t.Fatalf("want the cause back, got %v", err)
+	if err := Fail(
+		catching,
+		ErrNested,
+	); !errors.Is(
+		err,
+		ErrNested,
+	) {
+		t.Fatalf(
+			"want the cause back, got %v",
+			err,
+		)
 	}
 
 	if caught._Outcome() != nil || caught.ctx.Err() != nil {
@@ -193,11 +245,26 @@ func TestFail_EndsTheRunUnlessSomethingIsCatching(t *testing.T) {
 
 	plain := _Started(t.Context())
 
-	if err := Fail(_Thread(plain), ERR_NESTED); !errors.Is(err, ERR_NESTED) {
-		t.Fatalf("want the cause back, got %v", err)
+	if err := Fail(
+		_Thread(plain),
+		ErrNested,
+	); !errors.Is(
+		err,
+		ErrNested,
+	) {
+		t.Fatalf(
+			"want the cause back, got %v",
+			err,
+		)
 	}
 
-	if !errors.Is(plain._Outcome(), ERR_NESTED) || plain.ctx.Err() == nil {
-		t.Fatalf("an uncaught failure left the run with %v", plain._Outcome())
+	if !errors.Is(
+		plain._Outcome(),
+		ErrNested,
+	) || plain.ctx.Err() == nil {
+		t.Fatalf(
+			"an uncaught failure left the run with %v",
+			plain._Outcome(),
+		)
 	}
 }

@@ -15,11 +15,13 @@ const (
 	NEWLINE = "\n"
 )
 
-// ERR_LINE is returned for something in a list of lines that is not one.
+// ErrLine is returned for something in a list of lines that is not one.
 //
-// Answers ERR_FILE too, so a caller branching on the module's general question
+// Answers ErrFile too, so a caller branching on the module's general question
 // still catches it.
-var ERR_LINE = errors.New("not a line")
+var (
+	ErrLine = errors.New("not a line")
+)
 
 // _Writelines puts lines down, replacing what the file held.
 //
@@ -34,7 +36,12 @@ func _Writelines(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	return _Putting(fn, args, kwargs, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
+	return _Putting(
+		fn,
+		args,
+		kwargs,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+	)
 }
 
 // _Appendlines puts lines down after what the file already held.
@@ -47,7 +54,12 @@ func _Appendlines(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	return _Putting(fn, args, kwargs, os.O_CREATE|os.O_RDWR|os.O_APPEND)
+	return _Putting(
+		fn,
+		args,
+		kwargs,
+		os.O_CREATE|os.O_RDWR|os.O_APPEND,
+	)
 }
 
 // _Putting is the write both line writers do, differing only in how the file
@@ -61,29 +73,96 @@ func _Putting(
 	kwargs []starlark.Tuple,
 	how int,
 ) (starlark.Value, error) {
+	named, given, err := _PutArgs(
+		fn,
+		args,
+		kwargs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	held, err := os.OpenFile(
+		named,
+		how,
+		FILE,
+	)
+	if err != nil {
+		return nil, _Refused(
+			fn.Name(),
+			err,
+		)
+	}
+
+	err = _Joining(
+		held,
+		how,
+	)
+	if err == nil {
+		err = _Pouring(
+			fn,
+			named,
+			held,
+			given,
+		)
+	}
+
+	return _Closed(
+		fn,
+		named,
+		held,
+		err,
+	)
+}
+
+// _PutArgs reads the path and the iterable a write was given.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _PutArgs(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (string, starlark.Iterable, error) {
 	var (
 		named string
 		given starlark.Iterable
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &named, &given)
+	const NEEDED = 2
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&named,
+		&given,
+	)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
-	held, err := os.OpenFile(named, how, FILE)
-	if err != nil {
-		return nil, _Refused(fn.Name(), err)
-	}
+	return named, given, nil
+}
 
-	err = _Joining(held, how)
-	if err == nil {
-		err = _Pouring(fn, named, held, given)
-	}
-
+// _Closed closes the file and answers None, or the first error.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Closed(
+	fn *starlark.Builtin,
+	named string,
+	held *os.File,
+	err error,
+) (starlark.Value, error) {
 	closing := held.Close()
 	if err == nil && closing != nil {
-		err = _Rejected(fn.Name(), named, closing)
+		err = _Rejected(
+			fn.Name(),
+			named,
+			closing,
+		)
 	}
 
 	if err != nil {
@@ -107,7 +186,10 @@ func _Putting(
 //
 // Revisions:
 //   - 2026-09-24 22:58: initial creation
-func _Joining(held *os.File, how int) error {
+func _Joining(
+	held *os.File,
+	how int,
+) error {
 	if how&os.O_APPEND == 0 {
 		return nil
 	}
@@ -123,7 +205,10 @@ func _Joining(held *os.File, how int) error {
 
 	var last [1]byte
 
-	_, err = held.ReadAt(last[:], about.Size()-1)
+	_, err = held.ReadAt(
+		last[:],
+		about.Size()-1,
+	)
 	if err != nil {
 		return err
 	}
@@ -150,7 +235,41 @@ func _Pouring(
 	into *os.File,
 	given starlark.Iterable,
 ) error {
-	writer := bufio.NewWriter(into)
+	var (
+		writer = bufio.NewWriter(into)
+		err    = _Written(
+			fn,
+			named,
+			writer,
+			given,
+		)
+	)
+	if err != nil {
+		return err
+	}
+
+	err = writer.Flush()
+	if err != nil {
+		return _Rejected(
+			fn.Name(),
+			named,
+			err,
+		)
+	}
+
+	return nil
+}
+
+// _Written writes each string, with a newline between lines and none after the last.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Written(
+	fn *starlark.Builtin,
+	named string,
+	writer *bufio.Writer,
+	given starlark.Iterable,
+) error {
 	walk := given.Iterate()
 
 	defer walk.Done()
@@ -163,8 +282,16 @@ func _Pouring(
 	for walk.Next(&line) {
 		held, ok := starlark.AsString(line)
 		if !ok {
-			return _Rejected(fn.Name(), named,
-				fmt.Errorf("line %d is %s: %w", index, line.Type(), ERR_LINE))
+			return _Rejected(
+				fn.Name(),
+				named,
+				fmt.Errorf(
+					"line %d is %s: %w",
+					index,
+					line.Type(),
+					ErrLine,
+				),
+			)
 		}
 
 		if index > 0 {
@@ -173,15 +300,14 @@ func _Pouring(
 
 		_, err := writer.WriteString(held)
 		if err != nil {
-			return _Rejected(fn.Name(), named, err)
+			return _Rejected(
+				fn.Name(),
+				named,
+				err,
+			)
 		}
 
 		index++
-	}
-
-	err := writer.Flush()
-	if err != nil {
-		return _Rejected(fn.Name(), named, err)
 	}
 
 	return nil

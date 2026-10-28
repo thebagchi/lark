@@ -11,7 +11,7 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
-// ERR_CANCELLED separates "something stopped you" from "your code was wrong",
+// ErrCancelled separates "something stopped you" from "your code was wrong",
 // because a caller acts on them differently.
 //
 // It covers both stops a caller can meet: a joined handle that was cancelled,
@@ -19,11 +19,16 @@ import (
 // which is the caller's own doing. One sentinel rather than two, decided
 // 2026-09-23 06:58 - a host asking "did this finish on its own" wants one
 // answer, and the two are told apart by what else the error carries.
-var ERR_CANCELLED = errors.New("cancelled")
+var (
+	ErrCancelled = errors.New("cancelled")
+)
 
 // Option sets one thing on the evaluation Beside starts, given the evaluation
 // that is starting it.
-type Option func(parent *_Locals, child *_Locals)
+type Option func(
+	parent *_Locals,
+	child *_Locals,
+)
 
 // Beside starts target on a goroutine and an interpreter thread of its own,
 // inheriting everything the caller's evaluation carries, and returns the
@@ -43,7 +48,7 @@ type Option func(parent *_Locals, child *_Locals)
 // on a goroutine cannot be recovered from outside it, so an unguarded call
 // here would not fail the run - it would take the process down, host and all.
 //
-// Returns ERR_NO_RUN when thread carries no run.
+// Returns ErrNoRun when thread carries no run.
 //
 // Revisions:
 //   - 2026-09-19 20:38: initial creation, as _Spawn's body
@@ -51,53 +56,189 @@ type Option func(parent *_Locals, child *_Locals)
 //     the caller's evaluation and deriving from its context
 //   - 2026-10-02 00:38: reports a spawn on the thread that wrote it, with the
 //     child's id, its binding and the function it runs
-func Beside(thread *starlark.Thread, target starlark.Callable, opts ...Option) (*Handle, error) {
+func Beside(
+	thread *starlark.Thread,
+	target starlark.Callable,
+	opts ...Option,
+) (*Handle, error) {
 	parent, err := _Of(thread)
 	if err != nil {
 		return nil, err
 	}
 
-	// A thread is the largest thing this library allocates for a script, and it
-	// went uncharged until 2026-09-27: 20,000 spawned threads took 287MB under
-	// a ceiling of one. Charged here, before anything is built, so nothing has
-	// to be unwound when a run cannot afford another - and credited when the
-	// thread ends, which is exactly as long as it costs anything.
-	err = parent.run.budget.Charge(THREAD_COST)
+	err = _BesideCost(
+		parent,
+		target,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", target.Name(), err)
+		return nil, err
 	}
 
-	inner, stop := context.WithCancel(parent.ctx)
-	child := _Inherited(parent, inner, opts)
+	spawn := _BesideHandle(
+		thread,
+		parent,
+		target,
+		opts,
+	)
 
-	owns := child.thread == ""
+	_BesideGo(spawn)
+
+	return spawn.handle, nil
+}
+
+// _BesideCost charges the run for one more thread, before anything is built.
+//
+// A thread is the largest thing this library allocates for a script. Charged
+// here, nothing has to be unwound when a run cannot afford another.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _BesideCost(
+	parent *_Locals,
+	target starlark.Callable,
+) error {
+	err := parent.run.budget.Charge(THREAD_COST)
+	if err != nil {
+		return fmt.Errorf(
+			"%s: %w",
+			target.Name(),
+			err,
+		)
+	}
+
+	return nil
+}
+
+// _Spawn is one child Beside is about to start.
+type _Spawn struct {
+	parent *_Locals
+	handle *Handle
+	made   *starlark.Thread
+	child  *_Locals
+	target starlark.Callable
+	line   *Line
+}
+
+// _BesideHandle is the handle, the thread, and the locals a spawn starts with.
+//
+// line is set when this spawn numbered the child itself.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+//   - 2026-10-24 19:30: a spawn that owns its lane derives from the run's
+//     context, so it survives a wrapper's body returning
+func _BesideHandle(
+	thread *starlark.Thread,
+	parent *_Locals,
+	target starlark.Callable,
+	opts []Option,
+) *_Spawn {
+	var (
+		inner, stop = context.WithCancel(parent.ctx)
+		child       = _Inherited(
+			inner,
+			parent,
+			opts,
+		)
+		owns = child.thread == ""
+	)
+
+	// A spawn that owns its lane lives until the run ends, not until its
+	// parent's evaluation ends. Without this, a spawn inside a wrapper is
+	// cancelled when the wrapper's body returns, before the caller can join
+	// it. An attempt or an inline still derives from the parent, so a
+	// timeout's context reaches it.
 	if owns {
+		stop()
+
+		inner, stop = context.WithCancel(parent.run.ctx)
+		child.ctx = inner
 		child.thread = parent.run._Number(parent.thread)
 	}
 
-	handle := &Handle{
-		name:   Named(target, child.label),
-		thread: child.thread,
-		done:   make(chan struct{}),
-		stop:   stop,
-	}
+	var (
+		handle, made = _Made(
+			thread,
+			target,
+			child,
+			stop,
+		)
+		spawn = &_Spawn{
+			parent: parent,
+			handle: handle,
+			made:   made,
+			child:  child,
+			target: target,
+		}
+	)
 
-	made := &starlark.Thread{Name: target.Name(), Print: thread.Print}
-	made.SetLocal(LOCALS_KEY, child)
-
-	// A spawn is a line of the thread that wrote it, and the thread it starts
-	// shares that line's status, so it is reported on the parent with the
-	// child's id. The child does not report its own entry again.
 	if owns {
-		line := &Line{
+		spawn.line = &Line{
 			Name:    handle.name,
 			Builtin: spelling.SPAWN,
 			Child:   handle.thread,
 			Binding: child.binding,
 		}
+	}
+
+	return spawn
+}
+
+// _Made is the handle and the thread a spawn runs on.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Made(
+	thread *starlark.Thread,
+	target starlark.Callable,
+	child *_Locals,
+	stop context.CancelFunc,
+) (*Handle, *starlark.Thread) {
+	var (
+		handle = &Handle{
+			name: Named(
+				target,
+				child.label,
+			),
+			thread: child.thread,
+			done:   make(chan struct{}),
+			stop:   stop,
+		}
+		made = &starlark.Thread{
+			Name:  target.Name(),
+			Print: thread.Print,
+		}
+	)
+
+	made.SetLocal(
+		LOCALS_KEY,
+		child,
+	)
+
+	return handle, made
+}
+
+// _BesideGo starts the child and reports the spawn on the parent.
+//
+// A spawn is a line of the thread that wrote it. The child does not report
+// its own entry again. The cost is credited when the thread ends.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _BesideGo(spawn *_Spawn) {
+	var (
+		parent = spawn.parent
+		handle = spawn.handle
+	)
+
+	if spawn.line != nil {
+		line := spawn.line
 
 		parent.run._Tell(func() {
-			parent.run.into.Started(parent.thread, line)
+			parent.run.into.Started(
+				parent.thread,
+				line,
+			)
 		})
 	}
 
@@ -107,23 +248,30 @@ func Beside(thread *starlark.Thread, target starlark.Callable, opts ...Option) (
 		defer parent.run.budget.Credit(THREAD_COST)
 		defer parent.run.group.Done()
 		defer close(handle.done)
-		defer stop()
+		defer handle.stop()
 
-		handle._Work(made, child, target)
+		handle._Work(
+			spawn.made,
+			spawn.child,
+			spawn.target,
+		)
 
-		if owns {
+		if spawn.line != nil {
 			handle._Report(parent.run)
 		}
 	}()
-
-	return handle, nil
 }
 
 // _Inherited is the locals a child evaluation starts with.
 //
 // Revisions:
 //   - 2026-09-27 01:34: initial creation, lifted out of Beside
-func _Inherited(parent *_Locals, ctx context.Context, opts []Option) *_Locals {
+//   - 2026-10-24 18:29: takes the context first
+func _Inherited(
+	ctx context.Context,
+	parent *_Locals,
+	opts []Option,
+) *_Locals {
 	child := &_Locals{
 		run:      parent.run,
 		ctx:      ctx,
@@ -139,7 +287,10 @@ func _Inherited(parent *_Locals, ctx context.Context, opts []Option) *_Locals {
 	}
 
 	for _, opt := range opts {
-		opt(parent, child)
+		opt(
+			parent,
+			child,
+		)
 	}
 
 	return child
@@ -154,8 +305,14 @@ func _Inherited(parent *_Locals, ctx context.Context, opts []Option) *_Locals {
 //
 // Revisions:
 //   - 2026-10-02 00:38: initial creation
-func Labelled(name string, binding string) Option {
-	return func(parent *_Locals, child *_Locals) {
+func Labelled(
+	name string,
+	binding string,
+) Option {
+	return func(
+		parent *_Locals,
+		child *_Locals,
+	) {
 		child.label = name
 		child.binding = binding
 	}
@@ -174,7 +331,10 @@ func Labelled(name string, binding string) Option {
 //   - 2026-10-02 00:38: initial creation, as _Named
 //   - 2026-10-02 00:59: exported, taking the callee rather than the locals, so
 //     a wrapper names its line the way a spawn does
-func Named(target starlark.Callable, callee string) string {
+func Named(
+	target starlark.Callable,
+	callee string,
+) string {
 	if callee != "" || target.Name() == LAMBDA {
 		return callee
 	}
@@ -188,7 +348,10 @@ func Named(target starlark.Callable, callee string) string {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func Attempt(n int32) Option {
-	return func(parent *_Locals, child *_Locals) {
+	return func(
+		parent *_Locals,
+		child *_Locals,
+	) {
 		child.attempt = n
 		child.thread = parent.thread
 	}
@@ -200,7 +363,10 @@ func Attempt(n int32) Option {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func Inline() Option {
-	return func(parent *_Locals, child *_Locals) {
+	return func(
+		parent *_Locals,
+		child *_Locals,
+	) {
 		child.thread = parent.thread
 	}
 }
@@ -217,7 +383,10 @@ func Inline() Option {
 //   - 2026-09-20 01:00: initial creation, as Catch
 //   - 2026-09-21 08:09: an option on Beside rather than a mark set afterwards
 func Catching() Option {
-	return func(parent *_Locals, child *_Locals) {
+	return func(
+		parent *_Locals,
+		child *_Locals,
+	) {
 		child.catching++
 	}
 }
@@ -232,6 +401,11 @@ func Catching() Option {
 // reports what happened to that thread, and the run's outcome reports why the
 // run ended.
 //
+// A panic ends the run whether or not the handle is joined, because a panic
+// is always a bug and silence is the wrong answer for a bug. The call sets
+// called to true on the normal path; a panic never reaches that line, so
+// called stays false and the run is ended with the recovered error.
+//
 // Revisions:
 //   - 2026-09-19 20:40: initial creation
 //   - 2026-09-19 23:24: guards the call, so a panicking builtin fails the handle
@@ -240,15 +414,34 @@ func Catching() Option {
 //     error for the report
 //   - 2026-10-03 23:52: ends with a failure Fail kept on the evaluation, when what it
 //     returned does not already carry it
-func (h *Handle) _Work(thread *starlark.Thread, locals *_Locals, target starlark.Callable) {
-	watching := _CancelOn(locals.ctx, thread)
+//   - 2026-10-24 20:00: ends the run on a recovered panic, so an unjoined panic
+//     does not vanish
+func (h *Handle) _Work(
+	thread *starlark.Thread,
+	locals *_Locals,
+	target starlark.Callable,
+) {
+	watching := _CancelOn(
+		locals.ctx,
+		thread,
+	)
 	defer watching()
+
+	var called bool
 
 	guard.WithRecover(
 		&h.value,
 		&h.err,
 		func() (starlark.Value, error) {
-			return starlark.Call(thread, target, nil, nil)
+			result, err := starlark.Call(
+				thread,
+				target,
+				nil,
+				nil,
+			)
+			called = true
+
+			return result, err
 		},
 	)
 
@@ -256,7 +449,10 @@ func (h *Handle) _Work(thread *starlark.Thread, locals *_Locals, target starlark
 	// on to return nothing - a loop over a file cut short - or to raise the
 	// cancellation the run's stop then sent it. One the evaluation raised
 	// itself, as assert does, is already what it returned.
-	kept := locals.failed != nil && !errors.Is(h.err, locals.failed)
+	kept := locals.failed != nil && !errors.Is(
+		h.err,
+		locals.failed,
+	)
 	if kept {
 		h.value = nil
 		h.err = locals.failed
@@ -264,8 +460,18 @@ func (h *Handle) _Work(thread *starlark.Thread, locals *_Locals, target starlark
 
 	h.raw = h.err
 
+	// A panic is always a bug. End the run so the error reaches the caller
+	// whether or not anybody joins this handle.
+	if !called && h.raw != nil {
+		locals.run._End(h.raw)
+	}
+
 	if h.err != nil && locals.ctx.Err() != nil {
-		h.err = fmt.Errorf("%w: %w", ERR_CANCELLED, locals.ctx.Err())
+		h.err = fmt.Errorf(
+			"%w: %w",
+			ErrCancelled,
+			locals.ctx.Err(),
+		)
 	}
 }
 
@@ -283,15 +489,24 @@ func (h *Handle) _Work(thread *starlark.Thread, locals *_Locals, target starlark
 //   - 2026-09-20 11:35: initial creation
 //   - 2026-09-21 08:09: reads the raw error from the handle
 func (h *Handle) _Report(run *_Run) {
-	ended := h.err
+	var (
+		ended   = h.err
+		outcome = run._Outcome()
+	)
 
-	outcome := run._Outcome()
-	if outcome != nil && h.raw != nil && errors.Is(h.raw, outcome) {
+	if outcome != nil && h.raw != nil && errors.Is(
+		h.raw,
+		outcome,
+	) {
 		ended = h.raw
 	}
 
 	run._Tell(func() {
-		run.into.Ended(h.thread, h.name, ended)
+		run.into.Ended(
+			h.thread,
+			h.name,
+			ended,
+		)
 	})
 }
 
@@ -303,12 +518,15 @@ func (h *Handle) _Report(run *_Run) {
 // evaluation open for as long as that handle ran, which is how a timeout
 // around a join used to wait the join out.
 //
-// Returns ERR_CANCELLED wrapping the context's error when the caller is
+// Returns ErrCancelled wrapping the context's error when the caller is
 // cancelled first.
 //
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
-func Wait(thread *starlark.Thread, handle *Handle) (starlark.Value, error) {
+func Wait(
+	thread *starlark.Thread,
+	handle *Handle,
+) (starlark.Value, error) {
 	locals, err := _Of(thread)
 	if err != nil {
 		return nil, err
@@ -319,7 +537,11 @@ func Wait(thread *starlark.Thread, handle *Handle) (starlark.Value, error) {
 		return handle.value, handle.err
 
 	case <-locals.ctx.Done():
-		return nil, fmt.Errorf("%w: %w", ERR_CANCELLED, locals.ctx.Err())
+		return nil, fmt.Errorf(
+			"%w: %w",
+			ErrCancelled,
+			locals.ctx.Err(),
+		)
 	}
 }
 
@@ -333,7 +555,10 @@ func Wait(thread *starlark.Thread, handle *Handle) (starlark.Value, error) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation, as _Settle for join's abort
 //   - 2026-09-21 09:46: exported, since join lives in a plugin now
-func Settle(thread *starlark.Thread, handle *Handle) {
+func Settle(
+	thread *starlark.Thread,
+	handle *Handle,
+) {
 	locals, err := _Of(thread)
 	if err != nil {
 		<-handle.done

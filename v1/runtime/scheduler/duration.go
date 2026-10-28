@@ -9,14 +9,18 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// ERR_DURATION is returned for a duration that is not one: not a number,
+// ErrDuration is returned for a duration that is not one: not a number,
 // negative, not a whole number of milliseconds, or more than the schema's
 // int32 can hold.
-var ERR_DURATION = errors.New("not a duration")
+var (
+	ErrDuration = errors.New("not a duration")
+)
 
 // MAX_MILLIS is the longest duration a script may ask for, in milliseconds:
 // what the schema's int32 can hold, about 24.8 days.
-const MAX_MILLIS = math.MaxInt32
+const (
+	MAX_MILLIS = math.MaxInt32
+)
 
 // Duration reads a script's number of milliseconds as a duration a timer can
 // hold.
@@ -29,7 +33,7 @@ const MAX_MILLIS = math.MaxInt32
 //
 // Taken as a number rather than as an int, so sleep(1000.0) is a second too.
 //
-// Returns ERR_DURATION for a value that is not a number, is negative, is not a
+// Returns ErrDuration for a value that is not a number, is negative, is not a
 // whole number of milliseconds, or is past MAX_MILLIS.
 //
 // Revisions:
@@ -41,12 +45,20 @@ const MAX_MILLIS = math.MaxInt32
 func Duration(value starlark.Value) (time.Duration, error) {
 	millis, ok := starlark.AsFloat(value)
 	if !ok {
-		return 0, fmt.Errorf("got %s: %w", value.Type(), ERR_DURATION)
+		return 0, fmt.Errorf(
+			"got %s: %w",
+			value.Type(),
+			ErrDuration,
+		)
 	}
 
 	whole := millis >= 0 && millis <= MAX_MILLIS && millis == math.Trunc(millis)
 	if !whole {
-		return 0, fmt.Errorf("%g milliseconds: %w", millis, ERR_DURATION)
+		return 0, fmt.Errorf(
+			"%g milliseconds: %w",
+			millis,
+			ErrDuration,
+		)
 	}
 
 	return time.Duration(millis) * time.Millisecond, nil

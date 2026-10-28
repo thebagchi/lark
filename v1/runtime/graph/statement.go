@@ -20,7 +20,13 @@ func (r *_Reading) _Modelled(
 	def *syntax.DefStmt,
 	params []string,
 ) ([]*workflowpb.Statement, bool) {
-	return r._List(def.Body, r._Opened(def, params))
+	return r._List(
+		def.Body,
+		r._Opened(
+			def,
+			params,
+		),
+	)
 }
 
 // _List is one statement list as the flow carries it, and whether every line
@@ -33,26 +39,42 @@ func (r *_Reading) _Modelled(
 //
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
-func (r *_Reading) _List(body []syntax.Stmt, scope *_Scope) ([]*workflowpb.Statement, bool) {
+func (r *_Reading) _List(
+	body []syntax.Stmt,
+	scope *_Scope,
+) ([]*workflowpb.Statement, bool) {
 	body = dialect.Closed(body)
 
 	var stmts []*workflowpb.Statement
 
 	for idx := 0; idx < len(body); idx++ {
-		match := r._Matched(body, idx, scope)
+		match := r._Matched(
+			body,
+			idx,
+			scope,
+		)
 		if match != nil {
-			stmts = append(stmts, match)
+			stmts = append(
+				stmts,
+				match,
+			)
 			idx++
 
 			continue
 		}
 
-		stmt, ok := r._Statement(body[idx], scope)
+		stmt, ok := r._Statement(
+			body[idx],
+			scope,
+		)
 		if !ok {
 			return nil, false
 		}
 
-		stmts = append(stmts, stmt)
+		stmts = append(
+			stmts,
+			stmt,
+		)
 	}
 
 	return stmts, len(stmts) > 0
@@ -71,7 +93,10 @@ func (r *_Reading) _List(body []syntax.Stmt, scope *_Scope) ([]*workflowpb.State
 //   - 2026-09-30 00:50: an assignment is whole only when what it assigns was,
 //     so a spawn whose arguments could not be carried keeps its function's text
 //   - 2026-10-02 00:04: one Statement or none, read in a scope
-func (r *_Reading) _Statement(stmt syntax.Stmt, scope *_Scope) (*workflowpb.Statement, bool) {
+func (r *_Reading) _Statement(
+	stmt syntax.Stmt,
+	scope *_Scope,
+) (*workflowpb.Statement, bool) {
 	switch actual := stmt.(type) {
 	case *syntax.ExprStmt:
 		call, ok := actual.X.(*syntax.CallExpr)
@@ -79,16 +104,29 @@ func (r *_Reading) _Statement(stmt syntax.Stmt, scope *_Scope) (*workflowpb.Stat
 			return nil, false
 		}
 
-		return r._Called(call, "", scope)
+		return r._Called(
+			call,
+			"",
+			scope,
+		)
 
 	case *syntax.AssignStmt:
-		return r._Assigned(actual, scope)
+		return r._Assigned(
+			actual,
+			scope,
+		)
 
 	case *syntax.IfStmt:
-		return r._If(actual, scope)
+		return r._If(
+			actual,
+			scope,
+		)
 
 	case *syntax.ForStmt:
-		return r._Loop(actual, scope)
+		return r._Loop(
+			actual,
+			scope,
+		)
 	}
 
 	return nil, false
@@ -117,7 +155,11 @@ func (r *_Reading) _Assigned(
 		return nil, false
 	}
 
-	return r._Called(call, name.Name, scope)
+	return r._Called(
+		call,
+		name.Name,
+		scope,
+	)
 }
 
 // _Called is the statement a call is, bound to bound when the script captured
@@ -137,7 +179,11 @@ func (r *_Reading) _Called(
 	name := _Callee(call)
 
 	if scope._Callable(name) {
-		return r._Invoked(call, bound, scope)
+		return r._Invoked(
+			call,
+			bound,
+			scope,
+		)
 	}
 
 	if !scope._Usable(name) {
@@ -146,20 +192,51 @@ func (r *_Reading) _Called(
 
 	switch name {
 	case SPAWN:
-		return r._Spawn(call, bound, scope)
+		return r._Spawn(
+			call,
+			bound,
+			scope,
+		)
 
 	case JOIN:
-		return r._Join(call, bound, scope)
+		return r._Join(
+			call,
+			bound,
+			scope,
+		)
 	}
 
-	// Nothing else a builtin returns is a value a flow binds.
+	return r._Known(
+		name,
+		call,
+		bound,
+		scope,
+	)
+}
+
+// _Known is a call of a name the dialect knows, when it is not bound.
+//
+// Nothing else a builtin returns is a value a flow binds, so a bound call
+// of one of these is left for Starlark.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func (r *_Reading) _Known(
+	name string,
+	call *syntax.CallExpr,
+	bound string,
+	scope *_Scope,
+) (*workflowpb.Statement, bool) {
 	if bound != "" {
 		return nil, false
 	}
 
 	switch name {
 	case CANCEL:
-		return r._Cancel(call, scope)
+		return r._Cancel(
+			call,
+			scope,
+		)
 
 	case SLEEP:
 		return r._Sleep(call)
@@ -167,10 +244,17 @@ func (r *_Reading) _Called(
 	case REPEAT:
 		fallthrough
 	case RETRY:
-		return r._Attempts(name, call, scope)
+		return r._Attempts(
+			name,
+			call,
+			scope,
+		)
 
 	case TIMEOUT:
-		return r._Timeout(call, scope)
+		return r._Timeout(
+			call,
+			scope,
+		)
 	}
 
 	return nil, false
@@ -186,7 +270,10 @@ func (r *_Reading) _Invoked(
 	bound string,
 	scope *_Scope,
 ) (*workflowpb.Statement, bool) {
-	held, ok := r._Call(call, scope)
+	held, ok := r._Call(
+		call,
+		scope,
+	)
 	if !ok {
 		return nil, false
 	}
@@ -197,7 +284,11 @@ func (r *_Reading) _Invoked(
 		scope._Bind(bound)
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_Call{Call: held}}, true
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_Call{
+			Call: held,
+		},
+	}, true
 }
 
 // _Code is a function's body.
@@ -206,16 +297,31 @@ func (r *_Reading) _Invoked(
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the statement nodes
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Function
-func _Code(prog *_Program, fn *workflowpb.Function) ([]syntax.Stmt, error) {
+func _Code(
+	prog *_Program,
+	fn *workflowpb.Function,
+) ([]syntax.Stmt, error) {
 	switch held := fn.GetCode().(type) {
 	case *workflowpb.Function_Body:
-		return _Parsed(prog, fn.GetName(), held.Body)
+		return _Parsed(
+			prog,
+			fn.GetName(),
+			held.Body,
+		)
 
 	case *workflowpb.Function_Statements:
-		return _ListBody(fn.GetName(), held.Statements.GetStatement(), prog)
+		return _ListBody(
+			fn.GetName(),
+			held.Statements.GetStatement(),
+			prog,
+		)
 
 	default:
-		return nil, fmt.Errorf("%s: %w", fn.GetName(), ERR_NO_BODY)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.GetName(),
+			ErrNoBody,
+		)
 	}
 }
 
@@ -225,16 +331,31 @@ func _Code(prog *_Program, fn *workflowpb.Function) ([]syntax.Stmt, error) {
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the statement nodes
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Flow
-func _Entry(prog *_Program, flow *workflowpb.Flow) ([]syntax.Stmt, error) {
+func _Entry(
+	prog *_Program,
+	flow *workflowpb.Flow,
+) ([]syntax.Stmt, error) {
 	switch held := flow.GetSpine().(type) {
 	case *workflowpb.Flow_Text:
-		return _Parsed(prog, ENTRY, held.Text)
+		return _Parsed(
+			prog,
+			ENTRY,
+			held.Text,
+		)
 
 	case *workflowpb.Flow_Main:
-		return _ListBody(ENTRY, held.Main.GetStatement(), prog)
+		return _ListBody(
+			ENTRY,
+			held.Main.GetStatement(),
+			prog,
+		)
 
 	default:
-		return nil, fmt.Errorf("%s: %w", ENTRY, ERR_NO_BODY)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			ENTRY,
+			ErrNoBody,
+		)
 	}
 }
 
@@ -244,12 +365,23 @@ func _Entry(prog *_Program, flow *workflowpb.Flow) ([]syntax.Stmt, error) {
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the statement nodes
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Statement
-func _ListBody(name string, list []*workflowpb.Statement, prog *_Program) ([]syntax.Stmt, error) {
+func _ListBody(
+	name string,
+	list []*workflowpb.Statement,
+	prog *_Program,
+) ([]syntax.Stmt, error) {
 	if len(list) == 0 {
-		return nil, fmt.Errorf("%s: %w", name, ERR_NO_BODY)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			name,
+			ErrNoBody,
+		)
 	}
 
-	return _Statements(list, prog)
+	return _Statements(
+		list,
+		prog,
+	)
 }
 
 // _Statements is a list of statements. A match is more than one.
@@ -258,16 +390,25 @@ func _ListBody(name string, list []*workflowpb.Statement, prog *_Program) ([]syn
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the statement nodes
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Statement
-func _Statements(list []*workflowpb.Statement, prog *_Program) ([]syntax.Stmt, error) {
+func _Statements(
+	list []*workflowpb.Statement,
+	prog *_Program,
+) ([]syntax.Stmt, error) {
 	var out []syntax.Stmt
 
 	for _, stmt := range list {
-		part, err := _Statement(stmt, prog)
+		part, err := _Statement(
+			stmt,
+			prog,
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		out = append(out, part...)
+		out = append(
+			out,
+			part...,
+		)
 	}
 
 	return out, nil
@@ -279,11 +420,38 @@ func _Statements(list []*workflowpb.Statement, prog *_Program) ([]syntax.Stmt, e
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the statement nodes
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Statement
-func _Statement(stmt *workflowpb.Statement, prog *_Program) ([]syntax.Stmt, error) {
+func _Statement(
+	stmt *workflowpb.Statement,
+	prog *_Program,
+) ([]syntax.Stmt, error) {
 	if stmt == nil || stmt.GetAction() == nil {
-		return nil, fmt.Errorf("statement: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"statement: %w",
+			ErrForm,
+		)
 	}
 
+	switch stmt.GetAction().(type) {
+	case *workflowpb.Statement_Call,
+		*workflowpb.Statement_Spawn,
+		*workflowpb.Statement_Join,
+		*workflowpb.Statement_Cancel,
+		*workflowpb.Statement_Sleep:
+		return _Plain(stmt)
+
+	default:
+		return _Nested(
+			stmt,
+			prog,
+		)
+	}
+}
+
+// _Plain emits a statement that does not contain another statement.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Plain(stmt *workflowpb.Statement) ([]syntax.Stmt, error) {
 	switch stmt.GetAction().(type) {
 	case *workflowpb.Statement_Call:
 		return _Single(_Call(stmt.GetCall()))
@@ -300,6 +468,23 @@ func _Statement(stmt *workflowpb.Statement, prog *_Program) ([]syntax.Stmt, erro
 	case *workflowpb.Statement_Sleep:
 		return _Single(_Sleep(stmt.GetSleep()))
 
+	default:
+		return nil, fmt.Errorf(
+			"statement: %w",
+			ErrForm,
+		)
+	}
+}
+
+// _Nested emits a statement that contains another statement.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Nested(
+	stmt *workflowpb.Statement,
+	prog *_Program,
+) ([]syntax.Stmt, error) {
+	switch stmt.GetAction().(type) {
 	case *workflowpb.Statement_Repeat:
 		return _Single(_Repeat(stmt.GetRepeat()))
 
@@ -310,16 +495,28 @@ func _Statement(stmt *workflowpb.Statement, prog *_Program) ([]syntax.Stmt, erro
 		return _Single(_Timeout(stmt.GetTimeout()))
 
 	case *workflowpb.Statement_Loop:
-		return _Single(_Loop(stmt.GetLoop(), prog))
+		return _Single(_Loop(
+			stmt.GetLoop(),
+			prog,
+		))
 
 	case *workflowpb.Statement_If:
-		return _Single(_If(stmt.GetIf(), false, prog))
+		return _Single(_If(
+			stmt.GetIf(),
+			prog,
+		))
 
 	case *workflowpb.Statement_Match:
-		return _Match(stmt.GetMatch(), prog)
+		return _Match(
+			stmt.GetMatch(),
+			prog,
+		)
 
 	default:
-		return nil, fmt.Errorf("statement: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"statement: %w",
+			ErrForm,
+		)
 	}
 }
 
@@ -327,7 +524,10 @@ func _Statement(stmt *workflowpb.Statement, prog *_Program) ([]syntax.Stmt, erro
 //
 // Revisions:
 //   - 2026-10-01 13:08: initial creation
-func _Single(stmt syntax.Stmt, err error) ([]syntax.Stmt, error) {
+func _Single(
+	stmt syntax.Stmt,
+	err error,
+) ([]syntax.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}

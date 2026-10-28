@@ -34,17 +34,17 @@ import (
 )
 
 var (
-	// ERR_EMPTY is returned for a choice or a sample from nothing, which has
+	// ErrEmpty is returned for a choice or a sample from nothing, which has
 	// no answer to give.
-	ERR_EMPTY = errors.New("nothing to choose from")
+	ErrEmpty = errors.New("nothing to choose from")
 
-	// ERR_RANGE is returned for a range whose end is below its start, and for
+	// ErrRange is returned for a range whose end is below its start, and for
 	// a count below zero.
-	ERR_RANGE = errors.New("out of range")
+	ErrRange = errors.New("out of range")
 )
 
+// NAME is the module, and the names it holds.
 const (
-	// NAME is the module, and the names it holds.
 	NAME    = "random"
 	SEED    = "seed"
 	INT     = "int"
@@ -98,12 +98,30 @@ func (r *_Random) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				SEED:    starlark.NewBuiltin(NAME+"."+SEED, _Seed),
-				INT:     starlark.NewBuiltin(NAME+"."+INT, _Int),
-				FLOAT:   starlark.NewBuiltin(NAME+"."+FLOAT, _Float),
-				CHOICE:  starlark.NewBuiltin(NAME+"."+CHOICE, _Choice),
-				SHUFFLE: starlark.NewBuiltin(NAME+"."+SHUFFLE, _Shuffle),
-				BYTES:   starlark.NewBuiltin(NAME+"."+BYTES, _Bytes),
+				SEED: starlark.NewBuiltin(
+					NAME+"."+SEED,
+					_Seed,
+				),
+				INT: starlark.NewBuiltin(
+					NAME+"."+INT,
+					_Int,
+				),
+				FLOAT: starlark.NewBuiltin(
+					NAME+"."+FLOAT,
+					_Float,
+				),
+				CHOICE: starlark.NewBuiltin(
+					NAME+"."+CHOICE,
+					_Choice,
+				),
+				SHUFFLE: starlark.NewBuiltin(
+					NAME+"."+SHUFFLE,
+					_Shuffle,
+				),
+				BYTES: starlark.NewBuiltin(
+					NAME+"."+BYTES,
+					_Bytes,
+				),
 			},
 		},
 	}
@@ -115,9 +133,18 @@ func (r *_Random) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func _Of(thread *starlark.Thread) (*_Source, error) {
-	return scheduler.Shared(thread, NAME, func() *_Source {
-		return &_Source{held: rand.New(rand.NewPCG(_Unpredictable(), _Unpredictable()))}
-	})
+	return scheduler.Shared(
+		thread,
+		NAME,
+		func() *_Source {
+			return &_Source{
+				held: rand.New(rand.NewPCG(
+					_Unpredictable(),
+					_Unpredictable(),
+				)),
+			}
+		},
+	)
 }
 
 // _Unpredictable is a seed nobody can guess, for a run that asked for no
@@ -153,7 +180,13 @@ func _Seed(
 ) (starlark.Value, error) {
 	var seed int64
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &seed)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&seed,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +199,10 @@ func _Seed(
 	source.guard.Lock()
 	defer source.guard.Unlock()
 
-	source.held = rand.New(rand.NewPCG(uint64(seed), uint64(seed)))
+	source.held = rand.New(rand.NewPCG(
+		uint64(seed),
+		uint64(seed),
+	))
 
 	return starlark.None, nil
 }
@@ -188,13 +224,28 @@ func _Int(
 ) (starlark.Value, error) {
 	var low, high int64
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &low, &high)
+	const NEEDED = 2
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&low,
+		&high,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	if high < low {
-		return nil, fmt.Errorf("%s: %d is below %d: %w", fn.Name(), high, low, ERR_RANGE)
+		return nil, fmt.Errorf(
+			"%s: %d is below %d: %w",
+			fn.Name(),
+			high,
+			low,
+			ErrRange,
+		)
 	}
 
 	source, err := _Of(thread)
@@ -205,7 +256,11 @@ func _Int(
 	source.guard.Lock()
 	defer source.guard.Unlock()
 
-	return starlark.MakeInt64(int64(uint64(low) + _Draw(source, low, high))), nil
+	return starlark.MakeInt64(int64(uint64(low) + _Draw(
+		source,
+		low,
+		high,
+	))), nil
 }
 
 // _Draw is one value from zero up to the width of low..high, both ends
@@ -221,7 +276,11 @@ func _Int(
 //
 // Revisions:
 //   - 2026-09-24 16:23: initial creation
-func _Draw(source *_Source, low int64, high int64) uint64 {
+func _Draw(
+	source *_Source,
+	low int64,
+	high int64,
+) uint64 {
 	span := uint64(high) - uint64(low)
 
 	// Every uint64 is inside a range this wide, so there is nothing to bound.
@@ -242,7 +301,14 @@ func _Float(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 0)
+	const NEEDED = 0
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +326,7 @@ func _Float(
 
 // _Choice is one element of a sequence.
 //
-// Returns ERR_EMPTY for a sequence with nothing in it, rather than None: a
+// Returns ErrEmpty for a sequence with nothing in it, rather than None: a
 // caller who meant to choose from something got nothing, and None would be
 // indistinguishable from a sequence that held one.
 //
@@ -272,13 +338,21 @@ func _Choice(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	held, err := _Elements(fn, args, kwargs)
+	held, err := _Elements(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(held) == 0 {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), ERR_EMPTY)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			ErrEmpty,
+		)
 	}
 
 	source, err := _Of(thread)
@@ -307,13 +381,23 @@ func _Shuffle(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	held, err := _Elements(fn, args, kwargs)
+	held, err := _Elements(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	mixed := make([]starlark.Value, len(held))
-	copy(mixed, held)
+	mixed := make(
+		[]starlark.Value,
+		len(held),
+	)
+	copy(
+		mixed,
+		held,
+	)
 
 	source, err := _Of(thread)
 	if err != nil {
@@ -323,9 +407,15 @@ func _Shuffle(
 	source.guard.Lock()
 	defer source.guard.Unlock()
 
-	source.held.Shuffle(len(mixed), func(i int, j int) {
-		mixed[i], mixed[j] = mixed[j], mixed[i]
-	})
+	source.held.Shuffle(
+		len(mixed),
+		func(
+			i int,
+			j int,
+		) {
+			mixed[i], mixed[j] = mixed[j], mixed[i]
+		},
+	)
 
 	return starlark.NewList(mixed), nil
 }
@@ -342,13 +432,24 @@ func _Bytes(
 ) (starlark.Value, error) {
 	var count int
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &count)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&count,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	if count < 0 {
-		return nil, fmt.Errorf("%s: %d bytes: %w", fn.Name(), count, ERR_RANGE)
+		return nil, fmt.Errorf(
+			"%s: %d bytes: %w",
+			fn.Name(),
+			count,
+			ErrRange,
+		)
 	}
 
 	source, err := _Of(thread)
@@ -359,7 +460,10 @@ func _Bytes(
 	source.guard.Lock()
 	defer source.guard.Unlock()
 
-	held := make([]byte, count)
+	held := make(
+		[]byte,
+		count,
+	)
 
 	for index := range held {
 		held[index] = byte(source.held.UintN(BYTE))
@@ -379,7 +483,13 @@ func _Elements(
 ) ([]starlark.Value, error) {
 	var given starlark.Iterable
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &given)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&given,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +502,10 @@ func _Elements(
 	var value starlark.Value
 
 	for iter.Next(&value) {
-		held = append(held, value)
+		held = append(
+			held,
+			value,
+		)
 	}
 
 	return held, nil

@@ -29,7 +29,8 @@ const (
 	CONCURRENT   = 16
 )
 
-const SOURCE = `
+const (
+	SOURCE = `
 ANON = lambda: 1
 
 def worker():
@@ -41,6 +42,7 @@ def spin():
         total += i
     return total
 `
+)
 
 // _Globals compiles SOURCE and freezes what it produced.
 //
@@ -51,13 +53,18 @@ func _Globals(t *testing.T) starlark.StringDict {
 
 	globals, err := starlark.ExecFileOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT_NAME},
+		&starlark.Thread{
+			Name: SCRIPT_NAME,
+		},
 		SCRIPT_NAME,
 		[]byte(SOURCE),
 		starlark.StringDict{},
 	)
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
 	globals.Freeze()
@@ -69,12 +76,18 @@ func _Globals(t *testing.T) starlark.StringDict {
 //
 // Revisions:
 //   - 2026-09-21 09:46: initial creation
-func _Callable(t *testing.T, name string) starlark.Callable {
+func _Callable(
+	t *testing.T,
+	name string,
+) starlark.Callable {
 	t.Helper()
 
 	target, ok := _Globals(t)[name].(starlark.Callable)
 	if !ok {
-		t.Fatalf("%s is not callable", name)
+		t.Fatalf(
+			"%s is not callable",
+			name,
+		)
 	}
 
 	return target
@@ -87,24 +100,54 @@ func _Callable(t *testing.T, name string) starlark.Callable {
 //   - 2026-09-19 22:05: initial creation
 //   - 2026-09-21 09:46: through Beside and Wait
 func TestBeside_RunsOnItsOwnLane(t *testing.T) {
-	run := _Started(t.Context())
-
-	handle, err := Beside(_Thread(run), _Callable(t, WORKER))
+	var (
+		run         = _Started(t.Context())
+		handle, err = Beside(
+			_Thread(run),
+			_Callable(
+				t,
+				WORKER,
+			),
+		)
+	)
 	if err != nil {
-		t.Fatalf("beside: %v", err)
+		t.Fatalf(
+			"beside: %v",
+			err,
+		)
 	}
 
-	value, err := Wait(_Thread(run), handle)
+	value, err := Wait(
+		_Thread(run),
+		handle,
+	)
 	if err != nil {
-		t.Fatalf("the evaluation failed: %v", err)
+		t.Fatalf(
+			"the evaluation failed: %v",
+			err,
+		)
 	}
 
 	if value.String() != ANSWER {
-		t.Fatalf("got %s, want %s", value, ANSWER)
+		t.Fatalf(
+			"got %s, want %s",
+			value,
+			ANSWER,
+		)
 	}
 
-	if handle.Thread() != _Child(SPINE, FIRST_SPAWN) {
-		t.Fatalf("thread is %s, want %s", handle.Thread(), _Child(SPINE, FIRST_SPAWN))
+	if handle.Thread() != _Child(
+		SPINE,
+		FIRST_SPAWN,
+	) {
+		t.Fatalf(
+			"thread is %s, want %s",
+			handle.Thread(),
+			_Child(
+				SPINE,
+				FIRST_SPAWN,
+			),
+		)
 	}
 }
 
@@ -114,18 +157,35 @@ func TestBeside_RunsOnItsOwnLane(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 09:46: initial creation
 func TestBeside_InlineStaysOnTheCallersLane(t *testing.T) {
-	run := _Started(t.Context())
-
-	handle, err := Beside(_Thread(run), _Callable(t, WORKER), Inline())
+	var (
+		run         = _Started(t.Context())
+		handle, err = Beside(
+			_Thread(run),
+			_Callable(
+				t,
+				WORKER,
+			),
+			Inline(),
+		)
+	)
 	if err != nil {
-		t.Fatalf("beside: %v", err)
+		t.Fatalf(
+			"beside: %v",
+			err,
+		)
 	}
 
 	if handle.Thread() != SPINE {
-		t.Fatalf("an inline evaluation ran on %s, want the caller's lane", handle.Thread())
+		t.Fatalf(
+			"an inline evaluation ran on %s, want the caller's lane",
+			handle.Thread(),
+		)
 	}
 
-	if _, err := Wait(_Thread(run), handle); err != nil {
+	if _, err := Wait(
+		_Thread(run),
+		handle,
+	); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -136,9 +196,23 @@ func TestBeside_InlineStaysOnTheCallersLane(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:07: initial creation
 func TestBeside_RefusesAThreadWithNoRun(t *testing.T) {
-	_, err := Beside(&starlark.Thread{Name: SCRIPT_NAME}, _Callable(t, WORKER))
-	if !errors.Is(err, ERR_NO_RUN) {
-		t.Fatalf("got %v, want ERR_NO_RUN", err)
+	_, err := Beside(
+		&starlark.Thread{
+			Name: SCRIPT_NAME,
+		},
+		_Callable(
+			t,
+			WORKER,
+		),
+	)
+	if !errors.Is(
+		err,
+		ErrNoRun,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNoRun",
+			err,
+		)
 	}
 }
 
@@ -152,11 +226,21 @@ func TestBeside_CancelStopsAnEvaluationMidFlight(t *testing.T) {
 	ctx, stop := context.WithCancel(t.Context())
 	defer stop()
 
-	run := _Started(ctx)
-
-	handle, err := Beside(_Thread(run), _Callable(t, SPINNER))
+	var (
+		run         = _Started(ctx)
+		handle, err = Beside(
+			_Thread(run),
+			_Callable(
+				t,
+				SPINNER,
+			),
+		)
+	)
 	if err != nil {
-		t.Fatalf("beside: %v", err)
+		t.Fatalf(
+			"beside: %v",
+			err,
+		)
 	}
 
 	time.Sleep(STOP_AFTER)
@@ -168,8 +252,14 @@ func TestBeside_CancelStopsAnEvaluationMidFlight(t *testing.T) {
 		t.Fatal("a cancelled evaluation ran on")
 	}
 
-	if !errors.Is(handle.err, ERR_CANCELLED) {
-		t.Fatalf("got %v, want ERR_CANCELLED", handle.err)
+	if !errors.Is(
+		handle.err,
+		ErrCancelled,
+	) {
+		t.Fatalf(
+			"got %v, want ErrCancelled",
+			handle.err,
+		)
 	}
 }
 
@@ -183,19 +273,34 @@ func TestWait_ReturnsWhenTheWaiterIsCancelled(t *testing.T) {
 	owner := _Started(t.Context())
 	defer owner.stop()
 
-	spinner, err := Beside(_Thread(owner), _Callable(t, SPINNER))
+	spinner, err := Beside(
+		_Thread(owner),
+		_Callable(
+			t,
+			SPINNER,
+		),
+	)
 	if err != nil {
-		t.Fatalf("beside: %v", err)
+		t.Fatalf(
+			"beside: %v",
+			err,
+		)
 	}
 
-	ctx, stop := context.WithCancel(t.Context())
-
-	waiter := _Started(ctx)
-
-	waited := make(chan error, 1)
+	var (
+		ctx, stop = context.WithCancel(t.Context())
+		waiter    = _Started(ctx)
+		waited    = make(
+			chan error,
+			1,
+		)
+	)
 
 	go func() {
-		_, err := Wait(_Thread(waiter), spinner)
+		_, err := Wait(
+			_Thread(waiter),
+			spinner,
+		)
 		waited <- err
 	}()
 
@@ -204,8 +309,14 @@ func TestWait_ReturnsWhenTheWaiterIsCancelled(t *testing.T) {
 
 	select {
 	case err := <-waited:
-		if !errors.Is(err, ERR_CANCELLED) {
-			t.Fatalf("got %v, want ERR_CANCELLED", err)
+		if !errors.Is(
+			err,
+			ErrCancelled,
+		) {
+			t.Fatalf(
+				"got %v, want ErrCancelled",
+				err,
+			)
 		}
 	case <-time.After(CANCEL_LIMIT):
 		t.Fatal("a cancelled waiter waited the handle out")
@@ -226,20 +337,37 @@ func TestWait_ReturnsWhenTheWaiterIsCancelled(t *testing.T) {
 //   - 2026-09-19 22:09: initial creation
 //   - 2026-09-21 08:09: asserts the thread survives, rather than sleeping
 func TestCancelOn_StopsWatchingWhenReleased(t *testing.T) {
-	ctx, stop := context.WithCancel(t.Context())
+	var (
+		ctx, stop = context.WithCancel(t.Context())
+		thread    = &starlark.Thread{
+			Name: SCRIPT_NAME,
+		}
+		release = _CancelOn(
+			ctx,
+			thread,
+		)
+	)
 
-	thread := &starlark.Thread{Name: SCRIPT_NAME}
-
-	release := _CancelOn(ctx, thread)
 	release()
 
 	stop()
 
 	time.Sleep(STOP_AFTER)
 
-	_, err := starlark.Call(thread, _Callable(t, WORKER), nil, nil)
+	_, err := starlark.Call(
+		thread,
+		_Callable(
+			t,
+			WORKER,
+		),
+		nil,
+		nil,
+	)
 	if err != nil {
-		t.Fatalf("a released watcher still cancelled the thread: %v", err)
+		t.Fatalf(
+			"a released watcher still cancelled the thread: %v",
+			err,
+		)
 	}
 }
 
@@ -250,15 +378,29 @@ func TestCancelOn_StopsWatchingWhenReleased(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:12: initial creation
 func TestBeside_ConcurrentEvaluationsDoNotShareAThread(t *testing.T) {
-	run := _Started(t.Context())
-	target := _Callable(t, WORKER)
-
-	handles := make([]*Handle, CONCURRENT)
+	var (
+		run    = _Started(t.Context())
+		target = _Callable(
+			t,
+			WORKER,
+		)
+		handles = make(
+			[]*Handle,
+			CONCURRENT,
+		)
+	)
 
 	for index := range handles {
-		handle, err := Beside(_Thread(run), target)
+		handle, err := Beside(
+			_Thread(run),
+			target,
+		)
 		if err != nil {
-			t.Fatalf("beside %d: %v", index, err)
+			t.Fatalf(
+				"beside %d: %v",
+				index,
+				err,
+			)
 		}
 
 		handles[index] = handle
@@ -267,17 +409,31 @@ func TestBeside_ConcurrentEvaluationsDoNotShareAThread(t *testing.T) {
 	seen := map[string]bool{}
 
 	for index, handle := range handles {
-		value, err := Wait(_Thread(run), handle)
+		value, err := Wait(
+			_Thread(run),
+			handle,
+		)
 		if err != nil {
-			t.Fatalf("evaluation %d failed: %v", index, err)
+			t.Fatalf(
+				"evaluation %d failed: %v",
+				index,
+				err,
+			)
 		}
 
 		if value.String() != ANSWER {
-			t.Fatalf("evaluation %d produced %s", index, value)
+			t.Fatalf(
+				"evaluation %d produced %s",
+				index,
+				value,
+			)
 		}
 
 		if seen[handle.Thread()] {
-			t.Fatalf("thread %s was given to two evaluations", handle.Thread())
+			t.Fatalf(
+				"thread %s was given to two evaluations",
+				handle.Thread(),
+			)
 		}
 
 		seen[handle.Thread()] = true
@@ -294,18 +450,34 @@ func TestBeside_ConcurrentEvaluationsDoNotShareAThread(t *testing.T) {
 //   - 2026-10-02 00:42: a lambda nobody labelled has no name, now that no
 //     graph resolves one
 func TestBeside_ALambdaNobodyLabelledHasNoName(t *testing.T) {
-	run := _Started(t.Context())
-
-	handle, err := Beside(_Thread(run), _Callable(t, ANON_FUNC))
+	var (
+		run         = _Started(t.Context())
+		handle, err = Beside(
+			_Thread(run),
+			_Callable(
+				t,
+				ANON_FUNC,
+			),
+		)
+	)
 	if err != nil {
-		t.Fatalf("beside: %v", err)
+		t.Fatalf(
+			"beside: %v",
+			err,
+		)
 	}
 
 	if handle.Name() != "" {
-		t.Fatalf("want no name, got %q", handle.Name())
+		t.Fatalf(
+			"want no name, got %q",
+			handle.Name(),
+		)
 	}
 
-	if _, err := Wait(_Thread(run), handle); err != nil {
+	if _, err := Wait(
+		_Thread(run),
+		handle,
+	); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -318,18 +490,38 @@ func TestBeside_ALambdaNobodyLabelledHasNoName(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 00:42: initial creation
 func TestBeside_ReportsASpawnOnTheThreadThatWroteIt(t *testing.T) {
-	run := _Started(t.Context())
-	into := new(_Recording)
+	var (
+		run  = _Started(t.Context())
+		into = new(_Recording)
+	)
+
 	run.into = into
 
-	thread := _Thread(run)
-
-	handle, err := Beside(thread, _Callable(t, ANON_FUNC), Labelled(WORKER, BINDING_NAME))
+	var (
+		thread      = _Thread(run)
+		handle, err = Beside(
+			thread,
+			_Callable(
+				t,
+				ANON_FUNC,
+			),
+			Labelled(
+				WORKER,
+				BINDING_NAME,
+			),
+		)
+	)
 	if err != nil {
-		t.Fatalf("beside: %v", err)
+		t.Fatalf(
+			"beside: %v",
+			err,
+		)
 	}
 
-	if _, err := Wait(thread, handle); err != nil {
+	if _, err := Wait(
+		thread,
+		handle,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -337,25 +529,39 @@ func TestBeside_ReportsASpawnOnTheThreadThatWroteIt(t *testing.T) {
 
 	started := into._Started()
 	if len(started) != 1 {
-		t.Fatalf("want one start, got %v", started)
+		t.Fatalf(
+			"want one start, got %v",
+			started,
+		)
 	}
 
-	got := started[0]
-	want := &Line{
-		Name:    WORKER,
-		Builtin: SPAWN_WORD,
-		Child:   handle.Thread(),
-		Binding: BINDING_NAME,
-	}
+	var (
+		got  = started[0]
+		want = &Line{
+			Name:    WORKER,
+			Builtin: SPAWN_WORD,
+			Child:   handle.Thread(),
+			Binding: BINDING_NAME,
+		}
+	)
 
 	if got.thread != SPINE || got.line.Name != want.Name || got.line.Builtin != want.Builtin ||
 		got.line.Child != want.Child || got.line.Binding != want.Binding {
-		t.Fatalf("got %s %+v, want %s %+v", got.thread, got.line, SPINE, want)
+		t.Fatalf(
+			"got %s %+v, want %s %+v",
+			got.thread,
+			got.line,
+			SPINE,
+			want,
+		)
 	}
 
 	ended := into._Ended()
 	if len(ended) != 1 || ended[0] != handle.Thread()+" "+WORKER {
-		t.Fatalf("want the child's end on the child, got %v", ended)
+		t.Fatalf(
+			"want the child's end on the child, got %v",
+			ended,
+		)
 	}
 }
 
@@ -381,22 +587,38 @@ type _Start struct {
 //
 // Revisions:
 //   - 2026-10-02 00:42: initial creation
-func (r *_Recording) Started(thread string, line *Line) {
+func (r *_Recording) Started(
+	thread string,
+	line *Line,
+) {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	r.starts = append(r.starts, &_Start{thread: thread, line: line})
+	r.starts = append(
+		r.starts,
+		&_Start{
+			thread: thread,
+			line:   line,
+		},
+	)
 }
 
 // Ended keeps the thread and the name of the end.
 //
 // Revisions:
 //   - 2026-10-02 00:42: initial creation
-func (r *_Recording) Ended(thread string, name string, err error) {
+func (r *_Recording) Ended(
+	thread string,
+	name string,
+	err error,
+) {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	r.endings = append(r.endings, thread+" "+name)
+	r.endings = append(
+		r.endings,
+		thread+" "+name,
+	)
 }
 
 // _Started is every start kept so far.
@@ -407,7 +629,10 @@ func (r *_Recording) _Started() []*_Start {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	return append([]*_Start(nil), r.starts...)
+	return append(
+		[]*_Start(nil),
+		r.starts...,
+	)
 }
 
 // _Ended is every end kept so far.
@@ -418,5 +643,8 @@ func (r *_Recording) _Ended() []string {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
-	return append([]string(nil), r.endings...)
+	return append(
+		[]string(nil),
+		r.endings...,
+	)
 }

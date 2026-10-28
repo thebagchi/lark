@@ -31,7 +31,11 @@ type _Shape func(
 ) (int, string, error)
 
 // _Decoder is integer's Decode or DecodeSigned.
-type _Decoder func(who string, data []byte, order string) (*big.Int, error)
+type _Decoder func(
+	who string,
+	data []byte,
+	order string,
+) (*big.Int, error)
 
 // String is what print shows: how many bytes are left, not the bytes, which
 // may be many.
@@ -39,7 +43,11 @@ type _Decoder func(who string, data []byte, order string) (*big.Int, error)
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
 func (r *Reader) String() string {
-	return fmt.Sprintf("<%s length %d>", READER_TYPE, r.Len())
+	return fmt.Sprintf(
+		"<%s length %d>",
+		READER_TYPE,
+		r.Len(),
+	)
 }
 
 // Type names this value's type, as a script's type() sees it.
@@ -72,7 +80,10 @@ func (r *Reader) Truth() starlark.Bool {
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
 func (r *Reader) Hash() (uint32, error) {
-	return 0, fmt.Errorf("%s is unhashable", READER_TYPE)
+	return 0, fmt.Errorf(
+		"%s is unhashable",
+		READER_TYPE,
+	)
 }
 
 // Len is how many bytes are left, which len() reads.
@@ -130,7 +141,11 @@ func _ReadBytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := _Take(fn, args, kwargs)
+	data, err := _Take(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +166,11 @@ func _ReadString(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := _Take(fn, args, kwargs)
+	data, err := _Take(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -172,37 +191,55 @@ func _ReadString(
 //   - 2026-10-08 21:08: initial creation
 //   - 2026-10-08 21:37: takes what reads the width and order, so a fixed width is
 //     a method too
-func _Reading(name string, shape _Shape, decode _Decoder) *starlark.Builtin {
-	return starlark.NewBuiltin(name, func(
-		thread *starlark.Thread,
-		fn *starlark.Builtin,
-		args starlark.Tuple,
-		kwargs []starlark.Tuple,
-	) (starlark.Value, error) {
-		reader, err := _Movable(fn)
-		if err != nil {
-			return nil, err
-		}
+func _Reading(
+	name string,
+	shape _Shape,
+	decode _Decoder,
+) *starlark.Builtin {
+	return starlark.NewBuiltin(
+		name,
+		func(
+			thread *starlark.Thread,
+			fn *starlark.Builtin,
+			args starlark.Tuple,
+			kwargs []starlark.Tuple,
+		) (starlark.Value, error) {
+			reader, err := _Movable(fn)
+			if err != nil {
+				return nil, err
+			}
 
-		width, order, err := shape(fn, args, kwargs)
-		if err != nil {
-			return nil, err
-		}
+			width, order, err := shape(
+				fn,
+				args,
+				kwargs,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		data, err := reader._Next(fn.Name(), width)
-		if err != nil {
-			return nil, err
-		}
+			data, err := reader._Next(
+				fn.Name(),
+				width,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		number, err := decode(fn.Name(), data, order)
-		if err != nil {
-			return nil, err
-		}
+			number, err := decode(
+				fn.Name(),
+				data,
+				order,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		reader.at += width
+			reader.at += width
 
-		return starlark.MakeBigInt(number), nil
-	})
+			return starlark.MakeBigInt(number), nil
+		},
+	)
 }
 
 // _Width reads the arguments of read_uint and read_int: a width of at least
@@ -220,7 +257,14 @@ func _Width(
 		order = integer.BIG
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &width, &order)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&width,
+		&order,
+	)
 	if err != nil {
 		return 0, "", err
 	}
@@ -230,7 +274,7 @@ func _Width(
 			"%s got a width of %d: %w",
 			fn.Name(),
 			width,
-			unpack.ERR_RANGE,
+			unpack.ErrRange,
 		)
 	}
 
@@ -248,9 +292,16 @@ func _Order(width int) _Shape {
 		args starlark.Tuple,
 		kwargs []starlark.Tuple,
 	) (int, string, error) {
-		order := integer.BIG
-
-		err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 0, &order)
+		var (
+			order = integer.BIG
+			err   = starlark.UnpackPositionalArgs(
+				fn.Name(),
+				args,
+				kwargs,
+				0,
+				&order,
+			)
+		)
 		if err != nil {
 			return 0, "", err
 		}
@@ -264,7 +315,11 @@ func _Order(width int) _Shape {
 //
 // Revisions:
 //   - 2026-10-08 21:37: initial creation, from read, so read_string shares it
-func _Take(fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error) {
+func _Take(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) ([]byte, error) {
 	reader, err := _Movable(fn)
 	if err != nil {
 		return nil, err
@@ -272,12 +327,21 @@ func _Take(fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (
 
 	var count int
 
-	err = starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &count)
+	err = starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&count,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := reader._Next(fn.Name(), count)
+	data, err := reader._Next(
+		fn.Name(),
+		count,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +351,7 @@ func _Take(fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (
 	return data, nil
 }
 
-// _Movable is the reader fn is bound to, or ERR_FROZEN once a spawn has frozen
+// _Movable is the reader fn is bound to, or ErrFrozen once a spawn has frozen
 // it.
 //
 // The receiver is asserted rather than asked: Attr is the one place that binds
@@ -298,24 +362,31 @@ func _Take(fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (
 func _Movable(fn *starlark.Builtin) (*Reader, error) {
 	reader := fn.Receiver().(*Reader)
 	if reader.frozen {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), ERR_FROZEN)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			ErrFrozen,
+		)
 	}
 
 	return reader, nil
 }
 
 // _Next is the next count bytes, without moving past them: refused with
-// unpack.ERR_RANGE for a negative count, and ERR_SHORT for more than are left.
+// unpack.ErrRange for a negative count, and ErrShort for more than are left.
 //
 // Revisions:
 //   - 2026-10-08 21:08: initial creation
-func (r *Reader) _Next(who string, count int) ([]byte, error) {
+func (r *Reader) _Next(
+	who string,
+	count int,
+) ([]byte, error) {
 	if count < 0 {
 		return nil, fmt.Errorf(
 			"%s got %d, which is negative: %w",
 			who,
 			count,
-			unpack.ERR_RANGE,
+			unpack.ErrRange,
 		)
 	}
 
@@ -326,7 +397,7 @@ func (r *Reader) _Next(who string, count int) ([]byte, error) {
 			who,
 			count,
 			left,
-			ERR_SHORT,
+			ErrShort,
 		)
 	}
 

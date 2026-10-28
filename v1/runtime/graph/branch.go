@@ -28,27 +28,46 @@ import (
 //     parameter
 //   - 2026-10-02 00:04: each branch is a Statement, read in a scope of its
 //     own, so an elif nests
-func (r *_Reading) _If(stmt *syntax.IfStmt, scope *_Scope) (*workflowpb.Statement, bool) {
-	condition, ok := r._Condition(stmt.Cond, scope)
+func (r *_Reading) _If(
+	stmt *syntax.IfStmt,
+	scope *_Scope,
+) (*workflowpb.Statement, bool) {
+	condition, ok := r._Condition(
+		stmt.Cond,
+		scope,
+	)
 	if !ok {
 		return nil, false
 	}
 
-	then, ok := r._Branch(stmt.True, scope._Inner())
+	then, ok := r._Branch(
+		stmt.True,
+		scope._Inner(),
+	)
 	if !ok {
 		return nil, false
 	}
 
-	branch := &workflowpb.If{Condition: condition, Then: then}
+	branch := &workflowpb.If{
+		Condition: condition,
+		Then:      then,
+	}
 
 	if len(stmt.False) > 0 {
-		branch.Else, ok = r._Branch(stmt.False, scope._Inner())
+		branch.Else, ok = r._Branch(
+			stmt.False,
+			scope._Inner(),
+		)
 		if !ok {
 			return nil, false
 		}
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_If{If: branch}}, true
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_If{
+			If: branch,
+		},
+	}, true
 }
 
 // _Condition is the Condition an expression states, or false.
@@ -61,7 +80,10 @@ func (r *_Reading) _If(stmt *syntax.IfStmt, scope *_Scope) (*workflowpb.Statemen
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-09-30 00:41: reads on a lane, so a condition may pass a parameter
 //   - 2026-10-02 00:04: a name is a condition, and the call is read in a scope
-func (r *_Reading) _Condition(expr syntax.Expr, scope *_Scope) (*workflowpb.Condition, bool) {
+func (r *_Reading) _Condition(
+	expr syntax.Expr,
+	scope *_Scope,
+) (*workflowpb.Condition, bool) {
 	switch actual := expr.(type) {
 	case *syntax.Ident:
 		value, word := _Word(actual.Name)
@@ -72,7 +94,9 @@ func (r *_Reading) _Condition(expr syntax.Expr, scope *_Scope) (*workflowpb.Cond
 			}
 
 			return &workflowpb.Condition{
-				Kind: &workflowpb.Condition_Value{Value: flag.BoolValue},
+				Kind: &workflowpb.Condition_Value{
+					Value: flag.BoolValue,
+				},
 			}, true
 		}
 
@@ -80,17 +104,28 @@ func (r *_Reading) _Condition(expr syntax.Expr, scope *_Scope) (*workflowpb.Cond
 			return nil, false
 		}
 
-		named := &workflowpb.Condition_Name{Name: actual.Name}
+		named := &workflowpb.Condition_Name{
+			Name: actual.Name,
+		}
 
-		return &workflowpb.Condition{Kind: named}, true
+		return &workflowpb.Condition{
+			Kind: named,
+		}, true
 
 	case *syntax.CallExpr:
-		held, ok := r._Call(actual, scope)
+		held, ok := r._Call(
+			actual,
+			scope,
+		)
 		if !ok {
 			return nil, false
 		}
 
-		return &workflowpb.Condition{Kind: &workflowpb.Condition_Call{Call: held}}, true
+		return &workflowpb.Condition{
+			Kind: &workflowpb.Condition_Call{
+				Call: held,
+			},
+		}, true
 	}
 
 	return nil, false
@@ -107,13 +142,19 @@ func (r *_Reading) _Condition(expr syntax.Expr, scope *_Scope) (*workflowpb.Cond
 //   - 2026-09-30 00:41: reads on a lane, so the call may pass a parameter
 //   - 2026-10-02 00:04: any one Statement, once the closer is set aside, rather
 //     than a call alone
-func (r *_Reading) _Branch(stmts []syntax.Stmt, scope *_Scope) (*workflowpb.Statement, bool) {
+func (r *_Reading) _Branch(
+	stmts []syntax.Stmt,
+	scope *_Scope,
+) (*workflowpb.Statement, bool) {
 	body := dialect.Closed(stmts)
 	if len(body) != 1 {
 		return nil, false
 	}
 
-	return r._Statement(body[0], scope)
+	return r._Statement(
+		body[0],
+		scope,
+	)
 }
 
 // _Matched is the Match the statements at this position state together, or
@@ -131,24 +172,44 @@ func (r *_Reading) _Branch(stmts []syntax.Stmt, scope *_Scope) (*workflowpb.Stat
 //     scope, and takes a string or a name as well as a call
 //   - 2026-10-02 01:14: finds the assignment and its chain through
 //     dialect.Matched, which the dialect reads a match with too
-func (r *_Reading) _Matched(body []syntax.Stmt, idx int, scope *_Scope) *workflowpb.Statement {
-	assign, chain, ok := dialect.Matched(body, idx)
+func (r *_Reading) _Matched(
+	body []syntax.Stmt,
+	idx int,
+	scope *_Scope,
+) *workflowpb.Statement {
+	assign, chain, ok := dialect.Matched(
+		body,
+		idx,
+	)
 	if !ok {
 		return nil
 	}
 
-	expression, ok := r._Expression(assign.RHS, scope)
+	expression, ok := r._Expression(
+		assign.RHS,
+		scope,
+	)
 	if !ok {
 		return nil
 	}
 
-	match := &workflowpb.Match{Expression: expression}
+	match := &workflowpb.Match{
+		Expression: expression,
+	}
 
-	if !r._Cases(match, chain, scope) {
+	if !r._Cases(
+		match,
+		chain,
+		scope,
+	) {
 		return nil
 	}
 
-	return &workflowpb.Statement{Action: &workflowpb.Statement_Match{Match: match}}
+	return &workflowpb.Statement{
+		Action: &workflowpb.Statement_Match{
+			Match: match,
+		},
+	}
 }
 
 // _Expression is the Expression a match evaluates, or false: a string, a call
@@ -156,7 +217,10 @@ func (r *_Reading) _Matched(body []syntax.Stmt, idx int, scope *_Scope) *workflo
 //
 // Revisions:
 //   - 2026-10-02 00:04: initial creation
-func (r *_Reading) _Expression(expr syntax.Expr, scope *_Scope) (*workflowpb.Expression, bool) {
+func (r *_Reading) _Expression(
+	expr syntax.Expr,
+	scope *_Scope,
+) (*workflowpb.Expression, bool) {
 	switch actual := expr.(type) {
 	case *syntax.Literal:
 		text, ok := actual.Value.(string)
@@ -164,26 +228,41 @@ func (r *_Reading) _Expression(expr syntax.Expr, scope *_Scope) (*workflowpb.Exp
 			return nil, false
 		}
 
-		value := &workflowpb.Expression_Value{Value: text}
+		value := &workflowpb.Expression_Value{
+			Value: text,
+		}
 
-		return &workflowpb.Expression{Kind: value}, true
+		return &workflowpb.Expression{
+			Kind: value,
+		}, true
 
 	case *syntax.Ident:
 		if _, word := _Word(actual.Name); word || !scope._Sees(actual.Name) {
 			return nil, false
 		}
 
-		named := &workflowpb.Expression_Name{Name: actual.Name}
+		named := &workflowpb.Expression_Name{
+			Name: actual.Name,
+		}
 
-		return &workflowpb.Expression{Kind: named}, true
+		return &workflowpb.Expression{
+			Kind: named,
+		}, true
 
 	case *syntax.CallExpr:
-		held, ok := r._Call(actual, scope)
+		held, ok := r._Call(
+			actual,
+			scope,
+		)
 		if !ok {
 			return nil, false
 		}
 
-		return &workflowpb.Expression{Kind: &workflowpb.Expression_Call{Call: held}}, true
+		return &workflowpb.Expression{
+			Kind: &workflowpb.Expression_Call{
+				Call: held,
+			},
+		}, true
 	}
 
 	return nil, false
@@ -202,18 +281,31 @@ func (r *_Reading) _Expression(expr syntax.Expr, scope *_Scope) (*workflowpb.Exp
 //     a scope of their own
 //   - 2026-10-02 01:16: finds the next case through dialect.NextCase, which
 //     the dialect walks a chain with too
-func (r *_Reading) _Cases(match *workflowpb.Match, chain *syntax.IfStmt, scope *_Scope) bool {
+func (r *_Reading) _Cases(
+	match *workflowpb.Match,
+	chain *syntax.IfStmt,
+	scope *_Scope,
+) bool {
 	value, ok := dialect.Tested(chain.Cond)
 	if !ok {
 		return false
 	}
 
-	taken, ok := r._Branch(chain.True, scope._Inner())
+	taken, ok := r._Branch(
+		chain.True,
+		scope._Inner(),
+	)
 	if !ok {
 		return false
 	}
 
-	match.Cases = append(match.Cases, &workflowpb.Case{Value: value, Statement: taken})
+	match.Cases = append(
+		match.Cases,
+		&workflowpb.Case{
+			Value:     value,
+			Statement: taken,
+		},
+	)
 
 	if len(chain.False) == 0 {
 		return true
@@ -221,10 +313,17 @@ func (r *_Reading) _Cases(match *workflowpb.Match, chain *syntax.IfStmt, scope *
 
 	next := dialect.NextCase(chain)
 	if next != nil {
-		return r._Cases(match, next, scope)
+		return r._Cases(
+			match,
+			next,
+			scope,
+		)
 	}
 
-	other, ok := r._Branch(chain.False, scope._Inner())
+	other, ok := r._Branch(
+		chain.False,
+		scope._Inner(),
+	)
 	if !ok {
 		return false
 	}
@@ -234,16 +333,23 @@ func (r *_Reading) _Cases(match *workflowpb.Match, chain *syntax.IfStmt, scope *
 	return true
 }
 
-// _If is an if, or an elif when elif says so. An else whose statement is
-// itself an if is that elif, which is how a chain is stored.
+// _If is an if. An else whose statement is itself an if is an elif, which
+// _Elif marks, and which is how a chain is stored.
 //
 // Revisions:
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the if node
 //   - 2026-10-02 00:04: lifted into graph, taking the generated If
-func _If(iff *workflowpb.If, elif bool, prog *_Program) (*syntax.IfStmt, error) {
+//   - 2026-10-24 18:29: an elif is _Elif, so this takes no flag
+func _If(
+	iff *workflowpb.If,
+	prog *_Program,
+) (*syntax.IfStmt, error) {
 	if iff == nil || iff.GetThen() == nil {
-		return nil, fmt.Errorf("if: %w", ERR_NO_BODY)
+		return nil, fmt.Errorf(
+			"if: %w",
+			ErrNoBody,
+		)
 	}
 
 	cond, err := _Condition(iff.GetCondition())
@@ -251,17 +357,45 @@ func _If(iff *workflowpb.If, elif bool, prog *_Program) (*syntax.IfStmt, error) 
 		return nil, err
 	}
 
-	then, err := _Statement(iff.GetThen(), prog)
+	then, err := _Statement(
+		iff.GetThen(),
+		prog,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	node := &syntax.IfStmt{Cond: cond, True: then}
-	if elif {
-		prog.elif[node] = struct{}{}
+	node := &syntax.IfStmt{
+		Cond: cond,
+		True: then,
 	}
 
-	return _Else(node, iff.GetElse(), prog)
+	return _Else(
+		node,
+		iff.GetElse(),
+		prog,
+	)
+}
+
+// _Elif is an if that continues another if.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Elif(
+	iff *workflowpb.If,
+	prog *_Program,
+) (*syntax.IfStmt, error) {
+	node, err := _If(
+		iff,
+		prog,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	prog.elif[node] = struct{}{}
+
+	return node, nil
 }
 
 // _Else sets the other branch. Absent means the script wrote none. An if
@@ -281,7 +415,10 @@ func _Else(
 	}
 
 	if nested := other.GetIf(); nested != nil {
-		inner, err := _If(nested, true, prog)
+		inner, err := _Elif(
+			nested,
+			prog,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -291,7 +428,10 @@ func _Else(
 		return node, nil
 	}
 
-	body, err := _Statement(other, prog)
+	body, err := _Statement(
+		other,
+		prog,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -309,29 +449,47 @@ func _Else(
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Condition
 func _Condition(cond *workflowpb.Condition) (syntax.Expr, error) {
 	if cond == nil {
-		return nil, fmt.Errorf("condition: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"condition: %w",
+			ErrForm,
+		)
 	}
 
 	switch kind := cond.GetKind().(type) {
 	case *workflowpb.Condition_Value:
-		return _Name(_Bool(kind.Value)), nil
+		spelled := FALSE
+		if kind.Value {
+			spelled = TRUE
+		}
+
+		return _Name(spelled), nil
 
 	case *workflowpb.Condition_Name:
 		if kind.Name == "" {
-			return nil, fmt.Errorf("condition: %w", ERR_FORM)
+			return nil, fmt.Errorf(
+				"condition: %w",
+				ErrForm,
+			)
 		}
 
 		return _Name(kind.Name), nil
 
 	case *workflowpb.Condition_Call:
 		if kind.Call.GetResult() != "" {
-			return nil, fmt.Errorf("%s: %w", kind.Call.GetFunction(), ERR_FORM)
+			return nil, fmt.Errorf(
+				"%s: %w",
+				kind.Call.GetFunction(),
+				ErrForm,
+			)
 		}
 
 		return _CallExpr(kind.Call)
 
 	default:
-		return nil, fmt.Errorf("condition: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"condition: %w",
+			ErrForm,
+		)
 	}
 }
 
@@ -344,9 +502,15 @@ func _Condition(cond *workflowpb.Condition) (syntax.Expr, error) {
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the assignment and the comparisons
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Match
-func _Match(match *workflowpb.Match, prog *_Program) ([]syntax.Stmt, error) {
+func _Match(
+	match *workflowpb.Match,
+	prog *_Program,
+) ([]syntax.Stmt, error) {
 	if match == nil || len(match.GetCases()) == 0 {
-		return nil, fmt.Errorf("match: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"match: %w",
+			ErrForm,
+		)
 	}
 
 	expr, err := _Expression(match.GetExpression())
@@ -354,12 +518,19 @@ func _Match(match *workflowpb.Match, prog *_Program) ([]syntax.Stmt, error) {
 		return nil, err
 	}
 
-	top, err := _Chain(match, prog)
+	top, err := _Chain(
+		match,
+		prog,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	assign := &syntax.AssignStmt{Op: syntax.EQ, LHS: _Name(SUBJECT), RHS: expr}
+	assign := &syntax.AssignStmt{
+		Op:  syntax.EQ,
+		LHS: _Name(SUBJECT),
+		RHS: expr,
+	}
 
 	return []syntax.Stmt{assign, top}, nil
 }
@@ -369,7 +540,10 @@ func _Match(match *workflowpb.Match, prog *_Program) ([]syntax.Stmt, error) {
 // Revisions:
 //   - 2026-10-01 13:08: initial creation
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Match
-func _Chain(match *workflowpb.Match, prog *_Program) (*syntax.IfStmt, error) {
+func _Chain(
+	match *workflowpb.Match,
+	prog *_Program,
+) (*syntax.IfStmt, error) {
 	var (
 		top   *syntax.IfStmt
 		chain *syntax.IfStmt
@@ -378,7 +552,10 @@ func _Chain(match *workflowpb.Match, prog *_Program) (*syntax.IfStmt, error) {
 	first := true
 
 	for _, item := range match.GetCases() {
-		arm, err := _Arm(item, prog)
+		arm, err := _Arm(
+			item,
+			prog,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -398,7 +575,10 @@ func _Chain(match *workflowpb.Match, prog *_Program) (*syntax.IfStmt, error) {
 		return top, nil
 	}
 
-	body, err := _Statement(match.GetDefault(), prog)
+	body, err := _Statement(
+		match.GetDefault(),
+		prog,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -414,12 +594,21 @@ func _Chain(match *workflowpb.Match, prog *_Program) (*syntax.IfStmt, error) {
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the if node
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Case
-func _Arm(item *workflowpb.Case, prog *_Program) (*syntax.IfStmt, error) {
+func _Arm(
+	item *workflowpb.Case,
+	prog *_Program,
+) (*syntax.IfStmt, error) {
 	if item == nil || item.GetStatement() == nil {
-		return nil, fmt.Errorf("match: %w", ERR_NO_BODY)
+		return nil, fmt.Errorf(
+			"match: %w",
+			ErrNoBody,
+		)
 	}
 
-	body, err := _Statement(item.GetStatement(), prog)
+	body, err := _Statement(
+		item.GetStatement(),
+		prog,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +619,10 @@ func _Arm(item *workflowpb.Case, prog *_Program) (*syntax.IfStmt, error) {
 		Y:  _Text(strconv.Quote(item.GetValue())),
 	}
 
-	return &syntax.IfStmt{Cond: cond, True: body}, nil
+	return &syntax.IfStmt{
+		Cond: cond,
+		True: body,
+	}, nil
 }
 
 // _Expression is a string, a call, or a name.
@@ -441,7 +633,10 @@ func _Arm(item *workflowpb.Case, prog *_Program) (*syntax.IfStmt, error) {
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Expression
 func _Expression(expr *workflowpb.Expression) (syntax.Expr, error) {
 	if expr == nil {
-		return nil, fmt.Errorf("expression: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"expression: %w",
+			ErrForm,
+		)
 	}
 
 	switch kind := expr.GetKind().(type) {
@@ -450,19 +645,29 @@ func _Expression(expr *workflowpb.Expression) (syntax.Expr, error) {
 
 	case *workflowpb.Expression_Name:
 		if kind.Name == "" {
-			return nil, fmt.Errorf("expression: %w", ERR_FORM)
+			return nil, fmt.Errorf(
+				"expression: %w",
+				ErrForm,
+			)
 		}
 
 		return _Name(kind.Name), nil
 
 	case *workflowpb.Expression_Call:
 		if kind.Call.GetResult() != "" {
-			return nil, fmt.Errorf("%s: %w", kind.Call.GetFunction(), ERR_FORM)
+			return nil, fmt.Errorf(
+				"%s: %w",
+				kind.Call.GetFunction(),
+				ErrForm,
+			)
 		}
 
 		return _CallExpr(kind.Call)
 
 	default:
-		return nil, fmt.Errorf("expression: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"expression: %w",
+			ErrForm,
+		)
 	}
 }

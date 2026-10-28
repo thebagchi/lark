@@ -6,6 +6,7 @@ package hex_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"go.starlark.net/starlark"
@@ -18,7 +19,9 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-const SCRIPT = "hex_test.star"
+const (
+	SCRIPT = "hex_test.star"
+)
 
 // _Eval runs one Starlark expression against the plugin environment and
 // returns what it produced, as its String form.
@@ -26,17 +29,25 @@ const SCRIPT = "hex_test.star"
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, in codec
 //   - 2026-10-08 17:52: moved here with the conversions it exercises
-func _Eval(t *testing.T, expression string) (string, error) {
+func _Eval(
+	t *testing.T,
+	expression string,
+) (string, error) {
 	t.Helper()
 
 	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	value, err := starlark.EvalOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT},
+		&starlark.Thread{
+			Name: SCRIPT,
+		},
 		SCRIPT,
 		expression,
 		env,
@@ -53,20 +64,38 @@ func _Eval(t *testing.T, expression string) (string, error) {
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, in codec
 //   - 2026-10-08 17:52: moved here
-func _Check(t *testing.T, cases []struct{ name, expression, want string }) {
+func _Check(
+	t *testing.T,
+	cases []struct{ name, expression, want string },
+) {
 	t.Helper()
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Eval(t, item.expression)
-			if err != nil {
-				t.Fatalf("%s: %v", item.expression, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Eval(
+					t,
+					item.expression,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.expression,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s gave %s, want %s", item.expression, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s gave %s, want %s",
+						item.expression,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -75,20 +104,37 @@ func _Check(t *testing.T, cases []struct{ name, expression, want string }) {
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, in codec
 //   - 2026-10-08 17:52: moved here
-func _Refuse(t *testing.T, cases []struct {
-	name       string
-	expression string
-	want       error
-}) {
+func _Refuse(
+	t *testing.T,
+	cases []struct {
+		name       string
+		expression string
+		want       error
+	},
+) {
 	t.Helper()
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			_, err := _Eval(t, item.expression)
-			if !errors.Is(err, item.want) {
-				t.Fatalf("%s gave %v, want %v", item.expression, err, item.want)
-			}
-		})
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					item.expression,
+				)
+				if !errors.Is(
+					err,
+					item.want,
+				) {
+					t.Fatalf(
+						"%s gave %v, want %v",
+						item.expression,
+						err,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -102,30 +148,96 @@ func _Refuse(t *testing.T, cases []struct {
 //     upper case and reads either
 //   - 2026-10-08 18:06: to_bytes with a 0x, taken off once in either case
 func TestHex_ConvertsToAndFromBytes(t *testing.T) {
-	_Check(t, []struct{ name, expression, want string }{
-		{"from_bytes", `hex.from_bytes(b"\x00\xffAB")`, `"00FF4142"`},
-		{"from_bytes of str", `hex.from_bytes("AB")`, `"4142"`},
-		{"from_bytes of nothing", `hex.from_bytes(b"")`, `""`},
-		{"from_bytes writes upper case", `hex.from_bytes(b"\xab\xcd\xef")`, `"ABCDEF"`},
-		{"to_bytes", `hex.to_bytes("00FF4142")`, `b"\x00\xffAB"`},
-		{"to_bytes lower case", `hex.to_bytes("00ff4142")`, `b"\x00\xffAB"`},
-		{"to_bytes mixed case", `hex.to_bytes("aBcD")`, `b"\xab\xcd"`},
-		{"to_bytes strips 0x", `hex.to_bytes("0x4142")`, `b"AB"`},
-		{"to_bytes strips 0X", `hex.to_bytes("0XaBcD")`, `b"\xab\xcd"`},
-		{"to_bytes of the prefix alone", `hex.to_bytes("0x")`, `b""`},
-	})
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"from_bytes",
+				`hex.from_bytes(b"\x00\xffAB")`,
+				`"00FF4142"`,
+			},
+			{
+				"from_bytes of str",
+				`hex.from_bytes("AB")`,
+				`"4142"`,
+			},
+			{
+				"from_bytes of nothing",
+				`hex.from_bytes(b"")`,
+				`""`,
+			},
+			{
+				"from_bytes writes upper case",
+				`hex.from_bytes(b"\xab\xcd\xef")`,
+				`"ABCDEF"`,
+			},
+			{
+				"to_bytes",
+				`hex.to_bytes("00FF4142")`,
+				`b"\x00\xffAB"`,
+			},
+			{
+				"to_bytes lower case",
+				`hex.to_bytes("00ff4142")`,
+				`b"\x00\xffAB"`,
+			},
+			{
+				"to_bytes mixed case",
+				`hex.to_bytes("aBcD")`,
+				`b"\xab\xcd"`,
+			},
+			{
+				"to_bytes strips 0x",
+				`hex.to_bytes("0x4142")`,
+				`b"AB"`,
+			},
+			{
+				"to_bytes strips 0X",
+				`hex.to_bytes("0XaBcD")`,
+				`b"\xab\xcd"`,
+			},
+			{
+				"to_bytes of the prefix alone",
+				`hex.to_bytes("0x")`,
+				`b""`,
+			},
+		},
+	)
 
-	_Refuse(t, []struct {
-		name       string
-		expression string
-		want       error
-	}{
-		{"to_bytes odd length", `hex.to_bytes("abc")`, hex.ERR_HEX},
-		{"to_bytes odd length after the prefix", `hex.to_bytes("0xabc")`, hex.ERR_HEX},
-		{"to_bytes prefix taken off once", `hex.to_bytes("0x0x41")`, hex.ERR_HEX},
-		{"to_bytes not hex", `hex.to_bytes("zz")`, hex.ERR_HEX},
-		{"from_bytes of a number", `hex.from_bytes(1)`, unpack.ERR_DATA},
-	})
+	_Refuse(
+		t,
+		[]struct {
+			name       string
+			expression string
+			want       error
+		}{
+			{
+				"to_bytes odd length",
+				`hex.to_bytes("abc")`,
+				hex.ErrHex,
+			},
+			{
+				"to_bytes odd length after the prefix",
+				`hex.to_bytes("0xabc")`,
+				hex.ErrHex,
+			},
+			{
+				"to_bytes prefix taken off once",
+				`hex.to_bytes("0x0x41")`,
+				hex.ErrHex,
+			},
+			{
+				"to_bytes not hex",
+				`hex.to_bytes("zz")`,
+				hex.ErrHex,
+			},
+			{
+				"from_bytes of a number",
+				`hex.from_bytes(1)`,
+				unpack.ErrData,
+			},
+		},
+	)
 }
 
 // TestHex_ConvertsToAndFromInts is digits padded to the width, which counts
@@ -139,37 +251,113 @@ func TestHex_ConvertsToAndFromBytes(t *testing.T) {
 //   - 2026-10-08 21:37: a width past the run's memory
 //   - 2026-10-08 22:19: a width past the million fmt pads to
 func TestHex_ConvertsToAndFromInts(t *testing.T) {
-	_Check(t, []struct{ name, expression, want string }{
-		{"from_int", `hex.from_int(175, 2)`, `"AF"`},
-		{
-			"from_int past the million fmt pads to",
-			`[len(hex.from_int(255, 1000001)), hex.from_int(255, 1000001)[-2:]]`,
-			`[1000001, "FF"]`,
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"from_int",
+				`hex.from_int(175, 2)`,
+				`"AF"`,
+			},
+			{
+				"from_int past the million fmt pads to",
+				`[len(hex.from_int(255,` +
+					` 1000001)), hex.from_int(255, ` +
+					`1000001)[-2:]]`,
+				`[1000001, "FF"]`,
+			},
+			{
+				"from_int pads to the width in digits",
+				`hex.from_int(255, 4)`,
+				`"00FF"`,
+			},
+			{
+				"from_int not truncated",
+				`hex.from_int(300, 2)`,
+				`"12C"`,
+			},
+			{
+				"from_int of zero",
+				`hex.from_int(0, 1)`,
+				`"0"`,
+			},
+			{
+				"to_int",
+				`hex.to_int("AF")`,
+				`175`,
+			},
+			{
+				"to_int lower case",
+				`hex.to_int("af")`,
+				`175`,
+			},
+			{
+				"to_int strips 0x",
+				`hex.to_int("0x12C")`,
+				`300`,
+			},
+			{
+				"to_int strips 0X",
+				`hex.to_int("0X12c")`,
+				`300`,
+			},
+			{
+				"to_int past 64 bits",
+				`hex.to_int("1" + "0" * 16)`,
+				`18446744073709551616`,
+			},
+			{
+				"round trip",
+				`hex.to_int(hex.from_int(4096, 8))`,
+				`4096`,
+			},
 		},
-		{"from_int pads to the width in digits", `hex.from_int(255, 4)`, `"00FF"`},
-		{"from_int not truncated", `hex.from_int(300, 2)`, `"12C"`},
-		{"from_int of zero", `hex.from_int(0, 1)`, `"0"`},
-		{"to_int", `hex.to_int("AF")`, `175`},
-		{"to_int lower case", `hex.to_int("af")`, `175`},
-		{"to_int strips 0x", `hex.to_int("0x12C")`, `300`},
-		{"to_int strips 0X", `hex.to_int("0X12c")`, `300`},
-		{"to_int past 64 bits", `hex.to_int("1" + "0" * 16)`, `18446744073709551616`},
-		{"round trip", `hex.to_int(hex.from_int(4096, 8))`, `4096`},
-	})
+	)
 
-	_Refuse(t, []struct {
-		name       string
-		expression string
-		want       error
-	}{
-		{"from_int negative", `hex.from_int(-1, 2)`, unpack.ERR_RANGE},
-		{"from_int zero width", `hex.from_int(1, 0)`, unpack.ERR_RANGE},
-		{"from_int wider than the run", `hex.from_int(0, 1 << 40)`, scheduler.ERR_MEMORY},
-		{"to_int not hex", `hex.to_int("g")`, hex.ERR_HEX},
-		{"to_int signed", `hex.to_int("-1")`, hex.ERR_HEX},
-		{"to_int of nothing", `hex.to_int("")`, hex.ERR_HEX},
-		{"to_int of the prefix alone", `hex.to_int("0x")`, hex.ERR_HEX},
-	})
+	_Refuse(
+		t,
+		[]struct {
+			name       string
+			expression string
+			want       error
+		}{
+			{
+				"from_int negative",
+				`hex.from_int(-1, 2)`,
+				unpack.ErrRange,
+			},
+			{
+				"from_int zero width",
+				`hex.from_int(1, 0)`,
+				unpack.ErrRange,
+			},
+			{
+				"from_int wider than the run",
+				`hex.from_int(0, 1 << 40)`,
+				scheduler.ErrMemory,
+			},
+			{
+				"to_int not hex",
+				`hex.to_int("g")`,
+				hex.ErrHex,
+			},
+			{
+				"to_int signed",
+				`hex.to_int("-1")`,
+				hex.ErrHex,
+			},
+			{
+				"to_int of nothing",
+				`hex.to_int("")`,
+				hex.ErrHex,
+			},
+			{
+				"to_int of the prefix alone",
+				`hex.to_int("0x")`,
+				hex.ErrHex,
+			},
+		},
+	)
 }
 
 // TestHex_ConvertsToAndFromBinary is the padding rules: bits to whole digits
@@ -184,47 +372,121 @@ func TestHex_ConvertsToAndFromInts(t *testing.T) {
 //   - 2026-10-08 17:52: spells the calls as members of the hex module
 //   - 2026-10-08 18:32: from_binary with a 0b, taken off before the bits are counted
 func TestHex_ConvertsToAndFromBinary(t *testing.T) {
-	_Check(t, []struct{ name, expression, want string }{
-		{"from_binary", `hex.from_binary("10101111")`, `"AF"`},
-		{"from_binary pads to a digit", `hex.from_binary("101")`, `"5"`},
-		{"from_binary strips 0b", `hex.from_binary("0b11010")`, `"1A"`},
-		{"from_binary counts the bits after 0B", `hex.from_binary("0B101")`, `"5"`},
-		{"from_binary pads across digits", `hex.from_binary("11010")`, `"1A"`},
-		{"from_binary of nothing", `hex.from_binary("")`, `""`},
-		{"from_binary keeps a leading zero digit", `hex.from_binary("00000001")`, `"01"`},
-		{"from_binary pads across bytes", `hex.from_binary("110101111")`, `"1AF"`},
-		{
-			"from_binary keeps zero digits it has bits for",
-			`hex.from_binary("000000001")`,
-			`"001"`,
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"from_binary",
+				`hex.from_binary("10101111")`,
+				`"AF"`,
+			},
+			{
+				"from_binary pads to a digit",
+				`hex.from_binary("101")`,
+				`"5"`,
+			},
+			{
+				"from_binary strips 0b",
+				`hex.from_binary("0b11010")`,
+				`"1A"`,
+			},
+			{
+				"from_binary counts the bits after 0B",
+				`hex.from_binary("0B101")`,
+				`"5"`,
+			},
+			{
+				"from_binary pads across digits",
+				`hex.from_binary("11010")`,
+				`"1A"`,
+			},
+			{
+				"from_binary of nothing",
+				`hex.from_binary("")`,
+				`""`,
+			},
+			{
+				"from_binary keeps a leading zero digit",
+				`hex.from_binary("00000001")`,
+				`"01"`,
+			},
+			{
+				"from_binary pads across bytes",
+				`hex.from_binary("110101111")`,
+				`"1AF"`,
+			},
+			{
+				"from_binary keeps zero digits it has bits for",
+				`hex.from_binary("000000001")`,
+				`"001"`,
+			},
+			{
+				"to_binary",
+				`hex.to_binary("AF")`,
+				`"10101111"`,
+			},
+			{
+				"to_binary lower case",
+				`hex.to_binary("af")`,
+				`"10101111"`,
+			},
+			{
+				"to_binary strips 0x",
+				`hex.to_binary("0xAF")`,
+				`"10101111"`,
+			},
+			{
+				"to_binary strips 0X",
+				`hex.to_binary("0XAF")`,
+				`"10101111"`,
+			},
+			{
+				"to_binary pads to a byte",
+				`hex.to_binary("A")`,
+				`"00001010"`,
+			},
+			{
+				"to_binary pads odd digits to a byte",
+				`hex.to_binary("ABC")`,
+				`"0000101010111100"`,
+			},
+			{
+				"to_binary of nothing",
+				`hex.to_binary("")`,
+				`""`,
+			},
 		},
-		{"to_binary", `hex.to_binary("AF")`, `"10101111"`},
-		{"to_binary lower case", `hex.to_binary("af")`, `"10101111"`},
-		{"to_binary strips 0x", `hex.to_binary("0xAF")`, `"10101111"`},
-		{"to_binary strips 0X", `hex.to_binary("0XAF")`, `"10101111"`},
-		{"to_binary pads to a byte", `hex.to_binary("A")`, `"00001010"`},
-		{
-			"to_binary pads odd digits to a byte",
-			`hex.to_binary("ABC")`,
-			`"0000101010111100"`,
-		},
-		{"to_binary of nothing", `hex.to_binary("")`, `""`},
-	})
+	)
 
-	_Refuse(t, []struct {
-		name       string
-		expression string
-		want       error
-	}{
-		{"from_binary not bits", `hex.from_binary("12")`, binary.ERR_BITS},
-		{
-			"from_binary refuses the hex prefix",
-			`hex.from_binary("0x101")`,
-			binary.ERR_BITS,
+	_Refuse(
+		t,
+		[]struct {
+			name       string
+			expression string
+			want       error
+		}{
+			{
+				"from_binary not bits",
+				`hex.from_binary("12")`,
+				binary.ErrBits,
+			},
+			{
+				"from_binary refuses the hex prefix",
+				`hex.from_binary("0x101")`,
+				binary.ErrBits,
+			},
+			{
+				"to_binary not hex",
+				`hex.to_binary("0xZZ")`,
+				hex.ErrHex,
+			},
+			{
+				"to_binary signed",
+				`hex.to_binary("-1")`,
+				hex.ErrHex,
+			},
 		},
-		{"to_binary not hex", `hex.to_binary("0xZZ")`, hex.ERR_HEX},
-		{"to_binary signed", `hex.to_binary("-1")`, hex.ERR_HEX},
-	})
+	)
 }
 
 // TestHex_AgreesWithBinaryForEveryByte writes every byte value as hex two
@@ -242,11 +504,90 @@ func TestHex_AgreesWithBinaryForEveryByte(t *testing.T) {
 	const EVERY = `[b for b in range(256) if not (
     hex.from_binary(binary.from_bytes(bytes([b]))) == hex.from_bytes(bytes([b]))
 )]`
+
 	const WHOLE = `hex.from_binary(binary.from_bytes(bytes(range(256)))) == ` +
 		`hex.from_bytes(bytes(range(256)))`
 
-	_Check(t, []struct{ name, expression, want string }{
-		{"every byte alone", EVERY, `[]`},
-		{"every byte in one input", WHOLE, `True`},
-	})
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"every byte alone",
+				EVERY,
+				`[]`,
+			},
+			{
+				"every byte in one input",
+				WHOLE,
+				`True`,
+			},
+		},
+	)
+}
+
+// TestRegression_UnpackNameDuplicated checks that a keyword error from
+// UnpackPositionalArgs does not show the function name twice.
+//
+// The bug: Data, Text, and Counted wrapped the error with fn.Name(), but
+// UnpackPositionalArgs already includes fn.Name() in its message, so the
+// name appeared twice (e.g. "hex.from_bytes: hex.from_bytes: ...").
+//
+// Revisions:
+//   - 2026-10-24 16:05: initial creation
+func TestRegression_UnpackNameDuplicated(t *testing.T) {
+	cases := []struct {
+		name       string
+		expression string
+		needle     string
+	}{
+		{
+			"Data",
+			`hex.from_bytes(data = b"x")`,
+			"hex.from_bytes",
+		},
+		{
+			"Text",
+			`hex.to_bytes(text = "aa")`,
+			"hex.to_bytes",
+		},
+		{
+			"Counted",
+			`hex.from_int(number = 1, width = 2)`,
+			"hex.from_int",
+		},
+	}
+
+	for _, item := range cases {
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					item.expression,
+				)
+				if err == nil {
+					t.Fatalf(
+						"%s: expected an error",
+						item.expression,
+					)
+				}
+
+				var (
+					msg   = err.Error()
+					count = strings.Count(
+						msg,
+						item.needle,
+					)
+				)
+
+				if count != 1 {
+					t.Fatalf(
+						"function name appears %d times, want 1: %s",
+						count,
+						msg,
+					)
+				}
+			},
+		)
+	}
 }

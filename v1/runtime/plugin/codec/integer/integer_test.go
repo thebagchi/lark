@@ -20,7 +20,9 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-const SCRIPT = "integer_test.star"
+const (
+	SCRIPT = "integer_test.star"
+)
 
 // _Eval runs one Starlark expression against the plugin environment and
 // returns what it produced, as its String form.
@@ -28,17 +30,25 @@ const SCRIPT = "integer_test.star"
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, in codec
 //   - 2026-10-08 18:42: moved here with the conversions it exercises
-func _Eval(t *testing.T, expression string) (string, error) {
+func _Eval(
+	t *testing.T,
+	expression string,
+) (string, error) {
 	t.Helper()
 
 	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	value, err := starlark.EvalOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT},
+		&starlark.Thread{
+			Name: SCRIPT,
+		},
 		SCRIPT,
 		expression,
 		env,
@@ -55,20 +65,38 @@ func _Eval(t *testing.T, expression string) (string, error) {
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, in codec
 //   - 2026-10-08 18:42: moved here
-func _Check(t *testing.T, cases []struct{ name, expression, want string }) {
+func _Check(
+	t *testing.T,
+	cases []struct{ name, expression, want string },
+) {
 	t.Helper()
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Eval(t, item.expression)
-			if err != nil {
-				t.Fatalf("%s: %v", item.expression, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Eval(
+					t,
+					item.expression,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.expression,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s gave %s, want %s", item.expression, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s gave %s, want %s",
+						item.expression,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -77,20 +105,37 @@ func _Check(t *testing.T, cases []struct{ name, expression, want string }) {
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, in codec
 //   - 2026-10-08 18:42: moved here
-func _Refuse(t *testing.T, cases []struct {
-	name       string
-	expression string
-	want       error
-}) {
+func _Refuse(
+	t *testing.T,
+	cases []struct {
+		name       string
+		expression string
+		want       error
+	},
+) {
 	t.Helper()
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			_, err := _Eval(t, item.expression)
-			if !errors.Is(err, item.want) {
-				t.Fatalf("%s gave %v, want %v", item.expression, err, item.want)
-			}
-		})
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					item.expression,
+				)
+				if !errors.Is(
+					err,
+					item.want,
+				) {
+					t.Fatalf(
+						"%s gave %v, want %v",
+						item.expression,
+						err,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -100,84 +145,148 @@ func _Refuse(t *testing.T, cases []struct {
 //
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, as codec's TestInts_ConvertToAndFromBytes
-//   - 2026-10-08 17:52: refused with unpack's ERR_RANGE
+//   - 2026-10-08 17:52: refused with unpack's ErrRange
 //   - 2026-10-08 18:42: spells the calls as members of the integer module
 //   - 2026-10-08 21:08: a byte order, and a width past the run's memory
 //   - 2026-10-08 21:37: signed, and every argument named
 func TestInteger_ConvertsToAndFromBytes(t *testing.T) {
-	_Check(t, []struct{ name, expression, want string }{
-		{"from_bytes", `integer.from_bytes(b"\x01\x00")`, `256`},
-		{"from_bytes of nothing", `integer.from_bytes(b"")`, `0`},
-		{
-			"from_bytes past 64 bits",
-			`integer.from_bytes(b"\x01" + b"\x00" * 8)`,
-			`18446744073709551616`,
+	_Check(
+		t,
+		[]struct{ name, expression, want string }{
+			{
+				"from_bytes",
+				`integer.from_bytes(b"\x01\x00")`,
+				`256`,
+			},
+			{
+				"from_bytes of nothing",
+				`integer.from_bytes(b"")`,
+				`0`,
+			},
+			{
+				"from_bytes past 64 bits",
+				`integer.from_bytes(b"\x01" + b"\x00" * 8)`,
+				`18446744073709551616`,
+			},
+			{
+				"from_bytes little-endian",
+				`integer.from_bytes(b"\x02\x01", "little")`,
+				`258`,
+			},
+			{
+				"to_bytes",
+				`integer.to_bytes(256, 2)`,
+				`b"\x01\x00"`,
+			},
+			{
+				"to_bytes zero padded",
+				`integer.to_bytes(1, 4)`,
+				`b"\x00\x00\x00\x01"`,
+			},
+			{
+				"to_bytes exact fit",
+				`integer.to_bytes(255, 1)`,
+				`b"\xff"`,
+			},
+			{
+				"to_bytes past 64 bits",
+				`integer.to_bytes(18446744073709551616, 9)`,
+				`b"\x01\x00\x00\x00\x00\x00\x00\x00\x00"`,
+			},
+			{
+				"to_bytes big-endian named",
+				`integer.to_bytes(258, 2, "big")`,
+				`b"\x01\x02"`,
+			},
+			{
+				"to_bytes little-endian",
+				`integer.to_bytes(258, 2, "little")`,
+				`b"\x02\x01"`,
+			},
+			{
+				"to_bytes signed",
+				`integer.to_bytes(-1, 2, signed = True)`,
+				`b"\xff\xff"`,
+			},
+			{
+				"to_bytes signed, little-endian",
+				`integer.to_bytes(-2, 2, "little", signed = True)`,
+				`b"\xfe\xff"`,
+			},
+			{
+				"from_bytes unsigned unless told",
+				`integer.from_bytes(b"\xff\xff")`,
+				`65535`,
+			},
+			{
+				"from_bytes signed",
+				`integer.from_bytes(b"\xff\xff", signed = True)`,
+				`-1`,
+			},
+			{
+				"from_bytes signed, little-endian",
+				`integer.from_bytes(b"\xfe\xff", "little", signed = True)`,
+				`-2`,
+			},
+			{
+				"every argument named",
+				`integer.to_bytes(n` +
+					` = 258, width = 2, order = "little", signed ` +
+					`= False)`,
+				`b"\x02\x01"`,
+			},
 		},
-		{"from_bytes little-endian", `integer.from_bytes(b"\x02\x01", "little")`, `258`},
-		{"to_bytes", `integer.to_bytes(256, 2)`, `b"\x01\x00"`},
-		{"to_bytes zero padded", `integer.to_bytes(1, 4)`, `b"\x00\x00\x00\x01"`},
-		{"to_bytes exact fit", `integer.to_bytes(255, 1)`, `b"\xff"`},
-		{
-			"to_bytes past 64 bits",
-			`integer.to_bytes(18446744073709551616, 9)`,
-			`b"\x01\x00\x00\x00\x00\x00\x00\x00\x00"`,
-		},
-		{"to_bytes big-endian named", `integer.to_bytes(258, 2, "big")`, `b"\x01\x02"`},
-		{"to_bytes little-endian", `integer.to_bytes(258, 2, "little")`, `b"\x02\x01"`},
-		{"to_bytes signed", `integer.to_bytes(-1, 2, signed = True)`, `b"\xff\xff"`},
-		{
-			"to_bytes signed, little-endian",
-			`integer.to_bytes(-2, 2, "little", signed = True)`,
-			`b"\xfe\xff"`,
-		},
-		{"from_bytes unsigned unless told", `integer.from_bytes(b"\xff\xff")`, `65535`},
-		{"from_bytes signed", `integer.from_bytes(b"\xff\xff", signed = True)`, `-1`},
-		{
-			"from_bytes signed, little-endian",
-			`integer.from_bytes(b"\xfe\xff", "little", signed = True)`,
-			`-2`,
-		},
-		{
-			"every argument named",
-			`integer.to_bytes(n = 258, width = 2, order = "little", signed = False)`,
-			`b"\x02\x01"`,
-		},
-	})
+	)
 
-	_Refuse(t, []struct {
-		name       string
-		expression string
-		want       error
-	}{
-		{"to_bytes negative", `integer.to_bytes(-1, 2)`, unpack.ERR_RANGE},
-		{"to_bytes does not fit", `integer.to_bytes(256, 1)`, unpack.ERR_RANGE},
-		{"to_bytes zero width", `integer.to_bytes(1, 0)`, unpack.ERR_RANGE},
-		{
-			"to_bytes signed past a byte",
-			`integer.to_bytes(128, 1, signed = True)`,
-			unpack.ERR_RANGE,
+	_Refuse(
+		t,
+		[]struct {
+			name       string
+			expression string
+			want       error
+		}{
+			{
+				"to_bytes negative",
+				`integer.to_bytes(-1, 2)`,
+				unpack.ErrRange,
+			},
+			{
+				"to_bytes does not fit",
+				`integer.to_bytes(256, 1)`,
+				unpack.ErrRange,
+			},
+			{
+				"to_bytes zero width",
+				`integer.to_bytes(1, 0)`,
+				unpack.ErrRange,
+			},
+			{
+				"to_bytes signed past a byte",
+				`integer.to_bytes(128, 1, signed = True)`,
+				unpack.ErrRange,
+			},
+			{
+				"to_bytes signed under a byte",
+				`integer.to_bytes(-129, 1, signed = True)`,
+				unpack.ErrRange,
+			},
+			{
+				"to_bytes in an order nobody has",
+				`integer.to_bytes(1, 2, "middle")`,
+				integer.ErrOrder,
+			},
+			{
+				"from_bytes in another case",
+				`integer.from_bytes(b"\x01", "Little")`,
+				integer.ErrOrder,
+			},
+			{
+				"to_bytes wider than the run",
+				`integer.to_bytes(0, 1 << 40)`,
+				scheduler.ErrMemory,
+			},
 		},
-		{
-			"to_bytes signed under a byte",
-			`integer.to_bytes(-129, 1, signed = True)`,
-			unpack.ERR_RANGE,
-		},
-		{
-			"to_bytes in an order nobody has",
-			`integer.to_bytes(1, 2, "middle")`,
-			integer.ERR_ORDER,
-		},
-		{
-			"from_bytes in another case",
-			`integer.from_bytes(b"\x01", "Little")`,
-			integer.ERR_ORDER,
-		},
-		{
-			"to_bytes wider than the run",
-			`integer.to_bytes(0, 1 << 40)`,
-			scheduler.ERR_MEMORY,
-		},
-	})
+	)
 }
 
 // TestInteger_SignedMatchesGo writes every value of two bytes in two's
@@ -194,24 +303,36 @@ func TestInteger_SignedMatchesGo(t *testing.T) {
 	// WIDTH is the two bytes of an int16.
 	const WIDTH = 2
 
-	budget := scheduler.NewBudget(scheduler.CEILING)
-
-	orders := map[string]binary.AppendByteOrder{
-		integer.BIG:    binary.BigEndian,
-		integer.LITTLE: binary.LittleEndian,
-	}
+	var (
+		budget = scheduler.NewBudget(scheduler.CEILING)
+		orders = map[string]binary.AppendByteOrder{
+			integer.BIG:    binary.BigEndian,
+			integer.LITTLE: binary.LittleEndian,
+		}
+	)
 
 	for name, order := range orders {
 		for value := math.MinInt16; value <= math.MaxInt16; value++ {
-			want := order.AppendUint16(nil, uint16(int16(value)))
-			field := &integer.Field{
-				Number: big.NewInt(int64(value)),
-				Width:  WIDTH,
-				Order:  name,
-			}
-
-			got, err := integer.EncodeSigned(budget, SCRIPT, field)
-			if err != nil || !bytes.Equal(got, want) {
+			var (
+				want = order.AppendUint16(
+					nil,
+					uint16(int16(value)),
+				)
+				field = &integer.Field{
+					Number: big.NewInt(int64(value)),
+					Width:  WIDTH,
+					Order:  name,
+				}
+				got, err = integer.EncodeSigned(
+					budget,
+					SCRIPT,
+					field,
+				)
+			)
+			if err != nil || !bytes.Equal(
+				got,
+				want,
+			) {
 				t.Fatalf(
 					"%d %s wrote %x, %v, want %x",
 					value,
@@ -222,9 +343,19 @@ func TestInteger_SignedMatchesGo(t *testing.T) {
 				)
 			}
 
-			back, err := integer.DecodeSigned(SCRIPT, got, name)
+			back, err := integer.DecodeSigned(
+				SCRIPT,
+				got,
+				name,
+			)
 			if err != nil || back.Int64() != int64(value) {
-				t.Fatalf("%d %s read back %v, %v", value, name, back, err)
+				t.Fatalf(
+					"%d %s read back %v, %v",
+					value,
+					name,
+					back,
+					err,
+				)
 			}
 		}
 	}

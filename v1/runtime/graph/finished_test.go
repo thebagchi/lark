@@ -45,35 +45,61 @@ func TestEvery_FinishesWithTheGraphTheSpecPrints(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := runtime.Compile(&runtime.Source{Entry: filepath.Base(EVERY), Text: src})
+	built, err := runtime.Compile(&runtime.Source{
+		Entry: filepath.Base(EVERY),
+		Text:  src,
+	})
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
-	run := runtime.Start(t.Context(), built, runtime.WithArgs(map[string]any{"port": PORT}))
+	run := runtime.Start(
+		t.Context(),
+		built,
+		runtime.WithArgs(map[string]any{"port": PORT}),
+	)
 
 	_, err = run.Wait()
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
-	got := run.Status()
-
-	want := new(workflowpb.Graph)
+	var (
+		got  = run.Status()
+		want = new(workflowpb.Graph)
+	)
 
 	text, err := os.ReadFile(FINISHED)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = protojson.Unmarshal(text, want)
+	err = protojson.Unmarshal(
+		text,
+		want,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !proto.Equal(got, want) {
-		shown := protojson.MarshalOptions{Multiline: true}
+	if !proto.Equal(
+		got,
+		want,
+	) {
+		shown := protojson.MarshalOptions{
+			Multiline: true,
+		}
 
-		t.Fatalf("finished with\n%s\nwant\n%s", shown.Format(got), shown.Format(want))
+		t.Fatalf(
+			"finished with\n%s\nwant\n%s",
+			shown.Format(got),
+			shown.Format(want),
+		)
 	}
 }

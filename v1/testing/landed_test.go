@@ -28,21 +28,41 @@ import (
 // Revisions:
 //   - 2026-09-24 23:50: initial creation
 func TestRead_ChargesTwiceAndCreditsTheCopy(t *testing.T) {
-	dir := t.TempDir()
-	named := filepath.Join(dir, "note.txt")
-	body := strings.Repeat("a", 4096)
-	if err := os.WriteFile(named, []byte(body), 0o644); err != nil {
+	var (
+		dir   = t.TempDir()
+		named = filepath.Join(
+			dir,
+			"note.txt",
+		)
+		body = strings.Repeat(
+			"a",
+			4096,
+		)
+	)
+	if err := os.WriteFile(
+		named,
+		[]byte(body),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
-	src := `
+	var src = `
 def main():
     file.read("` + named + `")
     return file.read("` + named + `")
 `
 
-	_, err := _RunCtx(t, t.Context(), src, runtime.WithMemory(int64(len(body)*2-1)))
-	if !errors.Is(err, scheduler.ERR_MEMORY) {
+	_, err := _RunCtx(
+		t.Context(),
+		t,
+		src,
+		runtime.WithMemory(int64(len(body)*2-1)),
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrMemory,
+	) {
 		t.Fatalf(
 			"a file of %d bytes under a ceiling of %d: %v",
 			len(body),
@@ -51,12 +71,27 @@ def main():
 		)
 	}
 
-	value, err := _RunCtx(t, t.Context(), src, runtime.WithMemory(int64(len(body)*2)))
+	value, err := _RunCtx(
+		t.Context(),
+		t,
+		src,
+		runtime.WithMemory(int64(len(body)*2)),
+	)
 	if err != nil {
-		t.Fatalf("two reads at twice the file, after a credit: %v", err)
+		t.Fatalf(
+			"two reads at twice the file, after a credit: %v",
+			err,
+		)
 	}
-	if !strings.Contains(value.String(), "a") {
-		t.Fatalf("got %s", value.String())
+
+	if !strings.Contains(
+		value.String(),
+		"a",
+	) {
+		t.Fatalf(
+			"got %s",
+			value.String(),
+		)
 	}
 }
 
@@ -65,15 +100,20 @@ def main():
 // writelines puts no newline after the last line, so appendlines has to put
 // the separator back or the first added line runs onto the end of the old one.
 // The second walk is refused rather than quietly starting again, and the
-// refusal answers ERR_FILE without saying the filesystem refused anything.
+// refusal answers ErrFile without saying the filesystem refused anything.
 //
 // Revisions:
 //   - 2026-09-24 23:50: initial creation
 func TestLines_WalksOnceAndAppendsALine(t *testing.T) {
-	dir := t.TempDir()
-	named := filepath.Join(dir, "log.txt")
-
-	value, err := _Run(t, `
+	var (
+		dir   = t.TempDir()
+		named = filepath.Join(
+			dir,
+			"log.txt",
+		)
+		value, err = _Run(
+			t,
+			`
 def main():
     path = "`+named+`"
     file.writelines(path, ["a", "b"])
@@ -82,26 +122,51 @@ def main():
     for line in file.lines(path):
         out.append(line)
     return out
-`)
+`,
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != `["a", "b", "c"]` {
-		t.Fatalf("got %s", value.String())
+		t.Fatalf(
+			"got %s",
+			value.String(),
+		)
 	}
 
-	_, err = _Run(t, `
+	_, err = _Run(
+		t,
+		`
 def main():
     held = file.lines("`+named+`")
     first = [line for line in held]
     second = [line for line in held]
     return first
-`)
-	if !errors.Is(err, file.ERR_WALKED) || !errors.Is(err, file.ERR_FILE) {
-		t.Fatalf("second walk: %v", err)
+`,
+	)
+	if !errors.Is(
+		err,
+		file.ErrWalked,
+	) || !errors.Is(
+		err,
+		file.ErrFile,
+	) {
+		t.Fatalf(
+			"second walk: %v",
+			err,
+		)
 	}
-	if strings.Contains(err.Error(), file.ERR_FILE.Error()) {
-		t.Fatalf("the sentinel is in the message: %v", err)
+
+	if strings.Contains(
+		err.Error(),
+		file.ErrFile.Error(),
+	) {
+		t.Fatalf(
+			"the sentinel is in the message: %v",
+			err,
+		)
 	}
 }
 
@@ -117,13 +182,24 @@ def main():
 //   - 2026-09-29 23:30: hands both threads the lines value through a lambda
 //     written inside spawn, since a nested walk capturing it is now refused
 func TestLines_OneWalkerWins(t *testing.T) {
-	dir := t.TempDir()
-	named := filepath.Join(dir, "log.txt")
-	if err := os.WriteFile(named, []byte("a\nb\n"), 0o644); err != nil {
+	var (
+		dir   = t.TempDir()
+		named = filepath.Join(
+			dir,
+			"log.txt",
+		)
+	)
+	if err := os.WriteFile(
+		named,
+		[]byte("a\nb\n"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := _Run(t, `
+	_, err := _Run(
+		t,
+		`
 def walk(lines):
     n = 0
     for line in lines:
@@ -135,9 +211,16 @@ def main():
     first = spawn(lambda: walk(lines))
     second = spawn(lambda: walk(lines))
     return join(first, second)
-`)
-	if !errors.Is(err, file.ERR_WALKED) {
-		t.Fatalf("two walks: %v", err)
+`,
+	)
+	if !errors.Is(
+		err,
+		file.ErrWalked,
+	) {
+		t.Fatalf(
+			"two walks: %v",
+			err,
+		)
 	}
 }
 
@@ -151,38 +234,77 @@ def main():
 // Revisions:
 //   - 2026-09-24 23:50: initial creation
 func TestLines_AShortLineFitsWhenTheFileDoesNot(t *testing.T) {
-	dir := t.TempDir()
-	named := filepath.Join(dir, "wide.txt")
-	line := strings.Repeat("x", 200)
+	var (
+		dir   = t.TempDir()
+		named = filepath.Join(
+			dir,
+			"wide.txt",
+		)
+		line = strings.Repeat(
+			"x",
+
+			200,
+		)
+	)
+
 	var body strings.Builder
+
 	for range 40 {
 		body.WriteString(line)
 		body.WriteByte('\n')
 	}
-	if err := os.WriteFile(named, []byte(body.String()), 0o644); err != nil {
+
+	if err := os.WriteFile(
+		named,
+		[]byte(body.String()),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := _RunCtx(t, t.Context(), `
+	_, err := _RunCtx(
+		t.Context(),
+		t,
+		`
 def main():
     return file.read("`+named+`")
-`, runtime.WithMemory(1000))
-	if !errors.Is(err, scheduler.ERR_MEMORY) {
-		t.Fatalf("read of a file past the ceiling: %v", err)
+`,
+		runtime.WithMemory(1000),
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrMemory,
+	) {
+		t.Fatalf(
+			"read of a file past the ceiling: %v",
+			err,
+		)
 	}
 
-	value, err := _RunCtx(t, t.Context(), `
+	value, err := _RunCtx(
+		t.Context(),
+		t,
+		`
 def main():
     n = 0
     for line in file.lines("`+named+`"):
         n = n + 1
     return n
-`, runtime.WithMemory(1000))
+`,
+		runtime.WithMemory(1000),
+	)
 	if err != nil {
-		t.Fatalf("lines under the same ceiling: %v", err)
+		t.Fatalf(
+			"lines under the same ceiling: %v",
+			err,
+		)
 	}
+
 	if value.String() != "40" {
-		t.Fatalf("got %s", value.String())
+		t.Fatalf(
+			"got %s",
+			value.String(),
+		)
 	}
 }
 
@@ -197,29 +319,46 @@ def main():
 // Revisions:
 //   - 2026-09-24 23:50: initial creation
 func TestStat_ModeIsANumberAndModifiedIsATime(t *testing.T) {
-	dir := t.TempDir()
-	named := filepath.Join(dir, "note.txt")
-	if err := os.WriteFile(named, []byte("hi"), 0o640); err != nil {
+	var (
+		dir   = t.TempDir()
+		named = filepath.Join(
+			dir,
+			"note.txt",
+		)
+	)
+	if err := os.WriteFile(
+		named,
+		[]byte("hi"),
+		0o640,
+	); err != nil {
 		t.Fatal(err)
 	}
 
-	value, err := _Run(t, `
+	value, err := _Run(
+		t,
+		`
 def main():
     info = file.stat("`+named+`")
+
     return [type(info.mode), type(info.modified), info.size, info.dir, info.mode & 0o700]
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if value.String() != `["int", "time.time", 2, False, 384]` {
-		t.Fatalf("got %s", value.String())
+		t.Fatalf(
+			"got %s",
+			value.String(),
+		)
 	}
 }
 
 // TestErrFile_DoesNotSayTheFilesystemRefused checks the sentinel answers
 // without speaking.
 //
-// ERR_FILE is carried through Unwrap rather than wrapped, so errors.Is still
+// ErrFile is carried through Unwrap rather than wrapped, so errors.Is still
 // finds it while its words stay out of the message. The cause underneath has
 // to survive that: a missing file is still os.ErrNotExist, and a directory
 // nobody may search is still os.ErrPermission.
@@ -227,48 +366,126 @@ def main():
 // Revisions:
 //   - 2026-09-24 23:50: initial creation
 func TestErrFile_DoesNotSayTheFilesystemRefused(t *testing.T) {
-	dir := t.TempDir()
-	_, err := _Run(t, `
+	var (
+		dir    = t.TempDir()
+		_, err = _Run(
+			t,
+			`
 def main():
-    return file.read("`+filepath.Join(dir, "missing.txt")+`")
-`)
-	if !errors.Is(err, file.ERR_FILE) || !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("missing: %v", err)
-	}
-	if strings.Contains(err.Error(), file.ERR_FILE.Error()) {
-		t.Fatalf("sentinel text: %v", err)
+    return file.read("`+filepath.Join(
+				dir,
+				"missing.txt",
+			)+`")
+`,
+		)
+	)
+	if !errors.Is(
+		err,
+		file.ErrFile,
+	) || !errors.Is(
+		err,
+
+		os.ErrNotExist,
+	) {
+		t.Fatalf(
+			"missing: %v",
+			err,
+		)
 	}
 
-	_, err = _Run(t, `
+	if strings.Contains(
+		err.Error(),
+		file.ErrFile.Error(),
+	) {
+		t.Fatalf(
+			"sentinel text: %v",
+			err,
+		)
+	}
+
+	_, err = _Run(
+		t,
+		`
 def main():
     return file.read("`+dir+`")
-`)
-	if !errors.Is(err, file.ERR_FILE) || !errors.Is(err, file.ERR_NOT_A_FILE) {
-		t.Fatalf("directory: %v", err)
+`,
+	)
+	if !errors.Is(
+		err,
+		file.ErrFile,
+	) || !errors.Is(
+		err,
+		file.ErrNotAFile,
+	) {
+		t.Fatalf(
+
+			"directory: %v",
+			err,
+		)
 	}
 
 	if os.Geteuid() == 0 {
 		t.Skip("root can search a mode 000 directory")
 	}
-	secret := filepath.Join(dir, "secret")
-	if err := os.Mkdir(secret, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	note := filepath.Join(secret, "note")
-	if err := os.WriteFile(note, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(secret, 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(secret, 0o755) })
 
-	_, err = _Run(t, `
+	secret := filepath.Join(
+
+		dir,
+		"secret",
+	)
+	if err := os.Mkdir(
+		secret,
+		0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	note := filepath.Join(
+
+		secret,
+		"note",
+	)
+	if err := os.WriteFile(
+		note,
+		[]byte("x"),
+
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(
+		secret,
+		0,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		_ = os.Chmod(
+			secret,
+			0o755,
+		)
+	})
+
+	_, err = _Run(
+		t,
+		`
 def main():
     return file.exists("`+note+`")
-`)
-	if !errors.Is(err, os.ErrPermission) || !errors.Is(err, file.ERR_FILE) {
-		t.Fatalf("permission: %v", err)
+`,
+	)
+	if !errors.Is(
+		err,
+		os.ErrPermission,
+	) || !errors.Is(
+		err,
+		file.ErrFile,
+	) {
+		t.Fatalf(
+			"permission: %v",
+			err,
+		)
 	}
 }
 
@@ -283,33 +500,100 @@ def main():
 // Revisions:
 //   - 2026-09-24 23:50: initial creation
 func TestLark_MemoryFlag(t *testing.T) {
-	root := _ModuleRoot(t)
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "lark")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/lark")
+	var (
+		root = _ModuleRoot(t)
+		dir  = t.TempDir()
+
+		bin = filepath.Join(
+			dir,
+			"lark",
+		)
+		build = exec.Command(
+			"go",
+			"build",
+			"-o",
+			bin,
+			"./cmd/lark",
+		)
+	)
+
 	build.Dir = root
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
+		t.Fatalf(
+			"build: %v\n%s",
+			err,
+			out,
+		)
 	}
 
-	script := filepath.Join(dir, "hi.star")
-	src := []byte("def main():\n    print(\"hi\")\n")
+	var (
+		script = filepath.Join(
+			dir,
+			"hi.star",
+		)
+		src = []byte("def main():\n    print(\"hi\")\n")
+	)
 
-	if err := os.WriteFile(script, src, 0o644); err != nil {
+	if err := os.WriteFile(
+		script,
+		src,
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
-	if code, _ := _LarkCode(t, bin, "-s", script); code != 0 {
-		t.Fatalf("no -m: exit %d", code)
+	if code, _ := _LarkCode(
+		t,
+		bin,
+		"-s",
+		script,
+	); code != 0 {
+		t.Fatalf(
+			"no -m: exit %d",
+			code,
+		)
 	}
-	if code, _ := _LarkCode(t, bin, "-s", script, "-m", "0"); code != 0 {
-		t.Fatalf("-m 0: exit %d, want the default ceiling and a run", code)
+
+	if code, _ := _LarkCode(
+		t,
+		bin,
+		"-s",
+		script,
+		"-m",
+		"0",
+	); code != 0 {
+		t.Fatalf(
+			"-m 0: exit %d, want the default ceiling and a run",
+			code,
+		)
 	}
-	if code, _ := _LarkCode(t, bin, "-s", script, "-m", "-5"); code != 2 {
-		t.Fatalf("-m -5: exit %d, want 2", code)
+
+	if code, _ := _LarkCode(
+		t,
+		bin,
+		"-s",
+		script,
+		"-m",
+		"-5",
+	); code != 2 {
+		t.Fatalf(
+			"-m -5: exit %d, want 2",
+			code,
+		)
 	}
-	if code, _ := _LarkCode(t, bin, "-s", script, "-m", "nope"); code != 2 {
-		t.Fatalf("-m nope: exit %d, want 2", code)
+
+	if code, _ := _LarkCode(
+		t,
+		bin,
+		"-s",
+		script,
+		"-m",
+		"nope",
+	); code != 2 {
+		t.Fatalf(
+			"-m nope: exit %d, want 2",
+			code,
+		)
 	}
 }
 
@@ -319,22 +603,50 @@ func TestLark_MemoryFlag(t *testing.T) {
 // Revisions:
 //   - 2026-10-03 00:28: initial creation
 func TestLark_RunsABundleItWrote(t *testing.T) {
-	root := _ModuleRoot(t)
-	dir := t.TempDir()
-
-	script := filepath.Join(dir, "said.star")
-	bundle := filepath.Join(dir, "said.bundle")
-
-	err := os.WriteFile(script, []byte("def main():\n    print(\"from the bundle\")\n"), 0o600)
+	var (
+		root   = _ModuleRoot(t)
+		dir    = t.TempDir()
+		script = filepath.Join(
+			dir,
+			"said.star",
+		)
+		bundle = filepath.Join(
+			dir,
+			"said.bundle",
+		)
+		err = os.WriteFile(
+			script,
+			[]byte("def main():\n    print(\"from the bundle\")\n"),
+			0o600,
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_Lark(t, root, "-s", script, "-b", bundle)
+	_Lark(
+		t,
+		root,
+		"-s",
+		script,
+		"-b",
+		bundle,
+	)
 
-	out := _Lark(t, root, "-r", bundle)
-	if !strings.Contains(string(out), "from the bundle") {
-		t.Fatalf("running the bundle printed\n%s", out)
+	out := _Lark(
+		t,
+		root,
+		"-r",
+		bundle,
+	)
+	if !strings.Contains(
+		string(out),
+		"from the bundle",
+	) {
+		t.Fatalf(
+			"running the bundle printed\n%s",
+			out,
+		)
 	}
 }
 
@@ -342,20 +654,37 @@ func TestLark_RunsABundleItWrote(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-24 23:50: initial creation
-func _LarkCode(t *testing.T, bin string, args ...string) (int, []byte) {
+func _LarkCode(
+	t *testing.T,
+	bin string,
+	args ...string,
+) (int, []byte) {
 	t.Helper()
 
-	cmd := exec.Command(bin, args...)
-	out, err := cmd.CombinedOutput()
+	var (
+		cmd = exec.Command(
+			bin,
+			args...,
+		)
+		out, err = cmd.CombinedOutput()
+	)
 	if err == nil {
 		return 0, out
 	}
 
 	var exit *exec.ExitError
-	if errors.As(err, &exit) {
+	if errors.As(
+		err,
+		&exit,
+	) {
 		return exit.ExitCode(), out
 	}
 
-	t.Fatalf("lark: %v\n%s", err, out)
+	t.Fatalf(
+		"lark: %v\n%s",
+		err,
+		out,
+	)
+
 	return 0, out
 }

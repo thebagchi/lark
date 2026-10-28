@@ -11,7 +11,9 @@ import (
 )
 
 // STAMPED ends the time a log line was written, its first field.
-const STAMPED = " "
+const (
+	STAMPED = " "
+)
 
 // TestRoundTrip_NewModulesPrintTheSame checks a script and the flow it
 // describes print the same lines, apart from when each was printed.
@@ -21,10 +23,14 @@ const STAMPED = " "
 //   - 2026-10-02 13:12: compares the transcripts without when each line was
 //     printed, which no two runs share
 func TestRoundTrip_NewModulesPrintTheSame(t *testing.T) {
-	root := _ModuleRoot(t)
-	dir := t.TempDir()
-	script := filepath.Join(dir, "round.star")
-	body := []byte(`
+	var (
+		root   = _ModuleRoot(t)
+		dir    = t.TempDir()
+		script = filepath.Join(
+			dir,
+			"round.star",
+		)
+		body = []byte(`
 def main():
     random.seed(7)
     nums = []
@@ -39,19 +45,54 @@ def main():
     print(path.base(path.join("a", "b.txt")))
     print(nums)
 `)
-	if err := os.WriteFile(script, body, 0o644); err != nil {
+	)
+	if err := os.WriteFile(
+		script,
+		body,
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
-	graph := filepath.Join(dir, "round.json")
 
-	fromScript := _Lark(t, root, "-s", script)
-	written := _Lark(t, root, "-s", script, "-t")
-	if err := os.WriteFile(graph, written, 0o644); err != nil {
+	var (
+		graph = filepath.Join(
+			dir,
+			"round.json",
+		)
+		fromScript = _Lark(
+			t,
+			root,
+			"-s",
+			script,
+		)
+		written = _Lark(
+			t,
+			root,
+			"-s",
+			script,
+			"-t",
+		)
+	)
+	if err := os.WriteFile(
+		graph,
+		written,
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
-	fromGraph := _Lark(t, root, "-g", graph)
+
+	fromGraph := _Lark(
+		t,
+		root,
+		"-g",
+		graph,
+	)
 	if _Unstamped(fromScript) != _Unstamped(fromGraph) {
-		t.Fatalf("script:\n%s\ngraph:\n%s", fromScript, fromGraph)
+		t.Fatalf(
+			"script:\n%s\ngraph:\n%s",
+			fromScript,
+			fromGraph,
+		)
 	}
 }
 
@@ -64,42 +105,90 @@ func _Unstamped(transcript []byte) string {
 	var kept []string
 
 	for line := range strings.Lines(string(transcript)) {
-		_, rest, found := strings.Cut(line, STAMPED)
+		_, rest, found := strings.Cut(
+			line,
+			STAMPED,
+		)
 		if !found {
 			rest = line
 		}
 
-		kept = append(kept, rest)
+		kept = append(
+			kept,
+			rest,
+		)
 	}
 
-	return strings.Join(kept, "")
+	return strings.Join(
+		kept,
+		"",
+	)
 }
 
+// _ModuleRoot finds the module root by walking up from the working directory.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
 func _ModuleRoot(t *testing.T) string {
 	t.Helper()
+
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		if _, err := os.Stat(filepath.Join(
+			dir,
+
+			"go.mod",
+		)); err == nil {
 			return dir
 		}
+
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			t.Fatal("go.mod not found")
 		}
+
 		dir = parent
 	}
 }
 
-func _Lark(t *testing.T, root string, args ...string) []byte {
+// _Lark runs the lark command under root with args and returns its output.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
+func _Lark(
+	t *testing.T,
+	root string,
+	args ...string,
+) []byte {
 	t.Helper()
-	cmd := exec.Command("go", append([]string{"run", "./cmd/lark"}, args...)...)
+
+	cmd := exec.Command(
+
+		"go",
+		append(
+			[]string{"run", "./cmd/lark"},
+			args...,
+		)...,
+	)
 	cmd.Dir = root
+
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("lark %s: %v\n%s", strings.Join(args, " "), err, out)
+		t.Fatalf(
+			"lark %s: %v\n%s",
+
+			strings.Join(
+				args,
+				" ",
+			),
+			err,
+			out,
+		)
 	}
+
 	return out
 }

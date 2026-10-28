@@ -28,7 +28,10 @@ type _Visible struct {
 //
 // Revisions:
 //   - 2026-10-02 00:13: initial creation
-func _Opening(globals map[string]bool, params []string) *_Visible {
+func _Opening(
+	globals map[string]bool,
+	params []string,
+) *_Visible {
 	seen := &_Visible{
 		globals: globals,
 		params:  make(map[string]bool),
@@ -113,7 +116,10 @@ func (v *_Visible) _List(list []*workflowpb.Statement) error {
 //   - 2026-10-02 00:13: initial creation
 func (v *_Visible) _Statement(stmt *workflowpb.Statement) error {
 	if stmt == nil || stmt.GetAction() == nil {
-		return fmt.Errorf("statement: %w", ERR_FORM)
+		return fmt.Errorf(
+			"statement: %w",
+			ErrForm,
+		)
 	}
 
 	switch action := stmt.GetAction().(type) {
@@ -181,7 +187,11 @@ func (v *_Visible) _Spawn(spawn *workflowpb.Spawn) error {
 	}
 
 	if v.spawns[binding] {
-		return fmt.Errorf("two spawns bound to %s: %w", binding, ERR_NOT_FORKED)
+		return fmt.Errorf(
+			"two spawns bound to %s: %w",
+			binding,
+			ErrNotForked,
+		)
 	}
 
 	v.spawns[binding] = true
@@ -197,7 +207,11 @@ func (v *_Visible) _Spawn(spawn *workflowpb.Spawn) error {
 func (v *_Visible) _Names(bindings []string) error {
 	for _, binding := range bindings {
 		if !v._Spawned(binding) {
-			return fmt.Errorf("%s: %w", binding, ERR_NOT_FORKED)
+			return fmt.Errorf(
+				"%s: %w",
+				binding,
+				ErrNotForked,
+			)
 		}
 	}
 
@@ -209,7 +223,7 @@ func (v *_Visible) _Names(bindings []string) error {
 // Revisions:
 //   - 2026-10-02 00:13: initial creation
 func (v *_Visible) _If(branch *workflowpb.If) error {
-	condition := branch.GetCondition()
+	var condition = branch.GetCondition()
 
 	err := v._Name(condition.GetName())
 	if err != nil {
@@ -222,7 +236,10 @@ func (v *_Visible) _If(branch *workflowpb.If) error {
 	}
 
 	if branch.GetThen() == nil {
-		return fmt.Errorf("if: %w", ERR_NO_BODY)
+		return fmt.Errorf(
+			"if: %w",
+			ErrNoBody,
+		)
 	}
 
 	err = v._Inner()._Statement(branch.GetThen())
@@ -243,7 +260,7 @@ func (v *_Visible) _If(branch *workflowpb.If) error {
 // Revisions:
 //   - 2026-10-02 00:13: initial creation
 func (v *_Visible) _Match(match *workflowpb.Match) error {
-	expression := match.GetExpression()
+	var expression = match.GetExpression()
 
 	err := v._Name(expression.GetName())
 	if err != nil {
@@ -280,7 +297,10 @@ func (v *_Visible) _Loop(loop *workflowpb.Loop) error {
 	}
 
 	if loop.GetBody() == nil {
-		return fmt.Errorf("loop: %w", ERR_NO_BODY)
+		return fmt.Errorf(
+			"loop: %w",
+			ErrNoBody,
+		)
 	}
 
 	return v._Inner()._Statement(loop.GetBody())
@@ -295,7 +315,11 @@ func (v *_Visible) _Operands(calls []*workflowpb.Call) error {
 		for _, op := range call.GetOperands() {
 			err := v._Name(op.GetName())
 			if err != nil {
-				return fmt.Errorf("%s passes %w", call.GetFunction(), err)
+				return fmt.Errorf(
+					"%s passes %w",
+					call.GetFunction(),
+					err,
+				)
 			}
 		}
 	}
@@ -312,7 +336,11 @@ func (v *_Visible) _Name(name string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s: %w", name, ERR_UNRESOLVED)
+	return fmt.Errorf(
+		"%s: %w",
+		name,
+		ErrUnresolved,
+	)
 }
 
 // _Bind records a result this list binds, when there is one.

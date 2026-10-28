@@ -21,13 +21,14 @@ import (
 )
 
 var (
-	// ERR_COUNT is returned for a count or an attempt limit below one.
-	ERR_COUNT = errors.New("must be at least 1")
+	// ErrCount is returned for a count or an attempt limit below one.
+	ErrCount = errors.New("must be at least 1")
 
-	// ERR_ATTEMPT is returned when n() is called outside a wrapper.
-	ERR_ATTEMPT = errors.New("n() is only meaningful inside repeat or retry")
+	// ErrAttempt is returned when n() is called outside a wrapper.
+	ErrAttempt = errors.New("n() is only meaningful inside repeat or retry")
 )
 
+// NAME is the module, and the names it holds.
 const (
 	NAME    = "flow"
 	REPEAT  = spelling.REPEAT
@@ -73,17 +74,29 @@ func (f *_Flow) Name() string {
 //   - 2026-09-20 01:06: initial creation
 func (f *_Flow) Values() starlark.StringDict {
 	return starlark.StringDict{
-		REPEAT:  starlark.NewBuiltin(REPEAT, _Repeat),
-		RETRY:   starlark.NewBuiltin(RETRY, _Retry),
-		TIMEOUT: starlark.NewBuiltin(TIMEOUT, _Timeout),
-		ATTEMPT: starlark.NewBuiltin(ATTEMPT, _Attempt),
+		REPEAT: starlark.NewBuiltin(
+			REPEAT,
+			_Repeat,
+		),
+		RETRY: starlark.NewBuiltin(
+			RETRY,
+			_Retry,
+		),
+		TIMEOUT: starlark.NewBuiltin(
+			TIMEOUT,
+			_Timeout,
+		),
+		ATTEMPT: starlark.NewBuiltin(
+			ATTEMPT,
+			_Attempt,
+		),
 	}
 }
 
 // _Attempt returns the 1-based attempt number of the repeat or retry this
 // evaluation, or the evaluation that started it, is inside.
 //
-// Returns ERR_ATTEMPT outside one, rather than a number that would be a guess.
+// Returns ErrAttempt outside one, rather than a number that would be a guess.
 //
 // Revisions:
 //   - 2026-09-20 01:11: initial creation
@@ -95,14 +108,27 @@ func _Attempt(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 0)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		0,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	attempt := scheduler.AttemptOf(thread)
 	if attempt == scheduler.NO_ATTEMPT {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), ERR_ATTEMPT)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			ErrAttempt,
+		)
 	}
 
 	return starlark.MakeInt(int(attempt)), nil
@@ -126,7 +152,11 @@ func _Repeat(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	attempts, err := _Counted(fn.Name(), args, kwargs)
+	attempts, err := _Counted(
+		fn.Name(),
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -134,17 +164,33 @@ func _Repeat(
 	var last starlark.Value = starlark.None
 
 	for attempt := int32(ONCE); attempt <= attempts.count; attempt++ {
-		last, err = attempts._Attempted(thread, attempt)
+		last, err = attempts._Attempted(
+			thread,
+			attempt,
+		)
 		if err != nil {
-			failed := fmt.Errorf("%s attempt %d: %w", attempts.written, attempt, err)
+			failed := fmt.Errorf(
+				"%s attempt %d: %w",
+				attempts.written,
+				attempt,
+				err,
+			)
 
-			scheduler.Close(thread, attempts.name, failed)
+			scheduler.Close(
+				thread,
+				attempts.name,
+				failed,
+			)
 
 			return nil, failed
 		}
 	}
 
-	scheduler.Close(thread, attempts.name, nil)
+	scheduler.Close(
+		thread,
+		attempts.name,
+		nil,
+	)
 
 	return last, nil
 }

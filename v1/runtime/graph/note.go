@@ -15,8 +15,16 @@ import (
 //
 // Revisions:
 //   - 2026-10-02 00:11: initial creation
-func _Place(prog *_Program, file *syntax.File, def *syntax.DefStmt) {
-	_PlaceSuite(prog, def.Body, nil)
+func _Place(
+	prog *_Program,
+	file *syntax.File,
+	def *syntax.DefStmt,
+) {
+	_PlaceSuite(
+		prog,
+		def.Body,
+		nil,
+	)
 
 	notes := file.Comments()
 	if notes == nil {
@@ -24,7 +32,11 @@ func _Place(prog *_Program, file *syntax.File, def *syntax.DefStmt) {
 	}
 
 	for _, note := range notes.After {
-		_Tail(prog, def.Body, note)
+		_Tail(
+			prog,
+			def.Body,
+			note,
+		)
 	}
 }
 
@@ -37,22 +49,42 @@ func _Place(prog *_Program, file *syntax.File, def *syntax.DefStmt) {
 //
 // Revisions:
 //   - 2026-10-02 00:11: initial creation
-func _PlaceSuite(prog *_Program, suite []syntax.Stmt, owner *syntax.IfStmt) {
+func _PlaceSuite(
+	prog *_Program,
+	suite []syntax.Stmt,
+	owner *syntax.IfStmt,
+) {
 	for idx, stmt := range suite {
 		for _, note := range _Before(stmt) {
 			clause := idx == 0 && owner != nil && note.Start.Line < owner.ElsePos.Line
 			if clause {
-				_PlaceClause(prog, owner, note, func() {
-					prog.elses[owner] = append(prog.elses[owner], note)
-				})
+				_PlaceClause(
+					prog,
+					owner,
+					note,
+					func() {
+						prog.elses[owner] = append(
+							prog.elses[owner],
+							note,
+						)
+					},
+				)
 
 				continue
 			}
 
-			_PlaceAbove(prog, suite, idx, note)
+			_PlaceAbove(
+				prog,
+				suite,
+				idx,
+				note,
+			)
 		}
 
-		_PlaceInner(prog, stmt)
+		_PlaceInner(
+			prog,
+			stmt,
+		)
 	}
 }
 
@@ -61,17 +93,27 @@ func _PlaceSuite(prog *_Program, suite []syntax.Stmt, owner *syntax.IfStmt) {
 // Revisions:
 //   - 2026-10-02 00:11: initial creation
 //   - 2026-10-03 20:49: reaches a def's, a for's or a while's suite through _SuiteOf
-func _PlaceInner(prog *_Program, stmt syntax.Stmt) {
+func _PlaceInner(
+	prog *_Program,
+	stmt syntax.Stmt,
+) {
 	branch, ok := stmt.(*syntax.IfStmt)
 	if ok {
-		_PlaceIf(prog, branch)
+		_PlaceIf(
+			prog,
+			branch,
+		)
 
 		return
 	}
 
 	suite := _SuiteOf(stmt)
 	if suite != nil {
-		_PlaceSuite(prog, *suite, nil)
+		_PlaceSuite(
+			prog,
+			*suite,
+			nil,
+		)
 	}
 }
 
@@ -79,17 +121,38 @@ func _PlaceInner(prog *_Program, stmt syntax.Stmt) {
 //
 // Revisions:
 //   - 2026-10-02 00:11: initial creation
-func _PlaceIf(prog *_Program, node *syntax.IfStmt) {
-	_PlaceSuite(prog, node.True, nil)
+func _PlaceIf(
+	prog *_Program,
+	node *syntax.IfStmt,
+) {
+	_PlaceSuite(
+		prog,
+		node.True,
+		nil,
+	)
 
-	if inner := _ElifOf(node, prog); inner != nil {
+	if inner := _ElifOf(
+		node,
+		prog,
+	); inner != nil {
 		for _, note := range _Before(inner) {
-			_PlaceClause(prog, node, note, func() {
-				prog.notes[inner] = append(prog.notes[inner], note)
-			})
+			_PlaceClause(
+				prog,
+				node,
+				note,
+				func() {
+					prog.notes[inner] = append(
+						prog.notes[inner],
+						note,
+					)
+				},
+			)
 		}
 
-		_PlaceIf(prog, inner)
+		_PlaceIf(
+			prog,
+			inner,
+		)
 
 		return
 	}
@@ -98,7 +161,11 @@ func _PlaceIf(prog *_Program, node *syntax.IfStmt) {
 		return
 	}
 
-	_PlaceSuite(prog, node.False, node)
+	_PlaceSuite(
+		prog,
+		node.False,
+		node,
+	)
 }
 
 // _PlaceClause places a comment written between an if's block and its elif
@@ -107,9 +174,18 @@ func _PlaceIf(prog *_Program, node *syntax.IfStmt) {
 //
 // Revisions:
 //   - 2026-10-02 00:11: initial creation
-func _PlaceClause(prog *_Program, node *syntax.IfStmt, note syntax.Comment, above func()) {
+func _PlaceClause(
+	prog *_Program,
+	node *syntax.IfStmt,
+	note syntax.Comment,
+	above func(),
+) {
 	if _Column(node.True[0]) <= note.Start.Col {
-		_Tail(prog, node.True, note)
+		_Tail(
+			prog,
+			node.True,
+			note,
+		)
 
 		return
 	}
@@ -126,20 +202,35 @@ func _PlaceClause(prog *_Program, node *syntax.IfStmt, note syntax.Comment, abov
 //
 // Revisions:
 //   - 2026-10-02 00:11: initial creation
-func _PlaceAbove(prog *_Program, suite []syntax.Stmt, idx int, note syntax.Comment) {
-	stmt := suite[idx]
+func _PlaceAbove(
+	prog *_Program,
+	suite []syntax.Stmt,
+	idx int,
+	note syntax.Comment,
+) {
+	var stmt = suite[idx]
 
 	deeper := idx > 0 && note.Start.Col > _Column(stmt)
 	if deeper {
-		inner := _Block(suite[idx-1], prog)
+		inner := _Block(
+			suite[idx-1],
+			prog,
+		)
 		if inner != nil && _Column(inner[0]) <= note.Start.Col {
-			_Tail(prog, inner, note)
+			_Tail(
+				prog,
+				inner,
+				note,
+			)
 
 			return
 		}
 	}
 
-	prog.notes[stmt] = append(prog.notes[stmt], note)
+	prog.notes[stmt] = append(
+		prog.notes[stmt],
+		note,
+	)
 }
 
 // _Tail puts a comment at the end of the deepest block, from suite inward along
@@ -147,9 +238,16 @@ func _PlaceAbove(prog *_Program, suite []syntax.Stmt, idx int, note syntax.Comme
 //
 // Revisions:
 //   - 2026-10-02 00:11: initial creation
-func _Tail(prog *_Program, suite []syntax.Stmt, note syntax.Comment) {
+func _Tail(
+	prog *_Program,
+	suite []syntax.Stmt,
+	note syntax.Comment,
+) {
 	for {
-		inner := _Block(suite[len(suite)-1], prog)
+		inner := _Block(
+			suite[len(suite)-1],
+			prog,
+		)
 		if inner == nil || _Column(inner[0]) > note.Start.Col {
 			break
 		}
@@ -157,7 +255,10 @@ func _Tail(prog *_Program, suite []syntax.Stmt, note syntax.Comment) {
 		suite = inner
 	}
 
-	prog.tails[suite[0]] = append(prog.tails[suite[0]], note)
+	prog.tails[suite[0]] = append(
+		prog.tails[suite[0]],
+		note,
+	)
 }
 
 // _Block is the block a statement ends with, or nil for a statement without
@@ -166,11 +267,20 @@ func _Tail(prog *_Program, suite []syntax.Stmt, note syntax.Comment) {
 //
 // Revisions:
 //   - 2026-10-02 00:11: initial creation
-func _Block(stmt syntax.Stmt, prog *_Program) []syntax.Stmt {
+func _Block(
+	stmt syntax.Stmt,
+	prog *_Program,
+) []syntax.Stmt {
 	switch node := stmt.(type) {
 	case *syntax.IfStmt:
-		if inner := _ElifOf(node, prog); inner != nil {
-			return _Block(inner, prog)
+		if inner := _ElifOf(
+			node,
+			prog,
+		); inner != nil {
+			return _Block(
+				inner,
+				prog,
+			)
 		}
 
 		if len(node.False) > 0 {

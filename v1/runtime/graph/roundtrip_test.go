@@ -50,26 +50,53 @@ type _Said struct {
 //     swapping the process's standard error
 //   - 2026-10-02 13:12: reads the transcript, keeping what each line said
 //   - 2026-10-02 16:21: reads the records the run's logger writes
-func _Run(t *testing.T, path string, src []byte) *_Said {
+func _Run(
+	t *testing.T,
+	path string,
+	src []byte,
+) *_Said {
 	t.Helper()
 
 	var out bytes.Buffer
 
-	logger := slog.New(slog.NewJSONHandler(&out, nil))
+	var (
+		logger = slog.New(slog.NewJSONHandler(
+			&out,
+			nil,
+		))
+		art *runtime.Artifact
+		err error
+	)
 
-	art, err := runtime.Compile(&runtime.Source{Entry: path, Text: src})
+	art, err = runtime.Compile(&runtime.Source{
+		Entry: path,
+		Text:  src,
+	})
 
 	var failure string
 
 	if err == nil {
-		_, err = runtime.Start(t.Context(), art, runtime.WithLogger(logger)).Wait()
+		_, err = runtime.Start(
+			t.Context(),
+			art,
+			runtime.WithLogger(logger),
+		).Wait()
 	}
 
 	if err != nil {
 		failure = _Unplaced(err.Error())
 	}
 
-	return &_Said{printed: strings.Join(_Printed(t, out.String()), "\n"), failure: failure}
+	return &_Said{
+		printed: strings.Join(
+			_Printed(
+				t,
+				out.String(),
+			),
+			"\n",
+		),
+		failure: failure,
+	}
 }
 
 // _Printed is what each record a JSON handler wrote said, without when, the
@@ -83,20 +110,36 @@ func _Run(t *testing.T, path string, src []byte) *_Said {
 //   - 2026-10-02 13:12: initial creation
 //   - 2026-10-02 16:21: reads JSON records, a logger's rather than a
 //     transcript's lines
-func _Printed(t *testing.T, logged string) []string {
+func _Printed(
+	t *testing.T,
+	logged string,
+) []string {
 	t.Helper()
 
 	var said []string
 
 	for line := range strings.Lines(logged) {
-		record := map[string]any{}
+		var (
+			record = map[string]any{}
+			err    error
+		)
 
-		err := json.Unmarshal([]byte(line), &record)
+		err = json.Unmarshal(
+			[]byte(line),
+			&record,
+		)
 		if err != nil {
-			t.Fatalf("record %q: %v", line, err)
+			t.Fatalf(
+				"record %q: %v",
+				line,
+				err,
+			)
 		}
 
-		said = append(said, fmt.Sprint(record[slog.MessageKey]))
+		said = append(
+			said,
+			fmt.Sprint(record[slog.MessageKey]),
+		)
 	}
 
 	return said
@@ -112,14 +155,20 @@ func _Printed(t *testing.T, logged string) []string {
 //   - 2026-09-21 01:32: initial creation
 func _Unplaced(failure string) string {
 	for _, held := range []string{".star:"} {
-		at := strings.Index(failure, held)
+		at := strings.Index(
+			failure,
+			held,
+		)
 		if at < 0 {
 			continue
 		}
 
-		rest := failure[at+len(held):]
+		var rest = failure[at+len(held):]
 
-		colon := strings.Index(rest, ": ")
+		colon := strings.Index(
+			rest,
+			": ",
+		)
 		if colon >= 0 {
 			return failure[:at] + rest[colon+2:]
 		}
@@ -141,58 +190,100 @@ func TestRoundTrip_EverySampleDerivesRegeneratesAndBehaves(t *testing.T) {
 	refused := make(map[string]bool)
 
 	for _, name := range _Entries(t) {
-		t.Run(name, func(t *testing.T) {
-			src, err := os.ReadFile(SAMPLES + name)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			flow, err := graph.Of(&script.Source{Entry: SAMPLES + name, Text: src})
-			if err != nil {
-				// A refusal is an answer, not a skip: it is asserted against
-				// the known set below, and here for its sentinel.
-				if !errors.Is(err, graph.ERR_CONSTANT) {
-					t.Fatalf("refused for an unexpected reason: %v", err)
+		t.Run(
+			name,
+			func(t *testing.T) {
+				src, err := os.ReadFile(SAMPLES + name)
+				if err != nil {
+					t.Fatal(err)
 				}
 
-				refused[name] = true
+				flow, err := graph.Of(&script.Source{
+					Entry: SAMPLES + name,
+					Text:  src,
+				})
+				if err != nil {
+					// A refusal is an answer, not a skip: it is asserted
+					// against
+					// the known set below, and here for its sentinel.
+					if !errors.Is(
+						err,
+						graph.ErrConstant,
+					) {
+						t.Fatalf(
+							"refused for an unexpected reason: %v",
+							err,
+						)
+					}
 
-				return
-			}
+					refused[name] = true
 
-			if err := graph.Check(flow); err != nil {
-				t.Fatalf("check: %v", err)
-			}
+					return
+				}
 
-			out, err := graph.Emit(flow)
-			if err != nil {
-				t.Fatalf("emit: %v", err)
-			}
+				if err := graph.Check(flow); err != nil {
+					t.Fatalf(
+						"check: %v",
+						err,
+					)
+				}
 
-			was := _Run(t, SAMPLES+name, src)
-			now := _Run(t, SAMPLES+name, out)
+				out, err := graph.Emit(flow)
+				if err != nil {
+					t.Fatalf(
+						"emit: %v",
+						err,
+					)
+				}
 
-			// Both sides must actually have run. A comparison of two silences
-			// is what made this measurement wrong twice in the POC.
-			if was.printed == "" && was.failure == "" {
-				t.Fatal("the original produced nothing, so nothing was compared")
-			}
+				var (
+					was = _Run(
+						t,
+						SAMPLES+name,
+						src,
+					)
+					now = _Run(
+						t,
+						SAMPLES+name,
+						out,
+					)
+				)
 
-			if was.printed != now.printed {
-				t.Fatalf("printed differs\n--- was\n%s\n--- now\n%s\n"+
-					"--- generated\n%s",
-					was.printed, now.printed, out)
-			}
+				// Both sides must actually have run. A comparison of two silences
+				// is what made this measurement wrong twice in the POC.
+				if was.printed == "" && was.failure == "" {
+					t.Fatal("the original produced nothing, so nothing was " +
+						"compared")
+				}
 
-			if was.failure != now.failure {
-				t.Fatalf("ended differently\n was: %s\n now: %s\n--- generated\n"+
-					"%s",
-					was.failure, now.failure, out)
-			}
-		})
+				if was.printed != now.printed {
+					t.Fatalf(
+						"printed differs\n--- was\n%s\n--- now\n%s\n"+
+							"--- generated\n%s",
+						was.printed,
+						now.printed,
+						out,
+					)
+				}
+
+				if was.failure != now.failure {
+					t.Fatalf(
+						"ended differently\n was: %s\n now: %s\n--- "+
+							"generated\n"+
+							"%s",
+						was.failure,
+						now.failure,
+						out,
+					)
+				}
+			},
+		)
 	}
 
-	_Refused(t, refused)
+	_Refused(
+		t,
+		refused,
+	)
 }
 
 // _Refused checks the set of samples derivation will not carry against the set
@@ -204,7 +295,10 @@ func TestRoundTrip_EverySampleDerivesRegeneratesAndBehaves(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
-func _Refused(t *testing.T, refused map[string]bool) {
+func _Refused(
+	t *testing.T,
+	refused map[string]bool,
+) {
 	t.Helper()
 
 	// Both open with a module-level dict of several pairs. A
@@ -215,13 +309,19 @@ func _Refused(t *testing.T, refused map[string]bool) {
 
 	for name := range want {
 		if !refused[name] {
-			t.Fatalf("%s derives now; the known-refused list is out of date", name)
+			t.Fatalf(
+				"%s derives now; the known-refused list is out of date",
+				name,
+			)
 		}
 	}
 
 	for name := range refused {
 		if !want[name] {
-			t.Fatalf("%s stopped deriving and is not a known refusal", name)
+			t.Fatalf(
+				"%s stopped deriving and is not a known refusal",
+				name,
+			)
 		}
 	}
 }
@@ -236,29 +336,44 @@ func _Refused(t *testing.T, refused map[string]bool) {
 //   - 2026-09-21 01:32: initial creation
 func TestRoundTrip_ASecondPassChangesNothing(t *testing.T) {
 	for _, name := range _Entries(t) {
-		t.Run(name, func(t *testing.T) {
-			src, err := os.ReadFile(SAMPLES + name)
-			if err != nil {
-				t.Fatal(err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				src, err := os.ReadFile(SAMPLES + name)
+				if err != nil {
+					t.Fatal(err)
+				}
 
-			if _Uncarried(name) {
-				// Refused rather than derived, which the round trip asserts
-				// by sentinel; there is no second pass to compare.
-				return
-			}
+				if _Uncarried(name) {
+					// Refused rather than derived, which the round trip
+					// asserts
+					// by sentinel; there is no second pass to compare.
+					return
+				}
 
-			once := _Emitted(t, src, SAMPLES+name)
-			twice := _Emitted(t, once, SAMPLES+name)
-
-			if string(once) != string(twice) {
-				t.Fatalf(
-					"a second pass differs\n--- once\n%s\n--- twice\n%s",
-					once,
-					twice,
+				var (
+					once = _Emitted(
+						t,
+						src,
+						SAMPLES+name,
+					)
+					twice = _Emitted(
+						t,
+						once,
+						SAMPLES+name,
+					)
 				)
-			}
-		})
+
+				if string(once) != string(twice) {
+					t.Fatalf(
+						"a second pass differs\n--- once\n%s\n--- "+
+							"twice\n%s",
+						once,
+						twice,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -267,10 +382,17 @@ func TestRoundTrip_ASecondPassChangesNothing(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-10-02 01:51: derives a flow through a Source
-func _Emitted(t *testing.T, src []byte, path string) []byte {
+func _Emitted(
+	t *testing.T,
+	src []byte,
+	path string,
+) []byte {
 	t.Helper()
 
-	flow, err := graph.Of(&script.Source{Entry: path, Text: src})
+	flow, err := graph.Of(&script.Source{
+		Entry: path,
+		Text:  src,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +421,10 @@ func TestRoundTrip_DepthIsReportedNotAssumed(t *testing.T) {
 	modelled := 0
 
 	for _, name := range _Carried(t) {
-		flow := _Sample(t, name)
+		var flow = _Sample(
+			t,
+			name,
+		)
 
 		spine := len(flow.GetMain().GetStatement())
 		if spine > 0 {
@@ -314,15 +439,28 @@ func TestRoundTrip_DepthIsReportedNotAssumed(t *testing.T) {
 			}
 		}
 
-		t.Logf("%-18s main=%2d functions=%2d stated=%2d",
-			name, spine, len(flow.GetFunctions()), stated)
+		t.Logf(
+			"%-18s main=%2d functions=%2d stated=%2d",
+			name,
+			spine,
+			len(flow.GetFunctions()),
+			stated,
+		)
 	}
 
-	t.Logf("modelled: %d of %d carried, %d entries in all",
-		modelled, len(_Carried(t)), len(_Entries(t)))
+	t.Logf(
+		"modelled: %d of %d carried, %d entries in all",
+		modelled,
+		len(_Carried(t)),
+		len(_Entries(t)),
+	)
 
 	if modelled < MODELLED {
-		t.Fatalf("want at least %d workflows modelled, got %d", MODELLED, modelled)
+		t.Fatalf(
+			"want at least %d workflows modelled, got %d",
+			MODELLED,
+			modelled,
+		)
 	}
 }
 
@@ -338,13 +476,22 @@ func TestRoundTrip_ALibraryIsNotAnEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = graph.Of(&script.Source{Entry: SAMPLES + LIBRARY, Text: src})
+	_, err = graph.Of(&script.Source{
+		Entry: SAMPLES + LIBRARY,
+		Text:  src,
+	})
 	if err == nil {
 		t.Fatal("want a library refused")
 	}
 
-	if !strings.Contains(err.Error(), "entry point") {
-		t.Fatalf("want the reason, got %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"entry point",
+	) {
+		t.Fatalf(
+			"want the reason, got %v",
+			err,
+		)
 	}
 }
 
@@ -363,7 +510,10 @@ func _Uncarried(name string) bool {
 //   - 2026-09-21 01:17: initial creation
 //   - 2026-10-02 01:51: derives through a Source
 //   - 2026-10-03 00:16: the flow itself, which Of returns with nothing beside it
-func _Sample(t *testing.T, name string) *workflowpb.Flow {
+func _Sample(
+	t *testing.T,
+	name string,
+) *workflowpb.Flow {
 	t.Helper()
 
 	src, err := os.ReadFile(SAMPLES + name)
@@ -371,7 +521,10 @@ func _Sample(t *testing.T, name string) *workflowpb.Flow {
 		t.Fatal(err)
 	}
 
-	flow, err := graph.Of(&script.Source{Entry: SAMPLES + name, Text: src})
+	flow, err := graph.Of(&script.Source{
+		Entry: SAMPLES + name,
+		Text:  src,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +553,10 @@ func _Entries(t *testing.T) []string {
 			continue
 		}
 
-		names = append(names, name)
+		names = append(
+			names,
+			name,
+		)
 	}
 
 	return names
@@ -421,7 +577,10 @@ func _Carried(t *testing.T) []string {
 			continue
 		}
 
-		names = append(names, name)
+		names = append(
+			names,
+			name,
+		)
 	}
 
 	return names

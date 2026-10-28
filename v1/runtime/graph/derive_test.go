@@ -20,17 +20,35 @@ import (
 //   - 2026-10-02 00:16: initial creation
 func TestOf_Fixtures(t *testing.T) {
 	for _, name := range []string{"dag", "every"} {
-		t.Run(name, func(t *testing.T) {
-			src, err := os.ReadFile("testdata/" + name + ".star")
-			if err != nil {
-				t.Fatal(err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				src, err := os.ReadFile("testdata/" + name + ".star")
+				if err != nil {
+					t.Fatal(err)
+				}
 
-			want := _Flow(t, _Read(t, "testdata/"+name+".json"))
-			got := _Derived(t, string(src))
+				var (
+					want = _Flow(
+						t,
+						_Read(
+							t,
+							"testdata/"+name+".json",
+						),
+					)
+					got = _Derived(
+						t,
+						string(src),
+					)
+				)
 
-			_Same(t, got, want)
-		})
+				_Same(
+					t,
+					got,
+					want,
+				)
+			},
+		)
 	}
 }
 
@@ -200,23 +218,46 @@ func TestOf_Statements(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			flow := _Derived(t, SHARED+tc.def+"\ndef main():\n    f()\n")
-			fn := _Named(t, flow, "f")
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				var (
+					flow = _Derived(
+						t,
+						SHARED+tc.def+"\ndef main():\n    f()\n",
+					)
+					fn = _Named(
+						t,
+						flow,
+						"f",
+					)
+				)
 
-			if tc.text != "" {
-				if fn.GetBody() != tc.text {
-					t.Fatalf("got body %q, statements %v, want body %q",
-						fn.GetBody(), fn.GetStatements(), tc.text)
+				if tc.text != "" {
+					if fn.GetBody() != tc.text {
+						t.Fatalf(
+							"got body %q, statements %v, want body %q",
+							fn.GetBody(),
+							fn.GetStatements(),
+							tc.text,
+						)
+					}
+
+					return
 				}
 
-				return
-			}
+				want := _Statements(
+					t,
+					tc.state,
+				)
 
-			want := _Statements(t, tc.state)
-
-			_Same(t, fn.GetStatements(), want)
-		})
+				_Same(
+					t,
+					fn.GetStatements(),
+					want,
+				)
+			},
+		)
 	}
 }
 
@@ -256,14 +297,30 @@ func TestOf_BodyText(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			flow := _Derived(t, tc.def+"\ndef main():\n    f()\n")
-			fn := _Named(t, flow, "f")
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				var (
+					flow = _Derived(
+						t,
+						tc.def+"\ndef main():\n    f()\n",
+					)
+					fn = _Named(
+						t,
+						flow,
+						"f",
+					)
+				)
 
-			if fn.GetBody() != tc.text {
-				t.Fatalf("got\n%q\nwant\n%q", fn.GetBody(), tc.text)
-			}
-		})
+				if fn.GetBody() != tc.text {
+					t.Fatalf(
+						"got\n%q\nwant\n%q",
+						fn.GetBody(),
+						tc.text,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -277,35 +334,53 @@ func TestOf_Refuses(t *testing.T) {
 		src  string
 		err  error
 	}{
-		{name: "no main", src: "def f():\n    pass\n", err: graph.ERR_NO_MAIN},
+		{
+			name: "no main",
+			src:  "def f():\n    pass\n",
+			err:  graph.ErrNoMain,
+		},
 		{
 			name: "a default",
 			src:  "def f(x = 1):\n    pass\n\ndef main():\n    f()\n",
-			err:  graph.ERR_SIGNATURE,
+			err:  graph.ErrSignature,
 		},
 		{
 			name: "a constant computed from an argument",
 			src: "def f(x):\n    return x\n\nport = arg(\"port\")\nlabel = f(port)\n" +
 				"\n" +
 				"def main():\n    pass\n",
-			err: graph.ERR_CONSTANT,
+			err: graph.ErrConstant,
 		},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			source := &script.Source{Entry: "script.star", Text: []byte(tc.src)}
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				var source = &script.Source{
+					Entry: "script.star",
+					Text:  []byte(tc.src),
+				}
 
-			_, err := graph.Of(source)
-			if !errors.Is(err, tc.err) {
-				t.Fatalf("got %v, want %v", err, tc.err)
-			}
-		})
+				_, err := graph.Of(source)
+				if !errors.Is(
+					err,
+					tc.err,
+				) {
+					t.Fatalf(
+						"got %v, want %v",
+						err,
+						tc.err,
+					)
+				}
+			},
+		)
 	}
 }
 
 // SHARED declares the functions, constants and argument the derive cases call.
-const SHARED = `def once():
+const (
+	SHARED = `def once():
     pass
 
 def slow():
@@ -335,18 +410,28 @@ region = "west"
 tags = ["a", "b"]
 
 `
+)
 
 // _Derived is the flow a script derives to, failing the test on an error.
 //
 // Revisions:
 //   - 2026-10-02 00:16: initial creation
 //   - 2026-10-03 00:16: the flow itself, which Of returns with nothing beside it
-func _Derived(t *testing.T, src string) *workflowpb.Flow {
+func _Derived(
+	t *testing.T,
+	src string,
+) *workflowpb.Flow {
 	t.Helper()
 
-	flow, err := graph.Of(&script.Source{Entry: "script.star", Text: []byte(src)})
+	flow, err := graph.Of(&script.Source{
+		Entry: "script.star",
+		Text:  []byte(src),
+	})
 	if err != nil {
-		t.Fatalf("derive: %v", err)
+		t.Fatalf(
+			"derive: %v",
+			err,
+		)
 	}
 
 	return flow
@@ -356,7 +441,11 @@ func _Derived(t *testing.T, src string) *workflowpb.Flow {
 //
 // Revisions:
 //   - 2026-10-02 00:16: initial creation
-func _Named(t *testing.T, flow *workflowpb.Flow, name string) *workflowpb.Function {
+func _Named(
+	t *testing.T,
+	flow *workflowpb.Flow,
+	name string,
+) *workflowpb.Function {
 	t.Helper()
 
 	for _, fn := range flow.GetFunctions() {
@@ -365,7 +454,10 @@ func _Named(t *testing.T, flow *workflowpb.Flow, name string) *workflowpb.Functi
 		}
 	}
 
-	t.Fatalf("no function %s", name)
+	t.Fatalf(
+		"no function %s",
+		name,
+	)
 
 	return nil
 }
@@ -374,7 +466,10 @@ func _Named(t *testing.T, flow *workflowpb.Flow, name string) *workflowpb.Functi
 //
 // Revisions:
 //   - 2026-10-02 00:16: initial creation
-func _Read(t *testing.T, path string) string {
+func _Read(
+	t *testing.T,
+	path string,
+) string {
 	t.Helper()
 
 	text, err := os.ReadFile(path)
@@ -389,14 +484,26 @@ func _Read(t *testing.T, path string) string {
 //
 // Revisions:
 //   - 2026-10-02 00:16: initial creation
-func _Flow(t *testing.T, text string) *workflowpb.Flow {
+func _Flow(
+	t *testing.T,
+	text string,
+) *workflowpb.Flow {
 	t.Helper()
 
-	flow := new(workflowpb.Flow)
+	var (
+		flow = new(workflowpb.Flow)
+		err  error
+	)
 
-	err := protojson.Unmarshal([]byte(text), flow)
+	err = protojson.Unmarshal(
+		[]byte(text),
+		flow,
+	)
 	if err != nil {
-		t.Fatalf("flow: %v", err)
+		t.Fatalf(
+			"flow: %v",
+			err,
+		)
 	}
 
 	return flow
@@ -406,14 +513,26 @@ func _Flow(t *testing.T, text string) *workflowpb.Flow {
 //
 // Revisions:
 //   - 2026-10-02 00:16: initial creation
-func _Statements(t *testing.T, text string) *workflowpb.Statements {
+func _Statements(
+	t *testing.T,
+	text string,
+) *workflowpb.Statements {
 	t.Helper()
 
-	held := new(workflowpb.Statements)
+	var (
+		held = new(workflowpb.Statements)
+		err  error
+	)
 
-	err := protojson.Unmarshal([]byte(`{"statement": `+text+`}`), held)
+	err = protojson.Unmarshal(
+		[]byte(`{"statement": `+text+`}`),
+		held,
+	)
 	if err != nil {
-		t.Fatalf("statements: %v", err)
+		t.Fatalf(
+			"statements: %v",
+			err,
+		)
 	}
 
 	return held
@@ -423,14 +542,27 @@ func _Statements(t *testing.T, text string) *workflowpb.Statements {
 //
 // Revisions:
 //   - 2026-10-02 00:16: initial creation
-func _Same(t *testing.T, got, want proto.Message) {
+func _Same(
+	t *testing.T,
+	got,
+	want proto.Message,
+) {
 	t.Helper()
 
-	if proto.Equal(got, want) {
+	if proto.Equal(
+		got,
+		want,
+	) {
 		return
 	}
 
-	shown := protojson.MarshalOptions{Multiline: true}
+	shown := protojson.MarshalOptions{
+		Multiline: true,
+	}
 
-	t.Fatalf("got\n%s\nwant\n%s", shown.Format(got), shown.Format(want))
+	t.Fatalf(
+		"got\n%s\nwant\n%s",
+		shown.Format(got),
+		shown.Format(want),
+	)
 }

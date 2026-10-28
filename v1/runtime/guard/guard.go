@@ -17,7 +17,11 @@ import "fmt"
 //
 // Revisions:
 //   - 2026-09-19 21:18: initial creation
-func WithRecover[T any](result *T, err *error, fn func() (T, error)) {
+func WithRecover[T any](
+	result *T,
+	err *error,
+	fn func() (T, error),
+) {
 	defer func() {
 		raised := recover()
 		if raised == nil {
@@ -44,10 +48,16 @@ func WithRecover[T any](result *T, err *error, fn func() (T, error)) {
 func _Raised(raised any) error {
 	failure, ok := raised.(error)
 	if ok {
-		return fmt.Errorf("recovered: %w", failure)
+		return fmt.Errorf(
+			"recovered: %w",
+			failure,
+		)
 	}
 
-	return fmt.Errorf("recovered: %v", raised)
+	return fmt.Errorf(
+		"recovered: %v",
+		raised,
+	)
 }
 
 // Contained runs fn and returns the panic it raised as an error, or nil.

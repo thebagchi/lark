@@ -29,12 +29,14 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 )
 
-// ERR_PATTERN is returned for a pattern this engine cannot read, which
+// ErrPattern is returned for a pattern this engine cannot read, which
 // includes every one that asks for lookahead or a backreference.
-var ERR_PATTERN = errors.New("not a pattern this reads")
+var (
+	ErrPattern = errors.New("not a pattern this reads")
+)
 
+// NAME is the module, and the names it holds.
 const (
-	// NAME is the module, and the names it holds.
 	NAME    = "regexp"
 	MATCH   = "match"
 	SEARCH  = "search"
@@ -105,12 +107,30 @@ func (r *_Regexp) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				MATCH:   starlark.NewBuiltin(NAME+"."+MATCH, r._Match),
-				SEARCH:  starlark.NewBuiltin(NAME+"."+SEARCH, r._Search),
-				FINDALL: starlark.NewBuiltin(NAME+"."+FINDALL, r._FindAll),
-				SUB:     starlark.NewBuiltin(NAME+"."+SUB, r._Sub),
-				SPLIT:   starlark.NewBuiltin(NAME+"."+SPLIT, r._Split),
-				QUOTE:   starlark.NewBuiltin(NAME+"."+QUOTE, _Quote),
+				MATCH: starlark.NewBuiltin(
+					NAME+"."+MATCH,
+					r._Match,
+				),
+				SEARCH: starlark.NewBuiltin(
+					NAME+"."+SEARCH,
+					r._Search,
+				),
+				FINDALL: starlark.NewBuiltin(
+					NAME+"."+FINDALL,
+					r._FindAll,
+				),
+				SUB: starlark.NewBuiltin(
+					NAME+"."+SUB,
+					r._Sub,
+				),
+				SPLIT: starlark.NewBuiltin(
+					NAME+"."+SPLIT,
+					r._Split,
+				),
+				QUOTE: starlark.NewBuiltin(
+					NAME+"."+QUOTE,
+					_Quote,
+				),
 			},
 		},
 	}
@@ -118,11 +138,14 @@ func (r *_Regexp) Values() starlark.StringDict {
 
 // _Compiled is the pattern, compiled once however often it is asked for.
 //
-// Returns ERR_PATTERN for one this engine cannot read.
+// Returns ErrPattern for one this engine cannot read.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func (r *_Regexp) _Compiled(who string, pattern string) (*regexp.Regexp, error) {
+func (r *_Regexp) _Compiled(
+	who string,
+	pattern string,
+) (*regexp.Regexp, error) {
 	r.guard.Lock()
 	defer r.guard.Unlock()
 
@@ -133,11 +156,20 @@ func (r *_Regexp) _Compiled(who string, pattern string) (*regexp.Regexp, error) 
 
 	made, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("%s got %q: %w: %w", who, pattern, ERR_PATTERN, err)
+		return nil, fmt.Errorf(
+			"%s got %q: %w: %w",
+			who,
+			pattern,
+			ErrPattern,
+			err,
+		)
 	}
 
 	if r.held == nil || len(r.held) >= KEPT {
-		r.held = make(map[string]*regexp.Regexp, KEPT)
+		r.held = make(
+			map[string]*regexp.Regexp,
+			KEPT,
+		)
 	}
 
 	r.held[pattern] = made
@@ -159,7 +191,11 @@ func (r *_Regexp) _Match(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	held, text, err := r._Given(fn, args, kwargs)
+	held, text, err := r._Given(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +205,11 @@ func (r *_Regexp) _Match(
 		return starlark.None, nil
 	}
 
-	return _Match(held, text, found), nil
+	return _Match(
+		held,
+		text,
+		found,
+	), nil
 }
 
 // _Search is the first match anywhere in the text, or None.
@@ -182,7 +222,11 @@ func (r *_Regexp) _Search(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	held, text, err := r._Given(fn, args, kwargs)
+	held, text, err := r._Given(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +236,11 @@ func (r *_Regexp) _Search(
 		return starlark.None, nil
 	}
 
-	return _Match(held, text, found), nil
+	return _Match(
+		held,
+		text,
+		found,
+	), nil
 }
 
 // _FindAll is every match, in the order they appear.
@@ -208,17 +256,36 @@ func (r *_Regexp) _FindAll(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	held, text, err := r._Given(fn, args, kwargs)
+	held, text, err := r._Given(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	every := held.FindAllStringSubmatchIndex(text, -1)
-
-	found := make([]starlark.Value, 0, len(every))
+	var (
+		every = held.FindAllStringSubmatchIndex(
+			text,
+			-1,
+		)
+		found = make(
+			[]starlark.Value,
+			0,
+			len(every),
+		)
+	)
 
 	for _, one := range every {
-		found = append(found, _Match(held, text, one))
+		found = append(
+			found,
+			_Match(
+				held,
+				text,
+				one,
+			),
+		)
 	}
 
 	return starlark.NewList(found), nil
@@ -241,22 +308,44 @@ func (r *_Regexp) _Sub(
 		count   = ALL
 	)
 
-	err := starlark.UnpackArgs(fn.Name(), args, kwargs,
-		"pattern", &pattern, "repl", &repl, "text", &text, COUNT+"?", &count)
+	err := starlark.UnpackArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		"pattern",
+		&pattern,
+		"repl",
+		&repl,
+		"text",
+		&text,
+		COUNT+"?",
+		&count,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	held, err := r._Compiled(fn.Name(), pattern)
+	held, err := r._Compiled(
+		fn.Name(),
+		pattern,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	if count <= ALL {
-		return starlark.String(held.ReplaceAllString(text, repl)), nil
+		return starlark.String(held.ReplaceAllString(
+			text,
+			repl,
+		)), nil
 	}
 
-	return starlark.String(_Limited(held, text, repl, count)), nil
+	return starlark.String(_Limited(
+		held,
+		text,
+		repl,
+		count,
+	)), nil
 }
 
 // _Limited replaces the first count matches and leaves the rest.
@@ -267,8 +356,16 @@ func (r *_Regexp) _Sub(
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Limited(held *regexp.Regexp, text string, repl string, count int) string {
-	every := held.FindAllStringSubmatchIndex(text, count)
+func _Limited(
+	held *regexp.Regexp,
+	text string,
+	repl string,
+	count int,
+) string {
+	every := held.FindAllStringSubmatchIndex(
+		text,
+		count,
+	)
 
 	var (
 		out  []byte
@@ -276,8 +373,16 @@ func _Limited(held *regexp.Regexp, text string, repl string, count int) string {
 	)
 
 	for _, one := range every {
-		out = append(out, text[last:one[0]]...)
-		out = held.ExpandString(out, repl, text, one)
+		out = append(
+			out,
+			text[last:one[0]]...,
+		)
+		out = held.ExpandString(
+			out,
+			repl,
+			text,
+			one,
+		)
 		last = one[1]
 	}
 
@@ -300,13 +405,25 @@ func (r *_Regexp) _Split(
 		count   = ALL
 	)
 
-	err := starlark.UnpackArgs(fn.Name(), args, kwargs,
-		"pattern", &pattern, "text", &text, COUNT+"?", &count)
+	err := starlark.UnpackArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		"pattern",
+		&pattern,
+		"text",
+		&text,
+		COUNT+"?",
+		&count,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	held, err := r._Compiled(fn.Name(), pattern)
+	held, err := r._Compiled(
+		fn.Name(),
+		pattern,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -318,15 +435,33 @@ func (r *_Regexp) _Split(
 		limit = count + 1
 	}
 
-	parts := held.Split(text, limit)
+	return _Listed(
+		held.Split(
+			text,
+			limit,
+		),
+	), nil
+}
 
-	found := make([]starlark.Value, 0, len(parts))
+// _Listed is the pieces of a split, as a list of strings.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Listed(parts []string) starlark.Value {
+	found := make(
+		[]starlark.Value,
+		0,
+		len(parts),
+	)
 
 	for _, part := range parts {
-		found = append(found, starlark.String(part))
+		found = append(
+			found,
+			starlark.String(part),
+		)
 	}
 
-	return starlark.NewList(found), nil
+	return starlark.NewList(found)
 }
 
 // _Quote is text with every special character escaped, so that it matches
@@ -342,7 +477,13 @@ func _Quote(
 ) (starlark.Value, error) {
 	var text string
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &text)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		1,
+		&text,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -362,12 +503,23 @@ func (r *_Regexp) _Given(
 ) (*regexp.Regexp, string, error) {
 	var pattern, text string
 
-	err := starlark.UnpackArgs(fn.Name(), args, kwargs, "pattern", &pattern, "text", &text)
+	err := starlark.UnpackArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		"pattern",
+		&pattern,
+		"text",
+		&text,
+	)
 	if err != nil {
 		return nil, "", err
 	}
 
-	held, err := r._Compiled(fn.Name(), pattern)
+	held, err := r._Compiled(
+		fn.Name(),
+		pattern,
+	)
 	if err != nil {
 		return nil, "", err
 	}
@@ -388,44 +540,99 @@ func (r *_Regexp) _Given(
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Match(held *regexp.Regexp, text string, found []int) starlark.Value {
-	count := len(found) / BOUNDS
+func _Match(
+	held *regexp.Regexp,
+	text string,
+	found []int,
+) starlark.Value {
+	var (
+		count  = len(found) / BOUNDS
+		groups = make(
+			[]starlark.Value,
+			0,
+			count-1,
+		)
+		named = starlark.NewDict(count)
+	)
 
-	groups := make([]starlark.Value, 0, count-1)
-	named := starlark.NewDict(count)
+	filled := &_Fill{
+		count:  count,
+		groups: groups,
+		named:  named,
+	}
 
-	for index := 1; index < count; index++ {
-		caught := _Caught(text, found, index)
+	_Groups(
+		held,
+		text,
+		found,
+		filled,
+	)
 
-		groups = append(groups, caught)
+	return starlarkstruct.FromStringDict(
+		starlarkstruct.Default,
+		starlark.StringDict{
+			TEXT:   starlark.String(text[found[0]:found[1]]),
+			START:  starlark.MakeInt(found[0]),
+			END:    starlark.MakeInt(found[1]),
+			GROUPS: starlark.NewList(filled.groups),
+			NAMED:  filled.named,
+		},
+	)
+}
+
+// _Fill is the groups one match is filling in.
+type _Fill struct {
+	count  int
+	groups []starlark.Value
+	named  *starlark.Dict
+}
+
+// _Groups records each captured group, by position and by name.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Groups(
+	held *regexp.Regexp,
+	text string,
+	found []int,
+	match *_Fill,
+) {
+	for index := 1; index < match.count; index++ {
+		caught := _Caught(
+			text,
+			found,
+			index,
+		)
+
+		match.groups = append(
+			match.groups,
+			caught,
+		)
 
 		name := held.SubexpNames()[index]
 		if name == "" {
 			continue
 		}
 
-		// Setting a key on a dict this function owns cannot fail: the key is a
-		// string, which is hashable, and nothing has frozen it.
-		err := named.SetKey(starlark.String(name), caught)
+		err := match.named.SetKey(
+			starlark.String(name),
+			caught,
+		)
 		if err != nil {
 			continue
 		}
 	}
-
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		TEXT:   starlark.String(text[found[0]:found[1]]),
-		START:  starlark.MakeInt(found[0]),
-		END:    starlark.MakeInt(found[1]),
-		GROUPS: starlark.NewList(groups),
-		NAMED:  named,
-	})
 }
 
 // _Caught is what one group caught, or None where it took part in no match.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Caught(text string, found []int, index int) starlark.Value {
+func _Caught(
+	text string,
+	found []int,
+	index int,
+) starlark.Value {
 	at, to := found[2*index], found[2*index+1]
 	if at < 0 {
 		return starlark.None

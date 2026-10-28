@@ -52,7 +52,7 @@ type Execution struct {
 // The context passed in is the parent of the run's, and cancelling it is the
 // one way to stop the run. The interpreter is told between instructions, so a
 // script with no sleep in it stops as readily as one that blocks, and Wait
-// then returns ERR_CANCELLED.
+// then returns ErrCancelled.
 //
 // Its graph is this package's own, kept for Status and changed step by step,
 // each change going where WithChanges says.
@@ -76,27 +76,51 @@ type Execution struct {
 //     way to stop a run
 //   - 2026-10-03 08:31: hands the run its recorder as an option, rather than on a
 //     context
-func Start(ctx context.Context, art *artifact.Artifact, opts ...artifact.RunOption) *Execution {
+//   - 2026-10-24 16:10: contain a panic in the change callback at _Began, so
+//     it fails the run instead of the process
+func Start(
+	ctx context.Context,
+	art *artifact.Artifact,
+	opts ...artifact.RunOption,
+) *Execution {
 	into := _NewRecorder()
 	into.watch = artifact.Changes(opts)
 	into._Began()
 
-	inner, stop := context.WithCancel(ctx)
+	if fault := into._Fault(); fault != nil {
+		run := &Execution{
+			done: make(chan struct{}),
+			into: into,
+			err:  fault,
+		}
+		close(run.done)
+
+		return run
+	}
 
 	// Last, so nothing in opts replaces the recorder Status reads, and copied,
 	// so the caller's slice is not written into.
-	given := slices.Concat(opts, []artifact.RunOption{artifact.Reporting(into)})
-
-	run := &Execution{
-		done: make(chan struct{}),
-		into: into,
-	}
+	var (
+		inner, stop = context.WithCancel(ctx)
+		given       = slices.Concat(
+			opts,
+			[]artifact.RunOption{artifact.Reporting(into)},
+		)
+		run = &Execution{
+			done: make(chan struct{}),
+			into: into,
+		}
+	)
 
 	go func() {
 		defer close(run.done)
 		defer stop()
 
-		run._Perform(inner, art, given)
+		run._Perform(
+			inner,
+			art,
+			given,
+		)
 	}()
 
 	return run
@@ -173,6 +197,8 @@ func (e *Execution) Status() *workflowpb.Graph {
 //   - 2026-10-02 16:08: runs art with the run's options
 //   - 2026-10-02 16:33: tells the graph how the run ended, which is its last
 //     change
+//   - 2026-10-24 16:10: surface a watcher fault from _Finished as the run's
+//     error, so a panic in the change callback fails the run
 func (e *Execution) _Perform(
 	ctx context.Context,
 	art *artifact.Artifact,
@@ -182,13 +208,27 @@ func (e *Execution) _Perform(
 		&e.value,
 		&e.err,
 		func() (starlark.Value, error) {
-			return artifact.Run(ctx, art, opts...)
+			return artifact.Run(
+				ctx,
+				art,
+				opts...,
+			)
 		},
 	)
 
 	status := _Became(e.err)
 
-	e.into._Finished(status, e.into._Because(status, _Why(e.err)))
+	e.into._Finished(
+		status,
+		e.into._Because(
+			status,
+			_Why(e.err),
+		),
+	)
+
+	if fault := e.into._Fault(); fault != nil && e.err == nil {
+		e.err = fault
+	}
 }
 
 // _Became is the status an error ends something with.
@@ -209,7 +249,13 @@ func _Became(err error) workflowpb.Status {
 		return workflowpb.Status_STATUS_SUCCEEDED
 	}
 
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(
+		err,
+		context.Canceled,
+	) || errors.Is(
+		err,
+		context.DeadlineExceeded,
+	) {
 		return workflowpb.Status_STATUS_CANCELLED
 	}
 

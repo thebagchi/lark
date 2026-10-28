@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	// ERR_ARITY is returned for a Call passing a number of arguments its
+	// ErrArity is returned for a Call passing a number of arguments its
 	// function does not take, too few or too many.
 	//
 	// The arguments line up with the parameters index for index, so a count
@@ -19,13 +19,13 @@ var (
 	// rather than reaching Starlark as an error against a line in generated
 	// source, which names nothing a reader can act on. spelling's, so it is the
 	// value a compile refuses the same mistake in a script with.
-	ERR_ARITY = spelling.ERR_ARITY
+	ErrArity = spelling.ErrArity
 
-	// ERR_ARGUMENTS is returned for a Call carrying both args and operands:
+	// ErrArguments is returned for a Call carrying both args and operands:
 	// two lists for one argument list, with nothing to say which is meant.
-	ERR_ARGUMENTS = errors.New("a call carries both args and operands")
+	ErrArguments = errors.New("a call carries both args and operands")
 
-	// ERR_NOT_FORKED is returned for a join or a cancel naming a binding that
+	// ErrNotForked is returned for a join or a cancel naming a binding that
 	// no spawn earlier on its statement list holds, and for two spawns given
 	// one binding on one list.
 	//
@@ -33,14 +33,14 @@ var (
 	// join anywhere else - in the other branch of an if, or before the spawn -
 	// names a variable that does not exist, and a second spawn of one name
 	// hides the first.
-	ERR_NOT_FORKED = errors.New("a thread is joined or cancelled where it was not spawned")
+	ErrNotForked = errors.New("a thread is joined or cancelled where it was not spawned")
 
-	// ERR_UNRESOLVED is returned for a name that resolves to nothing: not a
+	// ErrUnresolved is returned for a name that resolves to nothing: not a
 	// parameter of the function holding it, a result or a binding earlier on
 	// its list, or a function, constant or argument the flow declares. A
 	// constant sees only functions and constants, since it is computed before
 	// anything else a name could hold is bound.
-	ERR_UNRESOLVED = errors.New("a name resolves to nothing")
+	ErrUnresolved = errors.New("a name resolves to nothing")
 )
 
 // Check is what a flow must satisfy before anything generates from it.
@@ -108,7 +108,11 @@ func _Bodies(flow *workflowpb.Flow) error {
 		}
 
 		if empty {
-			return fmt.Errorf("%s: %w", fn.GetName(), ERR_NO_BODY)
+			return fmt.Errorf(
+				"%s: %w",
+				fn.GetName(),
+				ErrNoBody,
+			)
 		}
 	}
 
@@ -126,7 +130,11 @@ func _Bodies(flow *workflowpb.Flow) error {
 	}
 
 	if empty {
-		return fmt.Errorf("%s: %w", ENTRY, ERR_NO_BODY)
+		return fmt.Errorf(
+			"%s: %w",
+			ENTRY,
+			ErrNoBody,
+		)
 	}
 
 	return nil
@@ -149,7 +157,10 @@ func _Arity(flow *workflowpb.Flow) error {
 	}
 
 	for _, call := range _Calls(flow) {
-		err := _Fits(takes, call)
+		err := _Fits(
+			takes,
+			call,
+		)
 		if err != nil {
 			return err
 		}
@@ -164,14 +175,25 @@ func _Arity(flow *workflowpb.Flow) error {
 //   - 2026-09-21 01:32: initial creation
 //   - 2026-10-02 00:13: refuses too few, a function the flow does not
 //     declare, and both lists at once
-func _Fits(takes map[string]int, call *workflowpb.Call) error {
+func _Fits(
+	takes map[string]int,
+	call *workflowpb.Call,
+) error {
 	if _Both(call) {
-		return fmt.Errorf("%s: %w", call.GetFunction(), ERR_ARGUMENTS)
+		return fmt.Errorf(
+			"%s: %w",
+			call.GetFunction(),
+			ErrArguments,
+		)
 	}
 
 	params, known := takes[call.GetFunction()]
 	if !known {
-		return fmt.Errorf("call of %s: %w", call.GetFunction(), ERR_UNRESOLVED)
+		return fmt.Errorf(
+			"call of %s: %w",
+			call.GetFunction(),
+			ErrUnresolved,
+		)
 	}
 
 	passed := len(call.GetArgs()) + len(call.GetOperands())
@@ -179,8 +201,13 @@ func _Fits(takes map[string]int, call *workflowpb.Call) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s takes %d and is passed %d: %w",
-		call.GetFunction(), params, passed, ERR_ARITY)
+	return fmt.Errorf(
+		"%s takes %d and is passed %d: %w",
+		call.GetFunction(),
+		params,
+		passed,
+		ErrArity,
+	)
 }
 
 // _Calls is every call a flow makes, constants first, in sorted order, so the
@@ -193,19 +220,31 @@ func _Calls(flow *workflowpb.Flow) []*workflowpb.Call {
 
 	for _, name := range slices.Sorted(maps.Keys(flow.GetConstants())) {
 		if call := flow.GetConstants()[name].GetCall(); call != nil {
-			calls = append(calls, call)
+			calls = append(
+				calls,
+				call,
+			)
 		}
 	}
 
 	visit := func(stmt *workflowpb.Statement) {
-		calls = append(calls, _Made(stmt)...)
+		calls = append(
+			calls,
+			_Made(stmt)...,
+		)
 	}
 
 	for _, fn := range flow.GetFunctions() {
-		_Each(fn.GetStatements().GetStatement(), visit)
+		_Each(
+			fn.GetStatements().GetStatement(),
+			visit,
+		)
 	}
 
-	_Each(flow.GetMain().GetStatement(), visit)
+	_Each(
+		flow.GetMain().GetStatement(),
+		visit,
+	)
 
 	return calls
 }
@@ -230,7 +269,10 @@ func _Made(stmt *workflowpb.Statement) []*workflowpb.Call {
 
 	for _, call := range made {
 		if call != nil {
-			calls = append(calls, call)
+			calls = append(
+				calls,
+				call,
+			)
 		}
 	}
 
@@ -242,9 +284,15 @@ func _Made(stmt *workflowpb.Statement) []*workflowpb.Call {
 //
 // Revisions:
 //   - 2026-10-02 00:13: initial creation
-func _Each(list []*workflowpb.Statement, visit func(*workflowpb.Statement)) {
+func _Each(
+	list []*workflowpb.Statement,
+	visit func(*workflowpb.Statement),
+) {
 	for _, stmt := range list {
-		_Visit(stmt, visit)
+		_Visit(
+			stmt,
+			visit,
+		)
 	}
 }
 
@@ -252,22 +300,40 @@ func _Each(list []*workflowpb.Statement, visit func(*workflowpb.Statement)) {
 //
 // Revisions:
 //   - 2026-10-02 00:13: initial creation
-func _Visit(stmt *workflowpb.Statement, visit func(*workflowpb.Statement)) {
+func _Visit(
+	stmt *workflowpb.Statement,
+	visit func(*workflowpb.Statement),
+) {
 	if stmt == nil {
 		return
 	}
 
 	visit(stmt)
 
-	_Visit(stmt.GetIf().GetThen(), visit)
-	_Visit(stmt.GetIf().GetElse(), visit)
-	_Visit(stmt.GetLoop().GetBody(), visit)
+	_Visit(
+		stmt.GetIf().GetThen(),
+		visit,
+	)
+	_Visit(
+		stmt.GetIf().GetElse(),
+		visit,
+	)
+	_Visit(
+		stmt.GetLoop().GetBody(),
+		visit,
+	)
 
 	for _, arm := range stmt.GetMatch().GetCases() {
-		_Visit(arm.GetStatement(), visit)
+		_Visit(
+			arm.GetStatement(),
+			visit,
+		)
 	}
 
-	_Visit(stmt.GetMatch().GetDefault(), visit)
+	_Visit(
+		stmt.GetMatch().GetDefault(),
+		visit,
+	)
 }
 
 // _Computed checks that a constant's call names only functions and constants
@@ -280,7 +346,7 @@ func _Visit(stmt *workflowpb.Statement, visit func(*workflowpb.Statement)) {
 // Revisions:
 //   - 2026-09-30 00:44: initial creation
 //   - 2026-10-02 00:13: a constant may name another constant or a function,
-//     and a cycle is ERR_CONSTANT
+//     and a cycle is ErrConstant
 func _Computed(flow *workflowpb.Flow) error {
 	functions := make(map[string]bool)
 
@@ -298,15 +364,22 @@ func _Computed(flow *workflowpb.Flow) error {
 			}
 
 			if _, constant := held[named]; !constant {
-				return fmt.Errorf("constant %s names %s: %w",
-					name, named, ERR_UNRESOLVED)
+				return fmt.Errorf(
+					"constant %s names %s: %w",
+					name,
+					named,
+					ErrUnresolved,
+				)
 			}
 		}
 	}
 
 	_, err := _Order(flow)
 	if err != nil {
-		return fmt.Errorf("constants name each other: %w", ERR_CONSTANT)
+		return fmt.Errorf(
+			"constants name each other: %w",
+			ErrConstant,
+		)
 	}
 
 	return nil
@@ -333,17 +406,31 @@ func _Resolved(flow *workflowpb.Flow) error {
 	}
 
 	for _, fn := range flow.GetFunctions() {
-		seen := _Opening(globals, fn.GetParams())
+		var seen = _Opening(
+			globals,
+			fn.GetParams(),
+		)
 
 		err := seen._List(fn.GetStatements().GetStatement())
 		if err != nil {
-			return fmt.Errorf("%s: %w", fn.GetName(), err)
+			return fmt.Errorf(
+				"%s: %w",
+				fn.GetName(),
+				err,
+			)
 		}
 	}
 
-	err := _Opening(globals, nil)._List(flow.GetMain().GetStatement())
+	err := _Opening(
+		globals,
+		nil,
+	)._List(flow.GetMain().GetStatement())
 	if err != nil {
-		return fmt.Errorf("%s: %w", ENTRY, err)
+		return fmt.Errorf(
+			"%s: %w",
+			ENTRY,
+			err,
+		)
 	}
 
 	return nil

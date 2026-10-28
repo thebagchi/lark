@@ -25,11 +25,11 @@ import (
 )
 
 var (
-	// ERR_NOT_SUPPLIED is returned for an argument a script declared with no
+	// ErrNotSupplied is returned for an argument a script declared with no
 	// default and the run did not supply.
-	ERR_NOT_SUPPLIED = errors.New("argument not supplied and has no default")
+	ErrNotSupplied = errors.New("argument not supplied and has no default")
 
-	// ERR_NOT_DECLARING is returned for an arg() call somewhere a declaration
+	// ErrNotDeclaring is returned for an arg() call somewhere a declaration
 	// cannot be: inside a function body rather than at module level.
 	//
 	// Without it such a call is the worst of the outcomes available. It takes
@@ -37,11 +37,11 @@ var (
 	// thread a run bound its arguments on, and deriving a graph does not carry
 	// it either - so a script that looks like it reads an argument reads
 	// nothing, twice over, invisibly.
-	ERR_NOT_DECLARING = errors.New("arg declares a module-level name")
+	ErrNotDeclaring = errors.New("arg declares a module-level name")
 
-	// ERR_NOT_VALUE is returned for a supplied value this cannot hand a script,
+	// ErrNotValue is returned for a supplied value this cannot hand a script,
 	// which is a google.protobuf.Value nobody filled in.
-	ERR_NOT_VALUE = errors.New("argument is not a value")
+	ErrNotValue = errors.New("argument is not a value")
 )
 
 const (
@@ -88,16 +88,19 @@ func (a *_Args) Name() string {
 //   - 2026-09-22 22:24: initial creation
 func (a *_Args) Values() starlark.StringDict {
 	return starlark.StringDict{
-		graph.ARG: starlark.NewBuiltin(graph.ARG, _Declare),
+		graph.ARG: starlark.NewBuiltin(
+			graph.ARG,
+			_Declare,
+		),
 	}
 }
 
 // _Declare is the builtin: the value the run supplied under name, or the
 // default the script stated.
 //
-// Returns ERR_NOT_SUPPLIED when neither exists, so a script declaring an
+// Returns ErrNotSupplied when neither exists, so a script declaring an
 // argument it cannot do without fails at the line that declares it rather than
-// somewhere later with None in its hands. Returns ERR_NOT_DECLARING when it is
+// somewhere later with None in its hands. Returns ErrNotDeclaring when it is
 // called anywhere but a module's top level.
 //
 // Revisions:
@@ -128,7 +131,11 @@ func _Declare(
 
 	supplied, declaring := artifact.Supplied(thread)
 	if !declaring {
-		return nil, fmt.Errorf("%s: %w", name, ERR_NOT_DECLARING)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			name,
+			ErrNotDeclaring,
+		)
 	}
 
 	value, found := supplied[name]
@@ -137,7 +144,11 @@ func _Declare(
 	}
 
 	if fallback == nil {
-		return nil, fmt.Errorf("%s: %w", name, ERR_NOT_SUPPLIED)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			name,
+			ErrNotSupplied,
+		)
 	}
 
 	return fallback, nil
@@ -168,7 +179,11 @@ func _Starlark(value *structpb.Value) (starlark.Value, error) {
 		return _Dict(held.StructValue)
 	}
 
-	return nil, fmt.Errorf("%T: %w", value.GetKind(), ERR_NOT_VALUE)
+	return nil, fmt.Errorf(
+		"%T: %w",
+		value.GetKind(),
+		ErrNotValue,
+	)
 }
 
 // _Number is a supplied number as a script sees it.
@@ -193,7 +208,11 @@ func _Number(number float64) starlark.Value {
 // Revisions:
 //   - 2026-09-22 22:24: initial creation
 func _List(values *structpb.ListValue) (starlark.Value, error) {
-	held := make([]starlark.Value, 0, len(values.GetValues()))
+	held := make(
+		[]starlark.Value,
+		0,
+		len(values.GetValues()),
+	)
 
 	for _, value := range values.GetValues() {
 		converted, err := _Starlark(value)
@@ -201,7 +220,10 @@ func _List(values *structpb.ListValue) (starlark.Value, error) {
 			return nil, err
 		}
 
-		held = append(held, converted)
+		held = append(
+			held,
+			converted,
+		)
 	}
 
 	return starlark.NewList(held), nil
@@ -220,9 +242,16 @@ func _Dict(fields *structpb.Struct) (starlark.Value, error) {
 			return nil, err
 		}
 
-		err = held.SetKey(starlark.String(key), converted)
+		err = held.SetKey(
+			starlark.String(key),
+			converted,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", key, err)
+			return nil, fmt.Errorf(
+				"%s: %w",
+				key,
+				err,
+			)
 		}
 	}
 

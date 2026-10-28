@@ -9,8 +9,8 @@ import (
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 )
 
+// INDENT is one level, as a script writes it, and NEWLINE what ends a line.
 const (
-	// INDENT is one level, as a script writes it, and NEWLINE what ends a line.
 	INDENT  = "    "
 	NEWLINE = "\n"
 
@@ -30,12 +30,12 @@ const (
 )
 
 var (
-	// ERR_NO_BODY is a function or main with nothing to write: code unset, text
+	// ErrNoBody is a function or main with nothing to write: code unset, text
 	// that is empty or only comments, or a statement list with no statements.
-	ERR_NO_BODY = errors.New("function has no body")
+	ErrNoBody = errors.New("function has no body")
 
-	// ERR_FORM is a statement this generator does not write.
-	ERR_FORM = errors.New("no form")
+	// ErrForm is a statement this generator does not write.
+	ErrForm = errors.New("no form")
 )
 
 // Emit is the Starlark a flow describes, ready for a compiler.
@@ -58,9 +58,9 @@ var (
 // so a body that is not Starlark is a compile error with a line number rather
 // than something this package invents a message for.
 //
-// A statement with no form this writes is ERR_FORM. A function or main with no
+// A statement with no form this writes is ErrForm. A function or main with no
 // body, an empty statement list, and body text that is only comments, are
-// ERR_NO_BODY.
+// ErrNoBody.
 //
 // Revisions:
 //   - 2026-09-20 20:56: initial creation
@@ -85,7 +85,7 @@ func Emit(flow *workflowpb.Flow) ([]byte, error) {
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Flow, and
 //     keeping where each body's comments go
 func _Build(flow *workflowpb.Flow) (*_Program, error) {
-	prog := &_Program{
+	var prog = &_Program{
 		elif:    map[*syntax.IfStmt]struct{}{},
 		sources: map[string]*_Lines{},
 		cuts:    map[string][]syntax.Comment{},
@@ -94,7 +94,10 @@ func _Build(flow *workflowpb.Flow) (*_Program, error) {
 		tails:   map[syntax.Stmt][]syntax.Comment{},
 	}
 
-	functions, err := _Functions(prog, flow)
+	functions, err := _Functions(
+		prog,
+		flow,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +112,10 @@ func _Build(flow *workflowpb.Flow) (*_Program, error) {
 		return nil, err
 	}
 
-	main, err := _Main(prog, flow)
+	main, err := _Main(
+		prog,
+		flow,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -128,16 +134,25 @@ func _Build(flow *workflowpb.Flow) (*_Program, error) {
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the defs, which the printer places
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Flow
-func _Functions(prog *_Program, flow *workflowpb.Flow) ([]*syntax.DefStmt, error) {
+func _Functions(
+	prog *_Program,
+	flow *workflowpb.Flow,
+) ([]*syntax.DefStmt, error) {
 	var defs []*syntax.DefStmt
 
 	for _, fn := range flow.GetFunctions() {
-		def, err := _Function(prog, fn)
+		def, err := _Function(
+			prog,
+			fn,
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		defs = append(defs, def)
+		defs = append(
+			defs,
+			def,
+		)
 	}
 
 	return defs, nil
@@ -149,17 +164,30 @@ func _Functions(prog *_Program, flow *workflowpb.Flow) ([]*syntax.DefStmt, error
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the def node
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Function
-func _Function(prog *_Program, fn *workflowpb.Function) (*syntax.DefStmt, error) {
+func _Function(
+	prog *_Program,
+	fn *workflowpb.Function,
+) (*syntax.DefStmt, error) {
 	if fn.GetName() == "" {
-		return nil, fmt.Errorf("function: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"function: %w",
+			ErrForm,
+		)
 	}
 
-	body, err := _Code(prog, fn)
+	body, err := _Code(
+		prog,
+		fn,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Def(fn.GetName(), fn.GetParams(), body), nil
+	return _Def(
+		fn.GetName(),
+		fn.GetParams(),
+		body,
+	), nil
 }
 
 // _Main is def main.
@@ -168,11 +196,21 @@ func _Function(prog *_Program, fn *workflowpb.Function) (*syntax.DefStmt, error)
 //   - 2026-10-01 11:57: initial creation
 //   - 2026-10-01 13:08: returns the def node
 //   - 2026-10-02 00:04: lifted into graph, taking the generated Flow
-func _Main(prog *_Program, flow *workflowpb.Flow) (*syntax.DefStmt, error) {
-	body, err := _Entry(prog, flow)
+func _Main(
+	prog *_Program,
+	flow *workflowpb.Flow,
+) (*syntax.DefStmt, error) {
+	body, err := _Entry(
+		prog,
+		flow,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Def(ENTRY, nil, body), nil
+	return _Def(
+		ENTRY,
+		nil,
+		body,
+	), nil
 }

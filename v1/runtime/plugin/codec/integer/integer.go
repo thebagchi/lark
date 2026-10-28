@@ -21,8 +21,8 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
+// NAME is the module, and the two names it holds.
 const (
-	// NAME is the module, and the two names it holds.
 	NAME       = "integer"
 	FROM_BYTES = "from_bytes"
 	TO_BYTES   = "to_bytes"
@@ -67,8 +67,14 @@ func (i *_Integer) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				FROM_BYTES: starlark.NewBuiltin(NAME+"."+FROM_BYTES, _FromBytes),
-				TO_BYTES:   starlark.NewBuiltin(NAME+"."+TO_BYTES, _ToBytes),
+				FROM_BYTES: starlark.NewBuiltin(
+					NAME+"."+FROM_BYTES,
+					_FromBytes,
+				),
+				TO_BYTES: starlark.NewBuiltin(
+					NAME+"."+TO_BYTES,
+					_ToBytes,
+				),
 			},
 		},
 	}
@@ -109,7 +115,10 @@ func _FromBytes(
 		return nil, err
 	}
 
-	data, err := unpack.Bytes(fn.Name(), given)
+	data, err := unpack.Bytes(
+		fn.Name(),
+		given,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +128,11 @@ func _FromBytes(
 		decode = DecodeSigned
 	}
 
-	number, err := decode(fn.Name(), data, order)
+	number, err := decode(
+		fn.Name(),
+		data,
+		order,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +146,7 @@ func _FromBytes(
 //
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, as codec's int2bytes
-//   - 2026-10-08 17:47: refuses with unpack's ERR_RANGE, which hex and binary refuse
+//   - 2026-10-08 17:47: refuses with unpack's ErrRange, which hex and binary refuse
 //     with too
 //   - 2026-10-08 18:42: a member of the integer module, as to_bytes
 //   - 2026-10-08 21:08: takes a byte order, and writes through Encode, which charges
@@ -145,6 +158,49 @@ func _ToBytes(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+	number, width, order, signed, err := _ByteArgs(
+		fn,
+		args,
+		kwargs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	encode := Encode
+	if signed {
+		encode = EncodeSigned
+	}
+
+	field := &Field{
+		Number: number.BigInt(),
+		Width:  width,
+		Order:  order,
+	}
+
+	var data []byte
+
+	data, err = encode(
+		scheduler.Allowance(thread),
+		fn.Name(),
+		field,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return starlark.Bytes(data), nil
+}
+
+// _ByteArgs reads the number, the width, the order, and whether it is signed.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _ByteArgs(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Int, int, string, bool, error) {
 	var (
 		number starlark.Int
 		width  int
@@ -166,20 +222,8 @@ func _ToBytes(
 		&signed,
 	)
 	if err != nil {
-		return nil, err
+		return starlark.Int{}, 0, "", false, err
 	}
 
-	encode := Encode
-	if signed {
-		encode = EncodeSigned
-	}
-
-	field := &Field{Number: number.BigInt(), Width: width, Order: order}
-
-	data, err := encode(scheduler.Allowance(thread), fn.Name(), field)
-	if err != nil {
-		return nil, err
-	}
-
-	return starlark.Bytes(data), nil
+	return number, width, order, signed, nil
 }

@@ -10,15 +10,17 @@ import (
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
 )
 
-// ERR_NOT_CARRIED is returned for an arg() call a graph cannot carry: a name
+// ErrNotCarried is returned for an arg() call a graph cannot carry: a name
 // that is not a string literal, a default no value describes, or a count of
 // arguments the builtin does not take.
 //
-// An error rather than a fallthrough to ERR_CONSTANT. Once arg is the name a
+// An error rather than a fallthrough to ErrConstant. Once arg is the name a
 // declaration is written with, a malformed one is a broken declaration and not
 // an ordinary constant that happens to fail - and a reader told "constant
 // cannot be carried" would go looking for the wrong thing.
-var ERR_NOT_CARRIED = errors.New("argument declaration cannot be carried")
+var (
+	ErrNotCarried = errors.New("argument declaration cannot be carried")
+)
 
 const (
 	// ARG is the builtin a declaration is written with.
@@ -45,7 +47,7 @@ const (
 // and arg("host", "x") declare the same argument, and a graph that refused the
 // first would refuse a script that runs.
 //
-// Returns ERR_NOT_CARRIED for the second outcome.
+// Returns ErrNotCarried for the second outcome.
 //
 // Revisions:
 //   - 2026-09-22 22:31: initial creation
@@ -62,16 +64,26 @@ func (r *_Reading) _Declared(expr syntax.Expr) (*workflowpb.Arg, error) {
 	}
 
 	if len(call.Args) == 0 || len(call.Args) > TAKES {
-		return nil, fmt.Errorf("%s takes one or two arguments: %w", ARG, ERR_NOT_CARRIED)
+		return nil, fmt.Errorf(
+			"%s takes one or two arguments: %w",
+			ARG,
+			ErrNotCarried,
+		)
 	}
 
 	name, ok := _Spelled(call.Args[0])
 	if !ok {
-		return nil, fmt.Errorf("%s names a string: %w", ARG, ERR_NOT_CARRIED)
+		return nil, fmt.Errorf(
+			"%s names a string: %w",
+			ARG,
+			ErrNotCarried,
+		)
 	}
 
 	if len(call.Args) == 1 {
-		return &workflowpb.Arg{Name: name}, nil
+		return &workflowpb.Arg{
+			Name: name,
+		}, nil
 	}
 
 	// Not prefixed with the name: the caller already names the binding this
@@ -79,10 +91,16 @@ func (r *_Reading) _Declared(expr syntax.Expr) (*workflowpb.Arg, error) {
 	// word printed twice.
 	value, ok := _Arg(_Passed(call.Args[1]))
 	if !ok {
-		return nil, fmt.Errorf("default is not a value: %w", ERR_NOT_CARRIED)
+		return nil, fmt.Errorf(
+			"default is not a value: %w",
+			ErrNotCarried,
+		)
 	}
 
-	return &workflowpb.Arg{Name: name, Default: value}, nil
+	return &workflowpb.Arg{
+		Name:    name,
+		Default: value,
+	}, nil
 }
 
 // _Passed is what an argument states, with a keyword's name set aside.
@@ -129,13 +147,19 @@ func _Spelled(expr syntax.Expr) (string, bool) {
 //     apart from the reading's _Declared
 func _Declaration(arg *workflowpb.Arg) (syntax.Expr, error) {
 	if arg == nil || arg.GetName() == "" {
-		return nil, fmt.Errorf("arg: %w", ERR_FORM)
+		return nil, fmt.Errorf(
+			"arg: %w",
+			ErrForm,
+		)
 	}
 
 	args := []syntax.Expr{_Text(strconv.Quote(arg.GetName()))}
 
 	if arg.GetDefault() == nil {
-		return _Bare(ARG, args), nil
+		return _Bare(
+			ARG,
+			args,
+		), nil
 	}
 
 	value, err := _Value(arg.GetDefault())
@@ -143,7 +167,13 @@ func _Declaration(arg *workflowpb.Arg) (syntax.Expr, error) {
 		return nil, err
 	}
 
-	args = append(args, value)
+	args = append(
+		args,
+		value,
+	)
 
-	return _Bare(ARG, args), nil
+	return _Bare(
+		ARG,
+		args,
+	), nil
 }

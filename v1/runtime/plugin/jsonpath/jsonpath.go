@@ -9,6 +9,7 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 )
 
+// NAME is the module, and the names it holds.
 const (
 	NAME     = "jsonpath"
 	PATCH    = "patch_json"
@@ -49,11 +50,26 @@ func (p *_Plugin) Name() string {
 //   - 2026-09-20 01:13: initial creation
 func (p *_Plugin) Values() starlark.StringDict {
 	return starlark.StringDict{
-		PATCH:   starlark.NewBuiltin(PATCH, _PatchJSON),
-		FIND:    starlark.NewBuiltin(FIND, _FindKey),
-		EXTRACT: starlark.NewBuiltin(EXTRACT, _ExtractJSON),
-		MATCH:   starlark.NewBuiltin(MATCH, _MatchJSON),
-		LENGTH:  starlark.NewBuiltin(LENGTH, _LenJSON),
+		PATCH: starlark.NewBuiltin(
+			PATCH,
+			_PatchJSON,
+		),
+		FIND: starlark.NewBuiltin(
+			FIND,
+			_FindKey,
+		),
+		EXTRACT: starlark.NewBuiltin(
+			EXTRACT,
+			_ExtractJSON,
+		),
+		MATCH: starlark.NewBuiltin(
+			MATCH,
+			_MatchJSON,
+		),
+		LENGTH: starlark.NewBuiltin(
+			LENGTH,
+			_LenJSON,
+		),
 	}
 }
 
@@ -76,14 +92,13 @@ func _PatchJSON(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	var (
-		doc   starlark.Value
-		patch *starlark.List
+	doc, patch, err := _PatchArgs(
+		fn,
+		args,
+		kwargs,
 	)
-
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &doc, &patch)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, err
 	}
 
 	edit := _NewEdit()
@@ -96,17 +111,60 @@ func _PatchJSON(
 				fn.Name(),
 				index,
 				patch.Index(index).Type(),
-				ERR_OPERATION,
+				ErrOperation,
 			)
 		}
 
-		doc, err = edit._Patch(doc, op)
+		doc, err = edit._Patch(
+			doc,
+			op,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("%s: operation %d: %w", fn.Name(), index, err)
+			return nil, fmt.Errorf(
+				"%s: operation %d: %w",
+				fn.Name(),
+				index,
+				err,
+			)
 		}
 	}
 
 	return doc, nil
+}
+
+// _PatchArgs reads the document and the list of operations.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _PatchArgs(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, *starlark.List, error) {
+	var (
+		doc   starlark.Value
+		patch *starlark.List
+	)
+
+	const NEEDED = 2
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&doc,
+		&patch,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	return doc, patch, nil
 }
 
 // _ExtractJSON returns the value at a pointer, or None when any step is
@@ -124,14 +182,25 @@ func _ExtractJSON(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	doc, steps, err := _Target(fn, args, kwargs)
+	doc, steps, err := _Target(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	value, err := _Walk(doc, steps)
+	value, err := _Walk(
+		doc,
+		steps,
+	)
 	if err != nil {
-		return _Absent(fn, err, starlark.None)
+		return _Absent(
+			fn,
+			err,
+			starlark.None,
+		)
 	}
 
 	return value, nil
@@ -150,33 +219,86 @@ func _MatchJSON(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+	doc, pointer, want, err := _MatchArgs(
+		fn,
+		args,
+		kwargs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	steps, err := _Steps(pointer)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	got, err := _Walk(
+		doc,
+		steps,
+	)
+	if err != nil {
+		return _Absent(
+			fn,
+			err,
+			starlark.False,
+		)
+	}
+
+	same, err := _Equal(
+		got,
+		want,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	return starlark.Bool(same), nil
+}
+
+// _MatchArgs reads the document, the pointer, and the value a match compares.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _MatchArgs(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, string, starlark.Value, error) {
 	var (
 		doc     starlark.Value
 		pointer string
 		want    starlark.Value
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 3, &doc, &pointer, &want)
+	const NEEDED = 3
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&doc,
+		&pointer,
+		&want,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, "", nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
-	steps, err := _Steps(pointer)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
-	}
-
-	got, err := _Walk(doc, steps)
-	if err != nil {
-		return _Absent(fn, err, starlark.False)
-	}
-
-	same, err := _Equal(got, want)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
-	}
-
-	return starlark.Bool(same), nil
+	return doc, pointer, want, nil
 }
 
 // _LenJSON returns the length of what a pointer names, or 0 when it is
@@ -194,14 +316,25 @@ func _LenJSON(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	doc, steps, err := _Target(fn, args, kwargs)
+	doc, steps, err := _Target(
+		fn,
+		args,
+		kwargs,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	value, err := _Walk(doc, steps)
+	value, err := _Walk(
+		doc,
+		steps,
+	)
 	if err != nil {
-		return _Absent(fn, err, starlark.MakeInt(NO_VALUE))
+		return _Absent(
+			fn,
+			err,
+			starlark.MakeInt(NO_VALUE),
+		)
 	}
 
 	measured, ok := value.(starlark.Sequence)
@@ -221,7 +354,7 @@ func _LenJSON(
 			"%s: %s has no length: %w",
 			fn.Name(),
 			value.Type(),
-			ERR_KIND,
+			ErrKind,
 		)
 	}
 }
@@ -244,14 +377,34 @@ func _FindKey(
 		key string
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &doc, &key)
+	const NEEDED = 2
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&doc,
+		&key,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
-	found, err := _Search(doc, key)
+	found, err := _Search(
+		doc,
+		key,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	if found == nil {
@@ -266,14 +419,23 @@ func _FindKey(
 // Revisions:
 //   - 2026-09-20 01:19: initial creation
 //   - 2026-10-03 16:55: searches a dict through _SearchDict
-func _Search(doc starlark.Value, key string) (starlark.Value, error) {
+func _Search(
+	doc starlark.Value,
+	key string,
+) (starlark.Value, error) {
 	switch container := doc.(type) {
 	case *starlark.Dict:
-		return _SearchDict(container, key)
+		return _SearchDict(
+			container,
+			key,
+		)
 
 	case *starlark.List:
 		for index := range container.Len() {
-			found, err := _Search(container.Index(index), key)
+			found, err := _Search(
+				container.Index(index),
+				key,
+			)
 			if err != nil || found != nil {
 				return found, err
 			}
@@ -296,7 +458,10 @@ func _Search(doc starlark.Value, key string) (starlark.Value, error) {
 //
 // Revisions:
 //   - 2026-10-03 16:55: initial creation, from _Search
-func _SearchDict(holder *starlark.Dict, key string) (starlark.Value, error) {
+func _SearchDict(
+	holder *starlark.Dict,
+	key string,
+) (starlark.Value, error) {
 	value, present, err := holder.Get(starlark.String(key))
 	if err != nil {
 		return nil, err
@@ -307,7 +472,10 @@ func _SearchDict(holder *starlark.Dict, key string) (starlark.Value, error) {
 	}
 
 	for _, member := range holder.Entries() {
-		value, err = _Search(member, key)
+		value, err = _Search(
+			member,
+			key,
+		)
 		if err != nil || value != nil {
 			return value, err
 		}
@@ -326,12 +494,26 @@ func _SearchDict(holder *starlark.Dict, key string) (starlark.Value, error) {
 //
 // Revisions:
 //   - 2026-09-20 01:35: initial creation
-func _Absent(fn *starlark.Builtin, err error, answer starlark.Value) (starlark.Value, error) {
-	if errors.Is(err, ERR_MISSING) || errors.Is(err, ERR_KIND) {
+func _Absent(
+	fn *starlark.Builtin,
+	err error,
+	answer starlark.Value,
+) (starlark.Value, error) {
+	if errors.Is(
+		err,
+		ErrMissing,
+	) || errors.Is(
+		err,
+		ErrKind,
+	) {
 		return answer, nil
 	}
 
-	return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+	return nil, fmt.Errorf(
+		"%s: %w",
+		fn.Name(),
+		err,
+	)
 }
 
 // _Target reads the document and pointer two of these builtins share.
@@ -348,14 +530,31 @@ func _Target(
 		pointer string
 	)
 
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 2, &doc, &pointer)
+	const NEEDED = 2
+
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		NEEDED,
+		&doc,
+		&pointer,
+	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	steps, err := _Steps(pointer)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	return doc, steps, nil

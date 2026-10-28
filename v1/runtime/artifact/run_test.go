@@ -15,9 +15,11 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/script"
 )
 
-// ERR_SPELLING is what the plugin below refuses with, so that a test can tell
+// ErrSpelling is what the plugin below refuses with, so that a test can tell
 // being asked from not being asked.
-var ERR_SPELLING = errors.New("refused on spelling")
+var (
+	ErrSpelling = errors.New("refused on spelling")
+)
 
 const (
 	CONCURRENT_FIXTURE  = "concurrent.star"
@@ -44,16 +46,26 @@ const (
 //
 // Revisions:
 //   - 2026-09-19 22:45: initial creation
-func _Built(t *testing.T, name string) *artifact.Artifact {
+func _Built(
+	t *testing.T,
+	name string,
+) *artifact.Artifact {
 	t.Helper()
 
 	built, err := artifact.Compile(&script.Source{
-		Entry:  name,
-		Text:   _Fixture(t, name),
+		Entry: name,
+		Text: _Fixture(
+			t,
+			name,
+		),
 		Loader: _Loader(),
 	})
 	if err != nil {
-		t.Fatalf("compile %s: %v", name, err)
+		t.Fatalf(
+			"compile %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return built
@@ -63,12 +75,18 @@ func _Built(t *testing.T, name string) *artifact.Artifact {
 //
 // Revisions:
 //   - 2026-09-19 22:45: initial creation
-func _Number(t *testing.T, value starlark.Value) int64 {
+func _Number(
+	t *testing.T,
+	value starlark.Value,
+) int64 {
 	t.Helper()
 
 	number, ok := value.(starlark.Int)
 	if !ok {
-		t.Fatalf("got %T, want starlark.Int", value)
+		t.Fatalf(
+			"got %T, want starlark.Int",
+			value,
+		)
 	}
 
 	got, _ := number.Int64()
@@ -86,13 +104,29 @@ func _Number(t *testing.T, value starlark.Value) int64 {
 // Revisions:
 //   - 2026-09-19 22:46: initial creation
 func TestRun_AScriptCanSpawnAndJoin(t *testing.T) {
-	value, err := artifact.Run(t.Context(), _Built(t, CONCURRENT_FIXTURE))
+	value, err := artifact.Run(
+		t.Context(),
+		_Built(
+			t,
+			CONCURRENT_FIXTURE,
+		),
+	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
-	if got := _Number(t, value); got != EXPECTED_SUM {
-		t.Fatalf("got %d, want %d", got, EXPECTED_SUM)
+	if got := _Number(
+		t,
+		value,
+	); got != EXPECTED_SUM {
+		t.Fatalf(
+			"got %d, want %d",
+			got,
+			EXPECTED_SUM,
+		)
 	}
 }
 
@@ -102,24 +136,47 @@ func TestRun_AScriptCanSpawnAndJoin(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:47: initial creation
 func TestRun_ReturnsWithoutWaitingForWhatNobodyJoined(t *testing.T) {
-	start := time.Now()
+	var (
+		start = time.Now()
+		value starlark.Value
+		err   error
+	)
 
-	value, err := artifact.Run(t.Context(), _Built(t, FORGETS_FIXTURE))
+	value, err = artifact.Run(
+		t.Context(),
+		_Built(
+			t,
+			FORGETS_FIXTURE,
+		),
+	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
 	took := time.Since(start)
 	if took > ABANDON_BUDGET {
-		t.Fatalf("the run waited %s for a thread nobody joined", took)
+		t.Fatalf(
+			"the run waited %s for a thread nobody joined",
+			took,
+		)
 	}
 
 	text, ok := value.(starlark.String)
 	if !ok || string(text) != EXPECTED_DONE {
-		t.Fatalf("got %v, want %q", value, EXPECTED_DONE)
+		t.Fatalf(
+			"got %v, want %q",
+			value,
+			EXPECTED_DONE,
+		)
 	}
 
-	t.Logf("entry point returned and the run ended in %s", took)
+	t.Logf(
+		"entry point returned and the run ended in %s",
+		took,
+	)
 }
 
 // TestRun_CancellingTheContextStopsTheSpine proves cancellation reaches the
@@ -135,29 +192,57 @@ func TestRun_ReturnsWithoutWaitingForWhatNobodyJoined(t *testing.T) {
 //   - 2026-09-23 07:02: checks which error came back, having only checked that
 //     one did
 func TestRun_CancellingTheContextStopsTheSpine(t *testing.T) {
-	ctx, stop := context.WithTimeout(t.Context(), CANCEL_AFTER)
+	ctx, stop := context.WithTimeout(
+		t.Context(),
+		CANCEL_AFTER,
+	)
 	defer stop()
 
-	built := _Built(t, SPINS_FIXTURE)
-
-	done := make(chan error, 1)
+	var (
+		built = _Built(
+			t,
+			SPINS_FIXTURE,
+		)
+		done = make(
+			chan error,
+			1,
+		)
+	)
 
 	go func() {
-		_, err := artifact.Run(ctx, built)
+		_, err := artifact.Run(
+			ctx,
+			built,
+		)
 		done <- err
 	}()
 
 	select {
 	case err := <-done:
-		if !errors.Is(err, scheduler.ERR_CANCELLED) {
-			t.Fatalf("a cancelled run gave %v, want ERR_CANCELLED", err)
+		if !errors.Is(
+			err,
+			scheduler.ErrCancelled,
+		) {
+			t.Fatalf(
+				"a cancelled run gave %v, want ErrCancelled",
+				err,
+			)
 		}
 
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("a cancelled run gave %v, want it to carry the deadline", err)
+		if !errors.Is(
+			err,
+			context.DeadlineExceeded,
+		) {
+			t.Fatalf(
+				"a cancelled run gave %v, want it to carry the deadline",
+				err,
+			)
 		}
 
-		t.Logf("spine stopped: %v", err)
+		t.Logf(
+			"spine stopped: %v",
+			err,
+		)
 	case <-time.After(CANCEL_BUDGET):
 		t.Fatal("a cancelled run did not stop")
 	}
@@ -169,16 +254,37 @@ func TestRun_CancellingTheContextStopsTheSpine(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:49: initial creation
 func TestRun_RefusesAnEntryPointWithArguments(t *testing.T) {
-	_, err := artifact.Run(t.Context(), _Built(t, MAINARGS_FIXTURE))
-	if !errors.Is(err, artifact.ERR_NO_MAIN) {
-		t.Fatalf("got %v, want ERR_NO_MAIN", err)
+	_, err := artifact.Run(
+		t.Context(),
+		_Built(
+			t,
+			MAINARGS_FIXTURE,
+		),
+	)
+	if !errors.Is(
+		err,
+		artifact.ErrNoMain,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNoMain",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), MAINARGS_FIXTURE) {
-		t.Fatalf("refusal does not name the position: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		MAINARGS_FIXTURE,
+	) {
+		t.Fatalf(
+			"refusal does not name the position: %v",
+			err,
+		)
 	}
 
-	t.Logf("refused: %v", err)
+	t.Logf(
+		"refused: %v",
+		err,
+	)
 }
 
 // TestRun_AcceptsADefaultedEntryPoint proves the count is of parameters a
@@ -187,13 +293,29 @@ func TestRun_RefusesAnEntryPointWithArguments(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:50: initial creation
 func TestRun_AcceptsADefaultedEntryPoint(t *testing.T) {
-	value, err := artifact.Run(t.Context(), _Built(t, MAINDEFAULT_FIXTURE))
+	value, err := artifact.Run(
+		t.Context(),
+		_Built(
+			t,
+			MAINDEFAULT_FIXTURE,
+		),
+	)
 	if err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf(
+			"run: %v",
+			err,
+		)
 	}
 
-	if got := _Number(t, value); got != EXPECTED_DEFAULT {
-		t.Fatalf("got %d, want %d", got, EXPECTED_DEFAULT)
+	if got := _Number(
+		t,
+		value,
+	); got != EXPECTED_DEFAULT {
+		t.Fatalf(
+			"got %d, want %d",
+			got,
+			EXPECTED_DEFAULT,
+		)
 	}
 }
 
@@ -203,9 +325,21 @@ func TestRun_AcceptsADefaultedEntryPoint(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:50: initial creation
 func TestRun_RefusesALibrary(t *testing.T) {
-	_, err := artifact.Run(t.Context(), _Built(t, LIB_FIXTURE))
-	if !errors.Is(err, artifact.ERR_NO_MAIN) {
-		t.Fatalf("got %v, want ERR_NO_MAIN", err)
+	_, err := artifact.Run(
+		t.Context(),
+		_Built(
+			t,
+			LIB_FIXTURE,
+		),
+	)
+	if !errors.Is(
+		err,
+		artifact.ErrNoMain,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNoMain",
+			err,
+		)
 	}
 }
 
@@ -217,16 +351,34 @@ func TestRun_RefusesALibrary(t *testing.T) {
 //   - 2026-09-19 22:52: initial creation, as TestInvoke_NumbersEachCallFromItsOwnSpine
 //   - 2026-10-03 00:21: runs the entry point twice, a run calling it and nothing else
 func TestRun_NumbersEachRunFromItsOwnSpine(t *testing.T) {
-	built := _Built(t, CONCURRENT_FIXTURE)
+	built := _Built(
+		t,
+		CONCURRENT_FIXTURE,
+	)
 
 	for attempt := range 2 {
-		value, err := artifact.Run(t.Context(), built)
+		value, err := artifact.Run(
+			t.Context(),
+			built,
+		)
 		if err != nil {
-			t.Fatalf("run %d: %v", attempt, err)
+			t.Fatalf(
+				"run %d: %v",
+				attempt,
+				err,
+			)
 		}
 
-		if got := _Number(t, value); got != EXPECTED_SUM {
-			t.Fatalf("run %d gave %d, want %d", attempt, got, EXPECTED_SUM)
+		if got := _Number(
+			t,
+			value,
+		); got != EXPECTED_SUM {
+			t.Fatalf(
+				"run %d gave %d, want %d",
+				attempt,
+				got,
+				EXPECTED_SUM,
+			)
 		}
 	}
 }
@@ -244,23 +396,43 @@ func TestRun_NumbersEachRunFromItsOwnSpine(t *testing.T) {
 //   - 2026-09-22 23:02: initial creation
 func TestRun_AModuleLevelFailureFailsTheRunNotTheCompile(t *testing.T) {
 	built, err := artifact.Compile(&script.Source{
-		Entry:  BREAKS_FIXTURE,
-		Text:   _Fixture(t, BREAKS_FIXTURE),
+		Entry: BREAKS_FIXTURE,
+		Text: _Fixture(
+			t,
+			BREAKS_FIXTURE,
+		),
 		Loader: _Loader(),
 	})
 	if err != nil {
-		t.Fatalf("compile %s: %v", BREAKS_FIXTURE, err)
+		t.Fatalf(
+			"compile %s: %v",
+			BREAKS_FIXTURE,
+			err,
+		)
 	}
 
 	for attempt := range RUNS_OF_ONE {
-		_, err = artifact.Run(context.Background(), built)
+		_, err = artifact.Run(
+			context.Background(),
+			built,
+		)
 		if err == nil {
-			t.Fatalf("run %d succeeded, want the module-level failure", attempt)
+			t.Fatalf(
+				"run %d succeeded, want the module-level failure",
+				attempt,
+			)
 		}
 
-		if !strings.Contains(err.Error(), BREAKS_TEXT) {
-			t.Fatalf("run %d failed with %v, want it to name %q",
-				attempt, err, BREAKS_TEXT)
+		if !strings.Contains(
+			err.Error(),
+			BREAKS_TEXT,
+		) {
+			t.Fatalf(
+				"run %d failed with %v, want it to name %q",
+				attempt,
+				err,
+				BREAKS_TEXT,
+			)
 		}
 	}
 }
@@ -284,14 +456,17 @@ func (s *_Spelling) Name() string {
 //   - 2026-09-24 20:46: initial creation
 func (s *_Spelling) Values() starlark.StringDict {
 	return starlark.StringDict{
-		SPELLING: starlark.NewBuiltin(SPELLING, func(
-			thread *starlark.Thread,
-			fn *starlark.Builtin,
-			args starlark.Tuple,
-			kwargs []starlark.Tuple,
-		) (starlark.Value, error) {
-			return starlark.None, nil
-		}),
+		SPELLING: starlark.NewBuiltin(
+			SPELLING,
+			func(
+				thread *starlark.Thread,
+				fn *starlark.Builtin,
+				args starlark.Tuple,
+				kwargs []starlark.Tuple,
+			) (starlark.Value, error) {
+				return starlark.None, nil
+			},
+		),
 	}
 }
 
@@ -301,7 +476,7 @@ func (s *_Spelling) Values() starlark.StringDict {
 // Revisions:
 //   - 2026-09-24 20:46: initial creation
 func (s *_Spelling) Check(tree *syntax.File) error {
-	return ERR_SPELLING
+	return ErrSpelling
 }
 
 // TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken is the mistake the
@@ -318,16 +493,29 @@ func (s *_Spelling) Check(tree *syntax.File) error {
 //   - 2026-10-02 13:12: hands the compiler the plugin, there being no registry
 //     to build
 func TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken(t *testing.T) {
-	spelling := new(_Spelling)
-
-	plugins := artifact.WithPlugins(spelling)
+	var (
+		spelling = new(_Spelling)
+		plugins  = artifact.WithPlugins(spelling)
+	)
 
 	// This file leaves the name alone, so the plugin is asked and refuses.
-	uses := []byte("def main():\n    " + SPELLING + "()\n")
+	var uses = []byte("def main():\n    " + SPELLING + "()\n")
 
-	_, err := artifact.Compile(&script.Source{Entry: "uses.star", Text: uses}, plugins)
-	if !errors.Is(err, ERR_SPELLING) {
-		t.Fatalf("a file using the name gave %v, want the plugin to have been asked", err)
+	_, err := artifact.Compile(
+		&script.Source{
+			Entry: "uses.star",
+			Text:  uses,
+		},
+		plugins,
+	)
+	if !errors.Is(
+		err,
+		ErrSpelling,
+	) {
+		t.Fatalf(
+			"a file using the name gave %v, want the plugin to have been asked",
+			err,
+		)
 	}
 
 	// And every way a file can take it, because missing one is the whole
@@ -344,35 +532,50 @@ func TestCheck_APluginIsNotAskedAboutANameTheFileHasTaken(t *testing.T) {
 	}
 
 	for name, binding := range taken {
-		t.Run(name, func(t *testing.T) {
-			src := []byte(binding + "\n\ndef main():\n    return 1\n")
+		t.Run(
+			name,
+			func(t *testing.T) {
+				var src = []byte(binding + "\n\ndef main():\n    return 1\n")
 
-			_, err := artifact.Compile(
-				&script.Source{Entry: name + ".star", Text: src},
-				plugins,
-			)
-			if err != nil {
-				t.Fatalf("a file that took the name by %s was refused: %v",
-					name, err)
-			}
-		})
+				_, err := artifact.Compile(
+					&script.Source{
+						Entry: name + ".star",
+						Text:  src,
+					},
+					plugins,
+				)
+				if err != nil {
+					t.Fatalf(
+						"a file that took the name by %s was refused: %v",
+						name,
+						err,
+					)
+				}
+			},
+		)
 	}
 
 	// A load binds too, and needs a loader to reach the file it names.
-	t.Run("a load", func(t *testing.T) {
-		src := `load("spelling.star", "` + SPELLING + `")` +
-			"\n\ndef main():\n    return " + SPELLING + "\n"
+	t.Run(
+		"a load",
+		func(t *testing.T) {
+			var src = `load("spelling.star", "` + SPELLING + `")` +
+				"\n\ndef main():\n    return " + SPELLING + "\n"
 
-		_, err := artifact.Compile(
-			&script.Source{
-				Entry:  "loads.star",
-				Text:   []byte(src),
-				Loader: _Loader(),
-			},
-			plugins,
-		)
-		if err != nil {
-			t.Fatalf("a file that took the name by a load was refused: %v", err)
-		}
-	})
+			_, err := artifact.Compile(
+				&script.Source{
+					Entry:  "loads.star",
+					Text:   []byte(src),
+					Loader: _Loader(),
+				},
+				plugins,
+			)
+			if err != nil {
+				t.Fatalf(
+					"a file that took the name by a load was refused: %v",
+					err,
+				)
+			}
+		},
+	)
 }

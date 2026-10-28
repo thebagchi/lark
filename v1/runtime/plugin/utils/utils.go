@@ -13,6 +13,7 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 )
 
+// NAME is the module, and the names it holds.
 const (
 	NAME     = "utils"
 	DATETIME = "datetime"
@@ -51,7 +52,10 @@ func (u *_Utils) Values() starlark.StringDict {
 		NAME: &starlarkstruct.Module{
 			Name: NAME,
 			Members: starlark.StringDict{
-				DATETIME: starlark.NewBuiltin(NAME+"."+DATETIME, _Datetime),
+				DATETIME: starlark.NewBuiltin(
+					NAME+"."+DATETIME,
+					_Datetime,
+				),
 			},
 		},
 	}
@@ -78,9 +82,18 @@ func _Datetime(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 0)
+	err := starlark.UnpackPositionalArgs(
+		fn.Name(),
+		args,
+		kwargs,
+		0,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
 	}
 
 	return starlark.String(time.Now().Format(LAYOUT)), nil

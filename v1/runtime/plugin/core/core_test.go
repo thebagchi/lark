@@ -46,9 +46,12 @@ const (
 
 // SUPPLIED is every name this plugin puts in a script's environment, written
 // once, so the test and the plugin cannot disagree about the count.
-var SUPPLIED = []string{core.SPAWN, core.JOIN, core.CANCEL, core.ASSERT, core.SLEEP}
+var (
+	SUPPLIED = []string{core.SPAWN, core.JOIN, core.CANCEL, core.ASSERT, core.SLEEP}
+)
 
-const SOURCE = `
+const (
+	SOURCE = `
 NUMBER = 1
 ANON = lambda: 1
 
@@ -104,6 +107,7 @@ def handing():
 
     return (items, lambda items = items: len(items))
 `
+)
 
 // _Globals compiles SOURCE against the plugin's names and freezes what it
 // produced.
@@ -116,13 +120,18 @@ func _Globals(t *testing.T) starlark.StringDict {
 
 	globals, err := starlark.ExecFileOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT_NAME},
+		&starlark.Thread{
+			Name: SCRIPT_NAME,
+		},
 		SCRIPT_NAME,
 		[]byte(SOURCE),
 		core.Builtins(),
 	)
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
 	globals.Freeze()
@@ -140,16 +149,32 @@ func _Globals(t *testing.T) starlark.StringDict {
 //     error, as Begin's does
 //   - 2026-10-03 20:54: ends the run itself, and checks what it produced, which Begin's
 //     function now answers with
-func _Begun(t *testing.T, ctx context.Context) *starlark.Thread {
+//   - 2026-10-24 18:29: takes the context first
+func _Begun(
+	ctx context.Context,
+	t *testing.T,
+) *starlark.Thread {
 	t.Helper()
 
-	thread := &starlark.Thread{Name: ENTRY}
-	finish := scheduler.Begin(ctx, thread, ENTRY, nil)
+	var (
+		thread = &starlark.Thread{
+			Name: ENTRY,
+		}
+		finish = scheduler.Begin(
+			ctx,
+			thread,
+			ENTRY,
+			nil,
+		)
+	)
 
 	t.Cleanup(func() {
 		produced := finish(nil)
 		if produced != nil {
-			t.Errorf("the run produced %v", produced)
+			t.Errorf(
+				"the run produced %v",
+				produced,
+			)
 		}
 	})
 
@@ -168,24 +193,45 @@ func _Call(
 ) (starlark.Value, error) {
 	t.Helper()
 
-	return starlark.Call(thread, core.Builtins()[name], starlark.Tuple(args), nil)
+	return starlark.Call(
+		thread,
+		core.Builtins()[name],
+		starlark.Tuple(args),
+		nil,
+	)
 }
 
 // _Spawned spawns the named global and returns the handle.
 //
 // Revisions:
 //   - 2026-09-19 22:04: initial creation
-func _Spawned(t *testing.T, thread *starlark.Thread, name string) *scheduler.Handle {
+func _Spawned(
+	t *testing.T,
+	thread *starlark.Thread,
+	name string,
+) *scheduler.Handle {
 	t.Helper()
 
-	value, err := _Call(t, thread, core.SPAWN, _Globals(t)[name])
+	value, err := _Call(
+		t,
+		thread,
+		core.SPAWN,
+		_Globals(t)[name],
+	)
 	if err != nil {
-		t.Fatalf("spawn %s: %v", name, err)
+		t.Fatalf(
+			"spawn %s: %v",
+			name,
+			err,
+		)
 	}
 
 	handle, ok := value.(*scheduler.Handle)
 	if !ok {
-		t.Fatalf("spawn returned %T, want *scheduler.Handle", value)
+		t.Fatalf(
+			"spawn returned %T, want *scheduler.Handle",
+			value,
+		)
 	}
 
 	return handle
@@ -201,17 +247,29 @@ func TestBuiltins_SuppliesItsNames(t *testing.T) {
 	values := core.Builtins()
 
 	if len(values) != len(SUPPLIED) {
-		t.Fatalf("supplies %v, want %v", values.Keys(), SUPPLIED)
+		t.Fatalf(
+			"supplies %v, want %v",
+			values.Keys(),
+			SUPPLIED,
+		)
 	}
 
 	for _, name := range SUPPLIED {
 		builtin, ok := values[name].(*starlark.Builtin)
 		if !ok {
-			t.Fatalf("%s is %T, want *starlark.Builtin", name, values[name])
+			t.Fatalf(
+				"%s is %T, want *starlark.Builtin",
+				name,
+				values[name],
+			)
 		}
 
 		if builtin.Name() != name {
-			t.Fatalf("%s is named %q", name, builtin.Name())
+			t.Fatalf(
+				"%s is named %q",
+				name,
+				builtin.Name(),
+			)
 		}
 	}
 
@@ -228,22 +286,50 @@ func TestBuiltins_SuppliesItsNames(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:11: initial creation
 func TestSpawn_RunsAndJoins(t *testing.T) {
-	thread := _Begun(t, t.Context())
+	thread := _Begun(
+		t.Context(),
+		t,
+	)
 
-	first := _Spawned(t, thread, WORKER)
-	second := _Spawned(t, thread, SECOND)
-
-	value, err := _Call(t, thread, core.JOIN, first, second)
+	var (
+		first = _Spawned(
+			t,
+			thread,
+			WORKER,
+		)
+		second = _Spawned(
+			t,
+			thread,
+			SECOND,
+		)
+		value, err = _Call(
+			t,
+			thread,
+			core.JOIN,
+			first,
+			second,
+		)
+	)
 	if err != nil {
-		t.Fatalf("join: %v", err)
+		t.Fatalf(
+			"join: %v",
+			err,
+		)
 	}
 
 	if value.String() != "[7, 9]" {
-		t.Fatalf("join returned %s, want [7, 9]", value)
+		t.Fatalf(
+			"join returned %s, want [7, 9]",
+			value,
+		)
 	}
 
 	if first.Thread() != "thread_1" || second.Thread() != "thread_2" {
-		t.Fatalf("lanes are %s and %s", first.Thread(), second.Thread())
+		t.Fatalf(
+			"lanes are %s and %s",
+			first.Thread(),
+			second.Thread(),
+		)
 	}
 }
 
@@ -253,27 +339,56 @@ func TestSpawn_RunsAndJoins(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:06: initial creation
 func TestSpawn_RefusesWhatCannotBeCalled(t *testing.T) {
-	globals := _Globals(t)
-
-	thread := _Begun(t, t.Context())
-
-	cases := []struct {
-		name string
-		args []starlark.Value
-	}{
-		{name: "nothing", args: nil},
-		{name: "two functions", args: []starlark.Value{globals[WORKER], globals[WORKER]}},
-		{name: "not a function", args: []starlark.Value{globals[NOT_A_FUNC]}},
-		{name: "takes arguments", args: []starlark.Value{globals[TAKES_ARGS]}},
-	}
+	var (
+		globals = _Globals(t)
+		thread  = _Begun(
+			t.Context(),
+			t,
+		)
+		cases = []struct {
+			name string
+			args []starlark.Value
+		}{
+			{
+				name: "nothing",
+				args: nil,
+			},
+			{
+				name: "two functions",
+				args: []starlark.Value{globals[WORKER], globals[WORKER]},
+			},
+			{
+				name: "not a function",
+				args: []starlark.Value{globals[NOT_A_FUNC]},
+			},
+			{
+				name: "takes arguments",
+				args: []starlark.Value{globals[TAKES_ARGS]},
+			},
+		}
+	)
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			_, err := _Call(t, thread, core.SPAWN, item.args...)
-			if !errors.Is(err, core.ERR_NOT_A_NAME) {
-				t.Fatalf("got %v, want ERR_NOT_A_NAME", err)
-			}
-		})
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				_, err := _Call(
+					t,
+					thread,
+					core.SPAWN,
+					item.args...,
+				)
+				if !errors.Is(
+					err,
+					core.ErrNotAName,
+				) {
+					t.Fatalf(
+						"got %v, want ErrNotAName",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -285,10 +400,20 @@ func TestSpawn_RefusesWhatCannotBeCalled(t *testing.T) {
 //   - 2026-10-02 00:48: has no name rather than the interpreter's word for a
 //     lambda, which would read like a function of that name
 func TestSpawn_TakesALambda(t *testing.T) {
-	thread := _Begun(t, t.Context())
+	thread := _Begun(
+		t.Context(),
+		t,
+	)
 
-	if got := _Spawned(t, thread, ANON_FUNC).Name(); got != "" {
-		t.Fatalf("want no name, got %q", got)
+	if got := _Spawned(
+		t,
+		thread,
+		ANON_FUNC,
+	).Name(); got != "" {
+		t.Fatalf(
+			"want no name, got %q",
+			got,
+		)
 	}
 }
 
@@ -299,23 +424,37 @@ func TestSpawn_TakesALambda(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 00:48: initial creation
 func TestSpawn_TakesTheLabelTheDialectPasses(t *testing.T) {
-	thread := _Begun(t, t.Context())
-
-	kwargs := []starlark.Tuple{
-		{starlark.String(spelling.BINDING), starlark.String("h1")},
-		{starlark.String(spelling.CALLEE), starlark.String(WORKER)},
-	}
-
-	args := starlark.Tuple{_Globals(t)[ANON_FUNC]}
-
-	value, err := starlark.Call(thread, core.Builtins()[core.SPAWN], args, kwargs)
+	var (
+		thread = _Begun(
+			t.Context(),
+			t,
+		)
+		kwargs = []starlark.Tuple{
+			{starlark.String(spelling.BINDING), starlark.String("h1")},
+			{starlark.String(spelling.CALLEE), starlark.String(WORKER)},
+		}
+		args       = starlark.Tuple{_Globals(t)[ANON_FUNC]}
+		value, err = starlark.Call(
+			thread,
+			core.Builtins()[core.SPAWN],
+			args,
+			kwargs,
+		)
+	)
 	if err != nil {
-		t.Fatalf("spawn: %v", err)
+		t.Fatalf(
+			"spawn: %v",
+			err,
+		)
 	}
 
 	handle, ok := value.(*scheduler.Handle)
 	if !ok || handle.Name() != WORKER {
-		t.Fatalf("got %v, want a handle named %s", value, WORKER)
+		t.Fatalf(
+			"got %v, want a handle named %s",
+			value,
+			WORKER,
+		)
 	}
 }
 
@@ -326,17 +465,35 @@ func TestSpawn_TakesTheLabelTheDialectPasses(t *testing.T) {
 // Revisions:
 //   - 2026-09-29 23:33: initial creation
 func TestSpawn_TakesAFunctionWhoseParametersAllHaveDefaults(t *testing.T) {
-	thread := _Begun(t, t.Context())
-
-	handle := _Spawned(t, thread, DEFAULTED)
-
-	value, err := _Call(t, thread, core.JOIN, handle)
+	var (
+		thread = _Begun(
+			t.Context(),
+			t,
+		)
+		handle = _Spawned(
+			t,
+			thread,
+			DEFAULTED,
+		)
+		value, err = _Call(
+			t,
+			thread,
+			core.JOIN,
+			handle,
+		)
+	)
 	if err != nil {
-		t.Fatalf("join: %v", err)
+		t.Fatalf(
+			"join: %v",
+			err,
+		)
 	}
 
 	if value.String() != "[10]" {
-		t.Fatalf("join returned %s, want [10]", value)
+		t.Fatalf(
+			"join returned %s, want [10]",
+			value,
+		)
 	}
 }
 
@@ -347,15 +504,36 @@ func TestSpawn_TakesAFunctionWhoseParametersAllHaveDefaults(t *testing.T) {
 // Revisions:
 //   - 2026-09-29 23:33: initial creation
 func TestSpawn_RefusesWhatCaptures(t *testing.T) {
-	thread := _Begun(t, t.Context())
+	thread := _Begun(
+		t.Context(),
+		t,
+	)
 
 	for _, name := range []string{CAPTURES, THROUGH} {
-		t.Run(name, func(t *testing.T) {
-			_, err := _Call(t, thread, core.SPAWN, _Made(t, thread, name))
-			if !errors.Is(err, core.ERR_CAPTURES) {
-				t.Fatalf("got %v, want ERR_CAPTURES", err)
-			}
-		})
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Call(
+					t,
+					thread,
+					core.SPAWN,
+					_Made(
+						t,
+						thread,
+						name,
+					),
+				)
+				if !errors.Is(
+					err,
+					core.ErrCaptures,
+				) {
+					t.Fatalf(
+						"got %v, want ErrCaptures",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -366,28 +544,58 @@ func TestSpawn_RefusesWhatCaptures(t *testing.T) {
 // Revisions:
 //   - 2026-09-29 23:33: initial creation
 func TestSpawn_FreezesWhatTheThreadIsHanded(t *testing.T) {
-	thread := _Begun(t, t.Context())
-
-	made := _Made(t, thread, HANDING)
-
-	pair, ok := made.(starlark.Tuple)
+	var (
+		thread = _Begun(
+			t.Context(),
+			t,
+		)
+		made = _Made(
+			t,
+			thread,
+			HANDING,
+		)
+		pair, ok = made.(starlark.Tuple)
+	)
 	if !ok || len(pair) != PAIR {
-		t.Fatalf("%s made %s, want a list and a lambda", HANDING, made)
+		t.Fatalf(
+			"%s made %s, want a list and a lambda",
+			HANDING,
+			made,
+		)
 	}
 
 	items, ok := pair[0].(*starlark.List)
 	if !ok {
-		t.Fatalf("%s made %s first, want a list", HANDING, pair[0].Type())
+		t.Fatalf(
+			"%s made %s first, want a list",
+			HANDING,
+			pair[0].Type(),
+		)
 	}
 
-	_, err := _Call(t, thread, core.SPAWN, pair[1])
+	_, err := _Call(
+		t,
+		thread,
+		core.SPAWN,
+		pair[1],
+	)
 	if err != nil {
-		t.Fatalf("spawn: %v", err)
+		t.Fatalf(
+			"spawn: %v",
+			err,
+		)
 	}
 
 	err = items.Append(starlark.MakeInt(1))
-	if err == nil || !strings.Contains(err.Error(), FROZEN) {
-		t.Fatalf("appending to what a thread was handed: %v, want it %s", err, FROZEN)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		FROZEN,
+	) {
+		t.Fatalf(
+			"appending to what a thread was handed: %v, want it %s",
+			err,
+			FROZEN,
+		)
 	}
 }
 
@@ -395,12 +603,25 @@ func TestSpawn_FreezesWhatTheThreadIsHanded(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-29 23:33: initial creation
-func _Made(t *testing.T, thread *starlark.Thread, name string) starlark.Value {
+func _Made(
+	t *testing.T,
+	thread *starlark.Thread,
+	name string,
+) starlark.Value {
 	t.Helper()
 
-	value, err := starlark.Call(thread, _Globals(t)[name], nil, nil)
+	value, err := starlark.Call(
+		thread,
+		_Globals(t)[name],
+		nil,
+		nil,
+	)
 	if err != nil {
-		t.Fatalf("%s: %v", name, err)
+		t.Fatalf(
+			"%s: %v",
+			name,
+			err,
+		)
 	}
 
 	return value
@@ -412,9 +633,22 @@ func _Made(t *testing.T, thread *starlark.Thread, name string) starlark.Value {
 // Revisions:
 //   - 2026-09-19 22:07: initial creation
 func TestSpawn_RefusesAThreadWithNoRun(t *testing.T) {
-	_, err := _Call(t, &starlark.Thread{Name: SCRIPT_NAME}, core.SPAWN, _Globals(t)[WORKER])
-	if !errors.Is(err, scheduler.ERR_NO_RUN) {
-		t.Fatalf("got %v, want ERR_NO_RUN", err)
+	_, err := _Call(
+		t,
+		&starlark.Thread{
+			Name: SCRIPT_NAME,
+		},
+		core.SPAWN,
+		_Globals(t)[WORKER],
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrNoRun,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNoRun",
+			err,
+		)
 	}
 }
 
@@ -424,16 +658,36 @@ func TestSpawn_RefusesAThreadWithNoRun(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:12: initial creation
 func TestJoin_ReraisesAFailure(t *testing.T) {
-	thread := _Begun(t, t.Context())
-
-	_, err := _Call(t, thread, core.JOIN, _Spawned(t, thread, FAILING))
+	var (
+		thread = _Begun(
+			t.Context(),
+			t,
+		)
+		_, err = _Call(
+			t,
+			thread,
+			core.JOIN,
+			_Spawned(
+				t,
+				thread,
+				FAILING,
+			),
+		)
+	)
 	if err == nil {
 		t.Fatal("joining a failed thread succeeded")
 	}
 
 	for _, want := range []string{FAILING, FAILURE_TEXT} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("the failure does not carry %q: %v", want, err)
+		if !strings.Contains(
+			err.Error(),
+			want,
+		) {
+			t.Fatalf(
+				"the failure does not carry %q: %v",
+				want,
+				err,
+			)
 		}
 	}
 }
@@ -444,16 +698,40 @@ func TestJoin_ReraisesAFailure(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:13: initial creation
 func TestJoin_FirstFailureInArgumentOrderWins(t *testing.T) {
-	thread := _Begun(t, t.Context())
-
-	slow := _Spawned(t, thread, SPINNER)
-	quick := _Spawned(t, thread, FAILING)
+	var (
+		thread = _Begun(
+			t.Context(),
+			t,
+		)
+		slow = _Spawned(
+			t,
+			thread,
+			SPINNER,
+		)
+		quick = _Spawned(
+			t,
+			thread,
+			FAILING,
+		)
+	)
 
 	slow.Stop()
 
-	_, err := _Call(t, thread, core.JOIN, slow, quick)
-	if !errors.Is(err, scheduler.ERR_CANCELLED) {
-		t.Fatalf("got %v, want the first argument's failure (ERR_CANCELLED)", err)
+	_, err := _Call(
+		t,
+		thread,
+		core.JOIN,
+		slow,
+		quick,
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrCancelled,
+	) {
+		t.Fatalf(
+			"got %v, want the first argument's failure (ErrCancelled)",
+			err,
+		)
 	}
 }
 
@@ -466,15 +744,35 @@ func TestJoin_FirstFailureInArgumentOrderWins(t *testing.T) {
 //   - 2026-09-19 22:14: initial creation
 //   - 2026-09-20 00:15: renamed and re-documented for what it actually proves
 func TestJoin_AbandonsNothingWhenItGivesUp(t *testing.T) {
-	thread := _Begun(t, t.Context())
-
-	quick := _Spawned(t, thread, FAILING)
-	slow := _Spawned(t, thread, SPINNER)
-
-	joined := make(chan error, 1)
+	var (
+		thread = _Begun(
+			t.Context(),
+			t,
+		)
+		quick = _Spawned(
+			t,
+			thread,
+			FAILING,
+		)
+		slow = _Spawned(
+			t,
+			thread,
+			SPINNER,
+		)
+		joined = make(
+			chan error,
+			1,
+		)
+	)
 
 	go func() {
-		_, err := _Call(t, thread, core.JOIN, quick, slow)
+		_, err := _Call(
+			t,
+			thread,
+			core.JOIN,
+			quick,
+			slow,
+		)
 		joined <- err
 	}()
 
@@ -501,16 +799,30 @@ func TestJoin_AbandonsNothingWhenItGivesUp(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestTimeout_ReachesAJoin(t *testing.T) {
-	thread := _Begun(t, t.Context())
-
-	target, ok := _Globals(t)[WAITER].(starlark.Callable)
+	var (
+		thread = _Begun(
+			t.Context(),
+			t,
+		)
+		target, ok = _Globals(t)[WAITER].(starlark.Callable)
+	)
 	if !ok {
-		t.Fatalf("%s is not callable", WAITER)
+		t.Fatalf(
+			"%s is not callable",
+			WAITER,
+		)
 	}
 
-	bounded, err := scheduler.Beside(thread, target, scheduler.Inline())
+	bounded, err := scheduler.Beside(
+		thread,
+		target,
+		scheduler.Inline(),
+	)
 	if err != nil {
-		t.Fatalf("beside: %v", err)
+		t.Fatalf(
+			"beside: %v",
+			err,
+		)
 	}
 
 	time.Sleep(STOP_AFTER)
@@ -529,22 +841,51 @@ func TestTimeout_ReachesAJoin(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:15: initial creation
 func TestCancel_StopsWithoutWaiting(t *testing.T) {
-	thread := _Begun(t, t.Context())
-
-	handle := _Spawned(t, thread, SPINNER)
-
-	value, err := _Call(t, thread, core.CANCEL, handle)
+	var (
+		thread = _Begun(
+			t.Context(),
+			t,
+		)
+		handle = _Spawned(
+			t,
+			thread,
+			SPINNER,
+		)
+		value, err = _Call(
+			t,
+			thread,
+			core.CANCEL,
+			handle,
+		)
+	)
 	if err != nil {
-		t.Fatalf("cancel: %v", err)
+		t.Fatalf(
+			"cancel: %v",
+			err,
+		)
 	}
 
 	if value != starlark.None {
-		t.Fatalf("cancel returned %v, want None", value)
+		t.Fatalf(
+			"cancel returned %v, want None",
+			value,
+		)
 	}
 
-	_, err = _Call(t, thread, core.JOIN, handle)
-	if !errors.Is(err, scheduler.ERR_CANCELLED) {
-		t.Fatalf("joining a cancelled handle gave %v, want ERR_CANCELLED", err)
+	_, err = _Call(
+		t,
+		thread,
+		core.JOIN,
+		handle,
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrCancelled,
+	) {
+		t.Fatalf(
+			"joining a cancelled handle gave %v, want ErrCancelled",
+			err,
+		)
 	}
 }
 
@@ -554,18 +895,38 @@ func TestCancel_StopsWithoutWaiting(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:16: initial creation
 func TestCancel_IsIdempotent(t *testing.T) {
-	thread := _Begun(t, t.Context())
+	var (
+		thread = _Begun(
+			t.Context(),
+			t,
+		)
+		handle = _Spawned(
+			t,
+			thread,
+			WORKER,
+		)
+	)
 
-	handle := _Spawned(t, thread, WORKER)
-
-	if _, err := scheduler.Wait(thread, handle); err != nil {
+	if _, err := scheduler.Wait(
+		thread,
+		handle,
+	); err != nil {
 		t.Fatal(err)
 	}
 
 	for attempt := range 2 {
-		_, err := _Call(t, thread, core.CANCEL, handle)
+		_, err := _Call(
+			t,
+			thread,
+			core.CANCEL,
+			handle,
+		)
 		if err != nil {
-			t.Fatalf("cancel %d of a finished handle: %v", attempt, err)
+			t.Fatalf(
+				"cancel %d of a finished handle: %v",
+				attempt,
+				err,
+			)
 		}
 	}
 }
@@ -576,24 +937,61 @@ func TestCancel_IsIdempotent(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:17: initial creation
 func TestHandles_RefusesWhatIsNotAHandle(t *testing.T) {
-	thread := _Begun(t, t.Context())
+	thread := _Begun(
+		t.Context(),
+		t,
+	)
 
 	for _, name := range []string{core.JOIN, core.CANCEL} {
-		t.Run(name+" a number", func(t *testing.T) {
-			_, err := _Call(t, thread, name, starlark.MakeInt(1))
-			if !errors.Is(err, core.ERR_NOT_A_HANDLE) {
-				t.Fatalf("got %v, want ERR_NOT_A_HANDLE", err)
-			}
-		})
+		t.Run(
+			name+" a number",
+			func(t *testing.T) {
+				_, err := _Call(
+					t,
+					thread,
+					name,
+					starlark.MakeInt(1),
+				)
+				if !errors.Is(
+					err,
+					core.ErrNotAHandle,
+				) {
+					t.Fatalf(
+						"got %v, want ErrNotAHandle",
+						err,
+					)
+				}
+			},
+		)
 
-		t.Run(name+" a keyword", func(t *testing.T) {
-			kwargs := []starlark.Tuple{{starlark.String("x"), starlark.MakeInt(1)}}
-
-			_, err := starlark.Call(thread, core.Builtins()[name], nil, kwargs)
-			if !errors.Is(err, core.ERR_NOT_A_HANDLE) {
-				t.Fatalf("got %v, want ERR_NOT_A_HANDLE", err)
-			}
-		})
+		t.Run(
+			name+" a keyword",
+			func(t *testing.T) {
+				var (
+					kwargs = []starlark.Tuple{
+						{
+							starlark.String("x"),
+							starlark.MakeInt(1),
+						},
+					}
+					_, err = starlark.Call(
+						thread,
+						core.Builtins()[name],
+						nil,
+						kwargs,
+					)
+				)
+				if !errors.Is(
+					err,
+					core.ErrNotAHandle,
+				) {
+					t.Fatalf(
+						"got %v, want ErrNotAHandle",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -624,30 +1022,67 @@ func _Settled(before int) bool {
 //   - 2026-10-03 20:55: begins the run itself, since it ends it partway, and checks what
 //     the run produced
 func TestRun_LeavesNoGoroutineBehind(t *testing.T) {
-	before := runtime.NumGoroutine()
+	var (
+		before = runtime.NumGoroutine()
+		thread = &starlark.Thread{
+			Name: ENTRY,
+		}
+		finish = scheduler.Begin(
+			t.Context(),
+			thread,
+			ENTRY,
+			nil,
+		)
+		spinner = _Spawned(
+			t,
+			thread,
+			SPINNER,
+		)
+		worker = _Spawned(
+			t,
+			thread,
+			WORKER,
+		)
+	)
 
-	thread := &starlark.Thread{Name: ENTRY}
-	finish := scheduler.Begin(t.Context(), thread, ENTRY, nil)
-
-	spinner := _Spawned(t, thread, SPINNER)
-	worker := _Spawned(t, thread, WORKER)
-
-	if _, err := _Call(t, thread, core.CANCEL, spinner); err != nil {
-		t.Fatalf("cancel: %v", err)
+	if _, err := _Call(
+		t,
+		thread,
+		core.CANCEL,
+		spinner,
+	); err != nil {
+		t.Fatalf(
+			"cancel: %v",
+			err,
+		)
 	}
 
-	if _, err := _Call(t, thread, core.JOIN, worker); err != nil {
-		t.Fatalf("join: %v", err)
+	if _, err := _Call(
+		t,
+		thread,
+		core.JOIN,
+		worker,
+	); err != nil {
+		t.Fatalf(
+			"join: %v",
+			err,
+		)
 	}
 
 	produced := finish(nil)
 	if produced != nil {
-		t.Fatalf("the run produced %v", produced)
+		t.Fatalf(
+			"the run produced %v",
+			produced,
+		)
 	}
 
 	if !_Settled(before) {
-		t.Fatalf("goroutines did not settle: %d before, %d after",
-			before, runtime.NumGoroutine())
+		t.Fatalf(
+			"goroutines did not settle: %d before, %d after",
+			before,
+			runtime.NumGoroutine(),
+		)
 	}
 }
 
@@ -661,27 +1096,66 @@ func TestRun_LeavesNoGoroutineBehind(t *testing.T) {
 //   - 2026-09-19 22:21: initial creation
 //   - 2026-09-20 00:01: a lone string is no longer a condition
 func TestAssert_UsesStarlarkTruthiness(t *testing.T) {
-	bare := &starlark.Thread{Name: SCRIPT_NAME}
+	bare := &starlark.Thread{
+		Name: SCRIPT_NAME,
+	}
 
 	for _, value := range []starlark.Value{
 		starlark.MakeInt(0),
 		starlark.NewList(nil),
 		starlark.None,
 	} {
-		_, err := _Call(t, bare, core.ASSERT, value)
-		if !errors.Is(err, core.ERR_ASSERT) {
-			t.Fatalf("assert(%v) gave %v, want ERR_ASSERT", value, err)
+		_, err := _Call(
+			t,
+			bare,
+			core.ASSERT,
+			value,
+		)
+		if !errors.Is(
+			err,
+			core.ErrAssert,
+		) {
+			t.Fatalf(
+				"assert(%v) gave %v, want ErrAssert",
+				value,
+				err,
+			)
 		}
 	}
 
-	value, err := _Call(t, bare, core.ASSERT, starlark.MakeInt(1), starlark.String(WHY))
+	value, err := _Call(
+		t,
+		bare,
+		core.ASSERT,
+		starlark.MakeInt(1),
+		starlark.String(WHY),
+	)
 	if err != nil || value != starlark.None {
-		t.Fatalf("assert(1) gave %v, %v", value, err)
+		t.Fatalf(
+			"assert(1) gave %v, %v",
+			value,
+			err,
+		)
 	}
 
-	_, err = _Call(t, bare, core.ASSERT, starlark.False, starlark.String(WHY))
-	if !errors.Is(err, core.ERR_ASSERT) || !strings.Contains(err.Error(), WHY) {
-		t.Fatalf("want ERR_ASSERT carrying the message, got %v", err)
+	_, err = _Call(
+		t,
+		bare,
+		core.ASSERT,
+		starlark.False,
+		starlark.String(WHY),
+	)
+	if !errors.Is(
+		err,
+		core.ErrAssert,
+	) || !strings.Contains(
+		err.Error(),
+		WHY,
+	) {
+		t.Fatalf(
+			"want ErrAssert carrying the message, got %v",
+			err,
+		)
 	}
 }
 
@@ -695,26 +1169,68 @@ func TestAssert_UsesStarlarkTruthiness(t *testing.T) {
 //   - 2026-10-03 20:56: begins the run itself, since it ends it partway, and reads the
 //     refusal from what ending the run answers with
 func TestAssert_RefusesALoneString(t *testing.T) {
-	thread := &starlark.Thread{Name: ENTRY}
-	finish := scheduler.Begin(t.Context(), thread, ENTRY, nil)
-
-	_, err := _Call(t, thread, core.ASSERT, starlark.String("mistyped"))
-	if !errors.Is(err, core.ERR_NOT_A_CONDITION) {
-		t.Fatalf("got %v, want ERR_NOT_A_CONDITION", err)
+	var (
+		thread = &starlark.Thread{
+			Name: ENTRY,
+		}
+		finish = scheduler.Begin(
+			t.Context(),
+			thread,
+			ENTRY,
+			nil,
+		)
+		_, err = _Call(
+			t,
+			thread,
+			core.ASSERT,
+			starlark.String("mistyped"),
+		)
+	)
+	if !errors.Is(
+		err,
+		core.ErrNotACondition,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNotACondition",
+			err,
+		)
 	}
 
 	produced := finish(nil)
-	if !errors.Is(produced, core.ERR_NOT_A_CONDITION) {
-		t.Fatalf("the run produced %v, want the refusal", produced)
+	if !errors.Is(
+		produced,
+		core.ErrNotACondition,
+	) {
+		t.Fatalf(
+			"the run produced %v, want the refusal",
+			produced,
+		)
 	}
 
-	bare := &starlark.Thread{Name: SCRIPT_NAME}
+	var (
+		bare = &starlark.Thread{
+			Name: SCRIPT_NAME,
+		}
+		kwargs = []starlark.Tuple{{starlark.String("msg"), starlark.String(WHY)}}
+	)
 
-	kwargs := []starlark.Tuple{{starlark.String("msg"), starlark.String(WHY)}}
-
-	_, err = starlark.Call(bare, core.Builtins()[core.ASSERT], nil, kwargs)
-	if !errors.Is(err, core.ERR_ASSERT) || !strings.Contains(err.Error(), WHY) {
-		t.Fatalf("assert(msg = ...) gave %v, want ERR_ASSERT carrying the message", err)
+	_, err = starlark.Call(
+		bare,
+		core.Builtins()[core.ASSERT],
+		nil,
+		kwargs,
+	)
+	if !errors.Is(
+		err,
+		core.ErrAssert,
+	) || !strings.Contains(
+		err.Error(),
+		WHY,
+	) {
+		t.Fatalf(
+			"assert(msg = ...) gave %v, want ErrAssert carrying the message",
+			err,
+		)
 	}
 
 	_, err = _Call(
@@ -725,7 +1241,10 @@ func TestAssert_RefusesALoneString(t *testing.T) {
 		starlark.String(WHY),
 	)
 	if err != nil {
-		t.Fatalf("a string condition with a message gave %v, want it to pass", err)
+		t.Fatalf(
+			"a string condition with a message gave %v, want it to pass",
+			err,
+		)
 	}
 }
 
@@ -738,13 +1257,31 @@ func TestAssert_RefusesALoneString(t *testing.T) {
 //   - 2026-10-03 20:56: begins the run itself, since it ends it partway, and reads the
 //     assertion from what ending the run answers with
 func TestAssert_StopsTheWholeRun(t *testing.T) {
-	thread := &starlark.Thread{Name: ENTRY}
-	finish := scheduler.Begin(t.Context(), thread, ENTRY, nil)
-
-	spinner := _Spawned(t, thread, SPINNER)
-	failing := _Spawned(t, thread, ISOLATED)
-
-	_, err := scheduler.Wait(thread, failing)
+	var (
+		thread = &starlark.Thread{
+			Name: ENTRY,
+		}
+		finish = scheduler.Begin(
+			t.Context(),
+			thread,
+			ENTRY,
+			nil,
+		)
+		spinner = _Spawned(
+			t,
+			thread,
+			SPINNER,
+		)
+		failing = _Spawned(
+			t,
+			thread,
+			ISOLATED,
+		)
+		_, err = scheduler.Wait(
+			thread,
+			failing,
+		)
+	)
 	if err == nil {
 		t.Fatal("the asserting thread succeeded")
 	}
@@ -756,8 +1293,14 @@ func TestAssert_StopsTheWholeRun(t *testing.T) {
 	}
 
 	produced := finish(nil)
-	if !errors.Is(produced, core.ERR_ASSERT) {
-		t.Fatalf("the run produced %v, want ERR_ASSERT", produced)
+	if !errors.Is(
+		produced,
+		core.ErrAssert,
+	) {
+		t.Fatalf(
+			"the run produced %v, want ErrAssert",
+			produced,
+		)
 	}
 }
 
@@ -768,7 +1311,10 @@ func TestAssert_StopsTheWholeRun(t *testing.T) {
 //   - 2026-09-21 09:46: initial creation
 //   - 2026-10-02 00:48: refuses a fraction of a millisecond
 func TestSleep_RefusesWhatIsNotADuration(t *testing.T) {
-	thread := _Begun(t, t.Context())
+	thread := _Begun(
+		t.Context(),
+		t,
+	)
 
 	for _, given := range []starlark.Value{
 		starlark.String("1"),
@@ -776,9 +1322,21 @@ func TestSleep_RefusesWhatIsNotADuration(t *testing.T) {
 		starlark.Float(0.5),
 		starlark.Float(1e300),
 	} {
-		_, err := _Call(t, thread, core.SLEEP, given)
-		if !errors.Is(err, scheduler.ERR_DURATION) {
-			t.Fatalf("sleep(%v) gave %v, want ERR_DURATION", given, err)
+		_, err := _Call(
+			t,
+			thread,
+			core.SLEEP,
+			given,
+		)
+		if !errors.Is(
+			err,
+			scheduler.ErrDuration,
+		) {
+			t.Fatalf(
+				"sleep(%v) gave %v, want ErrDuration",
+				given,
+				err,
+			)
 		}
 	}
 }
@@ -792,14 +1350,25 @@ func TestSleep_RefusesWhatIsNotADuration(t *testing.T) {
 //     takes
 //   - 2026-10-03 20:56: leaves ending the run to _Begun, which checks what it produced
 func TestSleep_IsInterruptedByCancellation(t *testing.T) {
-	ctx, stop := context.WithCancel(t.Context())
-
-	thread := _Begun(t, ctx)
-
-	slept := make(chan error, 1)
+	var (
+		ctx, stop = context.WithCancel(t.Context())
+		thread    = _Begun(
+			ctx,
+			t,
+		)
+		slept = make(
+			chan error,
+			1,
+		)
+	)
 
 	go func() {
-		_, err := _Call(t, thread, core.SLEEP, starlark.MakeInt(LONG_SLEEP))
+		_, err := _Call(
+			t,
+			thread,
+			core.SLEEP,
+			starlark.MakeInt(LONG_SLEEP),
+		)
 		slept <- err
 	}()
 
@@ -808,8 +1377,14 @@ func TestSleep_IsInterruptedByCancellation(t *testing.T) {
 
 	select {
 	case err := <-slept:
-		if !errors.Is(err, core.ERR_INTERRUPTED) {
-			t.Fatalf("got %v, want ERR_INTERRUPTED", err)
+		if !errors.Is(
+			err,
+			core.ErrInterrupted,
+		) {
+			t.Fatalf(
+				"got %v, want ErrInterrupted",
+				err,
+			)
 		}
 	case <-time.After(LIMIT):
 		t.Fatal("a cancelled sleep slept on")

@@ -23,14 +23,20 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
+// ErrCycle is spelling's, so it is the value reading a script into a flow
+// refuses the same ring with.
 var (
-	// ERR_CYCLE is spelling's, so it is the value reading a script into a flow
-	// refuses the same ring with.
-	ERR_CYCLE   = spelling.ERR_CYCLE
-	ERR_NO_UNIT = errors.New("no such unit")
+	ErrCycle  = spelling.ErrCycle
+	ErrDepth  = spelling.ErrDepth
+	ErrNoUnit = errors.New("no such unit")
 )
 
-const CHAIN_ARROW = " -> "
+// CHAIN_ARROW joins the module names of a cycle in the error that refuses it.
+// MAX_DEPTH is spelling's, so both sides refuse the same length.
+const (
+	CHAIN_ARROW = " -> "
+	MAX_DEPTH   = spelling.MAX_DEPTH
+)
 
 // Option sets one thing on a compile.
 //
@@ -103,7 +109,10 @@ type Artifact struct {
 //   - 2026-10-03 08:27: adds the plugins to the runtime's own, as the facade's did,
 //     so the option means one thing wherever it is named
 func WithPlugins(plugins ...plugin.Plugin) Option {
-	given := slices.Concat(plugin.DEFAULT, plugins)
+	given := slices.Concat(
+		plugin.DEFAULT,
+		plugins,
+	)
 
 	return func(settings *_Settings) {
 		settings.plugins = given
@@ -124,7 +133,7 @@ func WithPlugins(plugins ...plugin.Plugin) Option {
 // not take is refused here, once every unit is compiled, since a loaded
 // function's parameters are in another unit.
 //
-// Returns ERR_CYCLE carrying the ring, ERR_ARITY at the call that passes the
+// Returns ErrCycle carrying the ring, ErrArity at the call that passes the
 // wrong arguments, and a wrapped error if any source fails to parse or
 // resolve, or if the loader could not reach a module. Never panics.
 //
@@ -139,39 +148,80 @@ func WithPlugins(plugins ...plugin.Plugin) Option {
 //     the wrong arguments, and no longer describes what it built
 //   - 2026-10-03 00:10: a function of the source, which names its own modules,
 //     rather than a method on a Compiler holding a loader
-func Compile(source *script.Source, opts ...Option) (*Artifact, error) {
-	settings := _Settled(opts)
-
-	// Built once, here, and used for every unit and for linking. Rebuilding it
-	// per unit would let a plugin hand each unit a different value under one
-	// name, and would resolve a script against one environment while
-	// initialising it against another.
-	env, err := settings._Environment()
+func Compile(
+	source *script.Source,
+	opts ...Option,
+) (*Artifact, error) {
+	var (
+		settings = _Settled(opts)
+		// Built once, here, and used for every unit and for linking. Rebuilding it
+		// per unit would let a plugin hand each unit a different value under one
+		// name, and would resolve a script against one environment while
+		// initialising it against another.
+		env, err = settings._Environment()
+	)
 	if err != nil {
-		return nil, fmt.Errorf("compile %s: %w", source.Entry, err)
+		return nil, fmt.Errorf(
+			"compile %s: %w",
+			source.Entry,
+			err,
+		)
 	}
 
-	loaded := &_Graph{
-		loader:  script.LoaderFor(source),
-		plugins: settings.plugins,
-		env:     env,
-		units:   map[string]*_Unit{},
-		chain:   []string{source.Entry},
-	}
-
-	_, err = loaded._Add(source.Entry, source.Text)
+	loaded, err := _Loaded(
+		source,
+		settings,
+		env,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	// Not wrapped with the name: the refusal opens with the call's own file,
 	// line and column.
-	err = _Arity(loaded.units, loaded.order)
+	err = _Arity(
+		loaded.units,
+		loaded.order,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Link(source.Entry, env, loaded.units, loaded.order), nil
+	return _Link(
+		source.Entry,
+		env,
+		loaded.units,
+		loaded.order,
+	), nil
+}
+
+// _Loaded compiles the entry and every module it loads.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Loaded(
+	source *script.Source,
+	settings *_Settings,
+	env starlark.StringDict,
+) (*_Graph, error) {
+	var (
+		loaded = &_Graph{
+			loader:  script.LoaderFor(source),
+			plugins: settings.plugins,
+			env:     env,
+			units:   map[string]*_Unit{},
+			chain:   []string{source.Entry},
+		}
+		_, err = loaded._Add(
+			source.Entry,
+			source.Text,
+		)
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return loaded, nil
 }
 
 // Run calls the entry point as a run of its own, and returns what it produced,
@@ -196,7 +246,7 @@ func Compile(source *script.Source, opts ...Option) (*Artifact, error) {
 // rules and are applied by Evaluate. A host runs an artifact by starting it;
 // this is the run a start performs.
 //
-// Returns ERR_NOT_JSON for arguments holding a value JSON cannot, ERR_NO_MAIN
+// Returns ErrNotJSON for arguments holding a value JSON cannot, ErrNoMain
 // when the entry unit defines no entry point a run could call, and otherwise
 // whatever Evaluate returns.
 //
@@ -210,7 +260,11 @@ func Compile(source *script.Source, opts ...Option) (*Artifact, error) {
 //     context carrying a logger
 //   - 2026-10-03 16:30: refuses arguments its options could not supply, before
 //     anything runs
-func Run(ctx context.Context, art *Artifact, opts ...RunOption) (starlark.Value, error) {
+func Run(
+	ctx context.Context,
+	art *Artifact,
+	opts ...RunOption,
+) (starlark.Value, error) {
 	given := _Applied(opts)
 	if given.refused != nil {
 		return nil, given.refused
@@ -221,43 +275,26 @@ func Run(ctx context.Context, art *Artifact, opts ...RunOption) (starlark.Value,
 		return nil, err
 	}
 
-	settings := &scheduler.Settings{
-		Reporter: given.into,
-		Logger:   given.logger,
-		Ceiling:  given.ceiling,
-	}
+	var (
+		settings = &scheduler.Settings{
+			Reporter: given.into,
+			Logger:   given.logger,
+			Ceiling:  given.ceiling,
+		}
+		body = func(thread *starlark.Thread) (starlark.Value, error) {
+			return art._Main(
+				given.args.GetFields(),
+				thread,
+			)
+		}
+	)
 
-	body := func(thread *starlark.Thread) (starlark.Value, error) {
-		return art._Main(given.args.GetFields(), thread)
-	}
-
-	return scheduler.Evaluate(ctx, ENTRY, body, settings)
-}
-
-// _Main initialises the units on thread with the arguments supplied, then calls
-// the entry point on it.
-//
-// Revisions:
-//   - 2026-10-02 01:25: initial creation, as _Called, from Invoke's body
-//   - 2026-10-02 16:08: takes the arguments, rather than a context carrying
-//     them
-//   - 2026-10-03 00:20: calls the entry point, the one function a run calls, and
-//     refuses one the units did not define with ERR_NO_MAIN
-func (a *Artifact) _Main(
-	supplied map[string]*structpb.Value,
-	thread *starlark.Thread,
-) (starlark.Value, error) {
-	globals, err := a._Initialise(supplied, thread)
-	if err != nil {
-		return nil, err
-	}
-
-	entry, ok := globals[ENTRY].(starlark.Callable)
-	if !ok {
-		return nil, fmt.Errorf("%s: %w", a.saved.GetEntry(), ERR_NO_MAIN)
-	}
-
-	return starlark.Call(thread, entry, nil, nil)
+	return scheduler.Evaluate(
+		ctx,
+		ENTRY,
+		body,
+		settings,
+	)
 }
 
 // Save returns this artifact as one bundle: which unit is the entry, and every
@@ -274,7 +311,7 @@ func (a *Artifact) _Main(
 // why, rather than wherever it is loaded, which has none. It carries no flow:
 // a host that wants the picture derives one from the source.
 //
-// Returns ERR_NO_MAIN for an artifact with no entry point a run could call, and
+// Returns ErrNoMain for an artifact with no entry point a run could call, and
 // a wrapped error if the bundle cannot be encoded. Never panics.
 //
 // Revisions:
@@ -284,18 +321,62 @@ func (a *Artifact) _Main(
 //   - 2026-10-02 01:25: carries no graph
 //   - 2026-10-03 00:26: refuses an artifact a run could not start, a bundle now being
 //     read back to be run
+//   - 2026-10-24 16:05: does not skip the entry check when the syntax tree
+//     is nil, so a loaded artifact whose entry has no main is refused
 func (a *Artifact) Save() ([]byte, error) {
-	err := a._Runnable()
+	err := a._Saveable()
 	if err != nil {
 		return nil, err
 	}
 
 	encoded, err := proto.Marshal(a.saved)
 	if err != nil {
-		return nil, fmt.Errorf("marshal %s: %w", a.saved.GetEntry(), err)
+		return nil, fmt.Errorf(
+			"marshal %s: %w",
+			a.saved.GetEntry(),
+			err,
+		)
 	}
 
 	return encoded, nil
+}
+
+// _Main initialises the units on thread with the arguments supplied, then calls
+// the entry point on it.
+//
+// Revisions:
+//   - 2026-10-02 01:25: initial creation, as _Called, from Invoke's body
+//   - 2026-10-02 16:08: takes the arguments, rather than a context carrying
+//     them
+//   - 2026-10-03 00:20: calls the entry point, the one function a run calls, and
+//     refuses one the units did not define with ErrNoMain
+func (a *Artifact) _Main(
+	supplied map[string]*structpb.Value,
+	thread *starlark.Thread,
+) (starlark.Value, error) {
+	globals, err := a._Initialise(
+		supplied,
+		thread,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	entry, ok := globals[ENTRY].(starlark.Callable)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%s: %w",
+			a.saved.GetEntry(),
+			ErrNoMain,
+		)
+	}
+
+	return starlark.Call(
+		thread,
+		entry,
+		nil,
+		nil,
+	)
 }
 
 // Load reads back a bundle Save wrote, as an artifact a run can start.
@@ -310,23 +391,39 @@ func (a *Artifact) Save() ([]byte, error) {
 // the order Save writes them in, so a bundle that does not hold up is refused
 // here rather than partway through a run.
 //
-// Returns ERR_NO_UNIT for an entry or a load the bundle does not hold, and a
+// Returns ErrNoUnit for an entry or a load the bundle does not hold, and a
 // wrapped error for bytes that are not a bundle or code the interpreter cannot
 // read. Never panics.
 //
 // Revisions:
 //   - 2026-10-03 00:26: initial creation
-func Load(bundle []byte, opts ...Option) (*Artifact, error) {
-	saved := new(artifactpb.Artifact)
+//   - 2026-10-24 16:05: walks each compiled program's loads and verifies the
+//     saved loads map covers them, so a cleared map is refused before any
+//     module runs
+func Load(
+	bundle []byte,
+	opts ...Option,
+) (*Artifact, error) {
+	var saved = new(artifactpb.Artifact)
 
-	err := proto.Unmarshal(bundle, saved)
+	err := proto.Unmarshal(
+		bundle,
+		saved,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("unmarshal bundle: %w", err)
+		return nil, fmt.Errorf(
+			"unmarshal bundle: %w",
+			err,
+		)
 	}
 
 	env, err := _Settled(opts)._Environment()
 	if err != nil {
-		return nil, fmt.Errorf("load %s: %w", saved.GetEntry(), err)
+		return nil, fmt.Errorf(
+			"load %s: %w",
+			saved.GetEntry(),
+			err,
+		)
 	}
 
 	units, order, err := _Units(saved)
@@ -336,10 +433,24 @@ func Load(bundle []byte, opts ...Option) (*Artifact, error) {
 
 	_, found := units[saved.GetEntry()]
 	if !found {
-		return nil, fmt.Errorf("entry %s: %w", saved.GetEntry(), ERR_NO_UNIT)
+		return nil, fmt.Errorf(
+			"entry %s: %w",
+			saved.GetEntry(),
+			ErrNoUnit,
+		)
 	}
 
-	return &Artifact{saved: saved, units: units, env: env, order: order}, nil
+	err = _Covered(units)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Artifact{
+		saved: saved,
+		units: units,
+		env:   env,
+		order: order,
+	}, nil
 }
 
 // _Settled is the settings opts make, starting from the runtime's own plugins.
@@ -348,7 +459,9 @@ func Load(bundle []byte, opts ...Option) (*Artifact, error) {
 //   - 2026-10-03 00:10: initial creation, from NewCompiler
 //   - 2026-10-03 08:27: starts from the runtime's own plugins, a list
 func _Settled(opts []Option) *_Settings {
-	settings := &_Settings{plugins: plugin.DEFAULT}
+	settings := &_Settings{
+		plugins: plugin.DEFAULT,
+	}
 
 	for _, opt := range opts {
 		opt(settings)
@@ -391,7 +504,43 @@ func (a *Artifact) _Runnable() error {
 
 	err := _RequireEntry(tree)
 	if err != nil {
-		return fmt.Errorf("%s: %w", a.saved.GetEntry(), err)
+		return fmt.Errorf(
+			"%s: %w",
+			a.saved.GetEntry(),
+			err,
+		)
+	}
+
+	return nil
+}
+
+// _Saveable refuses an artifact whose entry point a run could not call.
+//
+// Unlike _Runnable, this check does not skip when the syntax tree is nil. A
+// bundle is read back to be run, so Save refuses an artifact that has no
+// entry point regardless of whether the tree is present. A loaded artifact
+// whose entry was changed to a unit with no main is caught here.
+//
+// Revisions:
+//   - 2026-10-24 16:05: initial creation, from Save, so the entry check is
+//     not skipped when the syntax tree is nil
+func (a *Artifact) _Saveable() error {
+	tree := a.units[a.saved.GetEntry()].tree
+	if tree == nil {
+		return fmt.Errorf(
+			"%s: %w",
+			a.saved.GetEntry(),
+			ErrNoMain,
+		)
+	}
+
+	err := _RequireEntry(tree)
+	if err != nil {
+		return fmt.Errorf(
+			"%s: %w",
+			a.saved.GetEntry(),
+			err,
+		)
 	}
 
 	return nil
@@ -403,11 +552,23 @@ func (a *Artifact) _Runnable() error {
 // Revisions:
 //   - 2026-10-03 00:26: initial creation
 func _Units(saved *artifactpb.Artifact) (map[string]*_Unit, []string, error) {
-	units := make(map[string]*_Unit, len(saved.GetUnits()))
-	order := make([]string, 0, len(saved.GetUnits()))
+	var (
+		units = make(
+			map[string]*_Unit,
+			len(saved.GetUnits()),
+		)
+		order = make(
+			[]string,
+			0,
+			len(saved.GetUnits()),
+		)
+	)
 
 	for _, unit := range saved.GetUnits() {
-		err := _Held(unit, units)
+		err := _Held(
+			unit,
+			units,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -418,7 +579,10 @@ func _Units(saved *artifactpb.Artifact) (map[string]*_Unit, []string, error) {
 		}
 
 		units[unit.GetName()] = decoded
-		order = append(order, unit.GetName())
+		order = append(
+			order,
+			unit.GetName(),
+		)
 	}
 
 	return units, order, nil
@@ -429,7 +593,10 @@ func _Units(saved *artifactpb.Artifact) (map[string]*_Unit, []string, error) {
 //
 // Revisions:
 //   - 2026-10-03 00:26: initial creation
-func _Held(unit *artifactpb.Unit, units map[string]*_Unit) error {
+func _Held(
+	unit *artifactpb.Unit,
+	units map[string]*_Unit,
+) error {
 	loads := unit.GetLoads()
 
 	for _, spelling := range slices.Sorted(maps.Keys(loads)) {
@@ -439,7 +606,7 @@ func _Held(unit *artifactpb.Unit, units map[string]*_Unit) error {
 				"%s loads %q, which the bundle does not hold before it: %w",
 				unit.GetName(),
 				spelling,
-				ERR_NO_UNIT,
+				ErrNoUnit,
 			)
 		}
 	}
@@ -454,8 +621,46 @@ func _Held(unit *artifactpb.Unit, units map[string]*_Unit) error {
 func _Decoded(unit *artifactpb.Unit) (*_Unit, error) {
 	code, err := starlark.CompiledProgram(bytes.NewReader(unit.GetCode()))
 	if err != nil {
-		return nil, fmt.Errorf("decode %s: %w", unit.GetName(), err)
+		return nil, fmt.Errorf(
+			"decode %s: %w",
+			unit.GetName(),
+			err,
+		)
 	}
 
-	return &_Unit{saved: unit, code: code}, nil
+	return &_Unit{
+		saved: unit,
+		code:  code,
+	}, nil
+}
+
+// _Covered refuses a bundle where a compiled program lists a load that the
+// saved loads map does not name. The saved map is what _Initialise looks up at
+// run time, so a spelling absent from it would return ErrNoUnit after
+// earlier modules already ran.
+//
+// _Held checks the other direction: every name in the saved map must be a unit
+// the bundle holds before it. Together the two checks make sure the saved map
+// and the compiled program agree, and that every target exists.
+//
+// Revisions:
+//   - 2026-10-24 16:05: initial creation
+func _Covered(units map[string]*_Unit) error {
+	for _, unit := range units {
+		loads := unit.saved.GetLoads()
+
+		for idx := range unit.code.NumLoads() {
+			spelling, _ := unit.code.Load(idx)
+			if _, found := loads[spelling]; !found {
+				return fmt.Errorf(
+					"%s loads %q, which the bundle does not map: %w",
+					unit.saved.GetName(),
+					spelling,
+					ErrNoUnit,
+				)
+			}
+		}
+	}
+
+	return nil
 }

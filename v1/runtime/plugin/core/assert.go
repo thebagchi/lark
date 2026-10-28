@@ -10,14 +10,14 @@ import (
 )
 
 var (
-	// ERR_ASSERT is what a script raises through assert, which is the only way
+	// ErrAssert is what a script raises through assert, which is the only way
 	// it can signal failure: raise is a reserved lexer keyword and a builtin of
 	// that name will not parse as a call.
-	ERR_ASSERT = errors.New("assertion failed")
+	ErrAssert = errors.New("assertion failed")
 
-	// ERR_NOT_A_CONDITION is returned for assert("text"), which reads like an
+	// ErrNotACondition is returned for assert("text"), which reads like an
 	// unconditional failure and behaves like a passing test.
-	ERR_NOT_A_CONDITION = errors.New("assert wants a condition")
+	ErrNotACondition = errors.New("assert wants a condition")
 )
 
 // _Assert fails the run when cond is false, and does nothing when it is true.
@@ -44,8 +44,8 @@ var (
 // sentinel still differs, so a host can tell a malformed script from a failing
 // one.
 //
-// Returns ERR_ASSERT when the condition is false or the keyword form was used,
-// and ERR_NOT_A_CONDITION when the only argument is a string.
+// Returns ErrAssert when the condition is false or the keyword form was used,
+// and ErrNotACondition when the only argument is a string.
 //
 // Revisions:
 //   - 2026-09-19 20:46: initial creation
@@ -68,33 +68,72 @@ func _Assert(
 		msg  starlark.Value
 	)
 
-	err := starlark.UnpackArgs(ASSERT, args, kwargs, "cond?", &cond, "msg?", &msg)
+	err := starlark.UnpackArgs(
+		ASSERT,
+		args,
+		kwargs,
+		"cond?",
+		&cond,
+		"msg?",
+		&msg,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", ASSERT, err)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			ASSERT,
+			err,
+		)
 	}
 
 	if cond == nil {
-		return nil, scheduler.Fail(thread, _Failure(msg))
+		return nil, scheduler.Fail(
+			thread,
+			_Failure(msg),
+		)
 	}
 
+	return _Bare(
+		thread,
+		cond,
+		args,
+		msg,
+	)
+}
+
+// _Bare refuses a call that passed only a message, and fails a false condition.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Bare(
+	thread *starlark.Thread,
+	cond starlark.Value,
+	args starlark.Tuple,
+	msg starlark.Value,
+) (starlark.Value, error) {
 	text, bare := cond.(starlark.String)
 	if bare && len(args) == 1 {
-		return nil, scheduler.Fail(thread, fmt.Errorf(
-			"%s got only the message %s: write %s(False, msg) to fail, "+
-				"or %s(msg = ...): %w",
-			ASSERT,
-			text.String(),
-			ASSERT,
-			ASSERT,
-			ERR_NOT_A_CONDITION,
-		))
+		return nil, scheduler.Fail(
+			thread,
+			fmt.Errorf(
+				"%s got only the message %s: write %s(False, msg) to fail, "+
+					"or %s(msg = ...): %w",
+				ASSERT,
+				text.String(),
+				ASSERT,
+				ASSERT,
+				ErrNotACondition,
+			),
+		)
 	}
 
 	if cond.Truth() {
 		return starlark.None, nil
 	}
 
-	return nil, scheduler.Fail(thread, _Failure(msg))
+	return nil, scheduler.Fail(
+		thread,
+		_Failure(msg),
+	)
 }
 
 // _Failure is the error a failed assertion raises, with the message a script
@@ -104,8 +143,12 @@ func _Assert(
 //   - 2026-09-19 23:59: initial creation
 func _Failure(msg starlark.Value) error {
 	if msg == nil {
-		return ERR_ASSERT
+		return ErrAssert
 	}
 
-	return fmt.Errorf("%s: %w", msg.String(), ERR_ASSERT)
+	return fmt.Errorf(
+		"%s: %w",
+		msg.String(),
+		ErrAssert,
+	)
 }

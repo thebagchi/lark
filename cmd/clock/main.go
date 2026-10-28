@@ -66,23 +66,39 @@ const (
 // Revisions:
 //   - 2026-09-25 06:58: initial creation
 func main() {
-	name := flag.String(NAME_FLAG, NAME, NAME_USAGE)
+	name := flag.String(
+		NAME_FLAG,
+		NAME,
+		NAME_USAGE,
+	)
 
 	flag.Parse()
 
-	socket := os.Getenv(remote.SOCKET_ENV)
-	token := os.Getenv(remote.TOKEN_ENV)
+	var (
+		socket = os.Getenv(remote.SOCKET_ENV)
+		token  = os.Getenv(remote.TOKEN_ENV)
+	)
 
 	if socket == "" {
-		fmt.Fprintf(os.Stderr,
+		fmt.Fprintf(
+			os.Stderr,
 			"clock: %s is not set, so nothing started this. A host does.\n",
-			remote.SOCKET_ENV)
+			remote.SOCKET_ENV,
+		)
 		os.Exit(NO_HOST)
 	}
 
-	err := _Serve(socket, token, *name)
+	err := _Serve(
+		socket,
+		token,
+		*name,
+	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "clock: %v\n", err)
+		fmt.Fprintf(
+			os.Stderr,
+			"clock: %v\n",
+			err,
+		)
 		os.Exit(FAILED)
 	}
 }
@@ -95,18 +111,14 @@ func main() {
 //
 // Revisions:
 //   - 2026-09-25 06:58: initial creation
-func _Serve(socket string, token string, name string) error {
-	held, err := grpc.NewClient(
-		"unix:"+socket,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-			var dialer net.Dialer
-
-			return dialer.DialContext(ctx, UNIX, socket)
-		}),
-	)
+func _Serve(
+	socket string,
+	token string,
+	name string,
+) error {
+	held, err := _Client(socket)
 	if err != nil {
-		return fmt.Errorf("dialing %s: %w", socket, err)
+		return err
 	}
 
 	defer func() {
@@ -115,7 +127,10 @@ func _Serve(socket string, token string, name string) error {
 
 	stream, err := pluginpb.NewServiceClient(held).Register(context.Background())
 	if err != nil {
-		return fmt.Errorf("opening a stream: %w", err)
+		return fmt.Errorf(
+			"opening a stream: %w",
+			err,
+		)
 	}
 
 	// The announcement, which has to be the first thing said. A host that does
@@ -131,10 +146,46 @@ func _Serve(socket string, token string, name string) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("announcing %s: %w", name, err)
+		return fmt.Errorf(
+			"announcing %s: %w",
+			name,
+			err,
+		)
 	}
 
 	return _Answer(stream)
+}
+
+// _Client dials the host on socket.
+//
+// Revisions:
+//   - 2026-10-24 18:29: initial creation
+func _Client(socket string) (*grpc.ClientConn, error) {
+	held, err := grpc.NewClient(
+		"unix:"+socket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(
+			ctx context.Context,
+			_ string,
+		) (net.Conn, error) {
+			var dialer net.Dialer
+
+			return dialer.DialContext(
+				ctx,
+				UNIX,
+				socket,
+			)
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"dialing %s: %w",
+			socket,
+			err,
+		)
+	}
+
+	return held, nil
 }
 
 // _Answer answers every ask until the stream closes.
@@ -155,7 +206,9 @@ func _Answer(stream pluginpb.Service_RegisterClient) error {
 		}
 
 		err = stream.Send(&pluginpb.Request{
-			Of: &pluginpb.Request_Answer{Answer: _Worked(ask)},
+			Of: &pluginpb.Request_Answer{
+				Answer: _Worked(ask),
+			},
 		})
 		if err != nil {
 			return nil

@@ -13,7 +13,9 @@ import (
 // here put "context canceled" in the interpreter's message, and the caller
 // wraps the context's error as well so that it stays matchable - so the same
 // three words arrived twice in one sentence.
-const STOPPED = "the run was stopped"
+const (
+	STOPPED = "the run was stopped"
+)
 
 // _CancelOn cancels thread when ctx is done, and returns the function that
 // stops watching.
@@ -41,14 +43,21 @@ const STOPPED = "the run was stopped"
 //     done, the release still waiting for a cancel already under way
 //   - 2026-10-03 23:38: a second release returns at once, the first closing the channel
 //     when it stopped the cancel
-func _CancelOn(ctx context.Context, thread *starlark.Thread) func() {
-	cancelled := make(chan struct{})
+func _CancelOn(
+	ctx context.Context,
+	thread *starlark.Thread,
+) func() {
+	var (
+		cancelled = make(chan struct{})
+		stop      = context.AfterFunc(
+			ctx,
+			func() {
+				defer close(cancelled)
 
-	stop := context.AfterFunc(ctx, func() {
-		defer close(cancelled)
-
-		thread.Cancel(STOPPED)
-	})
+				thread.Cancel(STOPPED)
+			},
+		)
+	)
 
 	return func() {
 		stopped := stop()

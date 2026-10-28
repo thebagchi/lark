@@ -23,13 +23,41 @@ func TestValue_CrossesAndComesBack(t *testing.T) {
 		sent starlark.Value
 		back string
 	}{
-		{"none", starlark.None, "None"},
-		{"true", starlark.Bool(true), "True"},
-		{"false", starlark.Bool(false), "False"},
-		{"an integer arrives as a float", starlark.MakeInt(7), "7.0"},
-		{"a float", starlark.Float(1.5), "1.5"},
-		{"a string", starlark.String("hello"), `"hello"`},
-		{"bytes arrive as a string", starlark.Bytes("hi"), `"hi"`},
+		{
+			"none",
+			starlark.None,
+			"None",
+		},
+		{
+			"true",
+			starlark.Bool(true),
+			"True",
+		},
+		{
+			"false",
+			starlark.Bool(false),
+			"False",
+		},
+		{
+			"an integer arrives as a float",
+			starlark.MakeInt(7),
+			"7.0",
+		},
+		{
+			"a float",
+			starlark.Float(1.5),
+			"1.5",
+		},
+		{
+			"a string",
+			starlark.String("hello"),
+			`"hello"`,
+		},
+		{
+			"bytes arrive as a string",
+			starlark.Bytes("hi"),
+			`"hi"`,
+		},
 		{
 			"a list",
 			starlark.NewList([]starlark.Value{
@@ -43,25 +71,45 @@ func TestValue_CrossesAndComesBack(t *testing.T) {
 			starlark.Tuple{starlark.MakeInt(1), starlark.MakeInt(2)},
 			"[1.0, 2.0]",
 		},
-		{"an empty list", starlark.NewList(nil), "[]"},
+		{
+			"an empty list",
+			starlark.NewList(nil),
+			"[]",
+		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			crossed, err := _Value(item.sent)
-			if err != nil {
-				t.Fatalf("%s did not cross: %v", item.sent, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				crossed, err := _Value(item.sent)
+				if err != nil {
+					t.Fatalf(
+						"%s did not cross: %v",
+						item.sent,
+						err,
+					)
+				}
 
-			got, err := _Starlark(crossed)
-			if err != nil {
-				t.Fatalf("%s did not come back: %v", item.sent, err)
-			}
+				got, err := _Starlark(crossed)
+				if err != nil {
+					t.Fatalf(
+						"%s did not come back: %v",
+						item.sent,
+						err,
+					)
+				}
 
-			if got.String() != item.back {
-				t.Fatalf("%s came back as %s, want %s", item.sent, got, item.back)
-			}
-		})
+				if got.String() != item.back {
+					t.Fatalf(
+						"%s came back as %s, want %s",
+						item.sent,
+						got,
+						item.back,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -76,16 +124,23 @@ func TestValue_CrossesAndComesBack(t *testing.T) {
 // Revisions:
 //   - 2026-09-25 06:48: initial creation
 func TestValue_ADictCrossesByItsStringKeys(t *testing.T) {
-	held := starlark.NewDict(1)
-
-	err := held.SetKey(starlark.String("k"), starlark.MakeInt(1))
+	var (
+		held = starlark.NewDict(1)
+		err  = held.SetKey(
+			starlark.String("k"),
+			starlark.MakeInt(1),
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	crossed, err := _Value(held)
 	if err != nil {
-		t.Fatalf("a dictionary keyed by a string: %v", err)
+		t.Fatalf(
+			"a dictionary keyed by a string: %v",
+			err,
+		)
 	}
 
 	got, err := _Starlark(crossed)
@@ -94,19 +149,31 @@ func TestValue_ADictCrossesByItsStringKeys(t *testing.T) {
 	}
 
 	if got.String() != `{"k": 1.0}` {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 
 	numbered := starlark.NewDict(1)
 
-	err = numbered.SetKey(starlark.MakeInt(1), starlark.String("v"))
+	err = numbered.SetKey(
+		starlark.MakeInt(1),
+		starlark.String("v"),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	_, err = _Value(numbered)
-	if !errors.Is(err, ERR_VALUE) {
-		t.Fatalf("a dictionary keyed by a number gave %v, want ERR_VALUE", err)
+	if !errors.Is(
+		err,
+		ErrValue,
+	) {
+		t.Fatalf(
+			"a dictionary keyed by a number gave %v, want ErrValue",
+			err,
+		)
 	}
 }
 
@@ -125,19 +192,34 @@ func TestValue_ADictCrossesByItsStringKeys(t *testing.T) {
 //   - 2026-09-25 06:48: initial creation
 func TestValue_RefusesWhatItCannotName(t *testing.T) {
 	cases := map[string]starlark.Value{
-		"a builtin":              starlark.NewBuiltin("f", nil),
+		"a builtin": starlark.NewBuiltin(
+			"f",
+			nil,
+		),
 		"an integer too precise": starlark.MakeInt64(EXACT + 1),
 		"and a negative one":     starlark.MakeInt64(-EXACT - 1),
 	}
 
 	for name, given := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := _Value(given)
-			if !errors.Is(err, ERR_VALUE) {
-				t.Fatalf("got %v, want ERR_VALUE", err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Value(given)
+				if !errors.Is(
+					err,
+					ErrValue,
+				) {
+					t.Fatalf(
+						"got %v, want ErrValue",
+						err,
+					)
+				}
 
-			t.Logf("refused with: %v", err)
-		})
+				t.Logf(
+					"refused with: %v",
+					err,
+				)
+			},
+		)
 	}
 }

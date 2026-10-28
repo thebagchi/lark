@@ -65,14 +65,17 @@ func (e *_Exploding) Name() string {
 //   - 2026-09-21 08:09: initial creation
 func (e *_Exploding) Values() starlark.StringDict {
 	return starlark.StringDict{
-		"explode": starlark.NewBuiltin("explode", func(
-			thread *starlark.Thread,
-			fn *starlark.Builtin,
-			args starlark.Tuple,
-			kwargs []starlark.Tuple,
-		) (starlark.Value, error) {
-			panic(PANIC_TEXT)
-		}),
+		"explode": starlark.NewBuiltin(
+			"explode",
+			func(
+				thread *starlark.Thread,
+				fn *starlark.Builtin,
+				args starlark.Tuple,
+				kwargs []starlark.Tuple,
+			) (starlark.Value, error) {
+				panic(PANIC_TEXT)
+			},
+		),
 	}
 }
 
@@ -88,8 +91,14 @@ func init() {
 //
 // Revisions:
 //   - 2026-09-20 01:36: initial creation
-func (d *_Disk) Resolve(from string, target string) (string, error) {
-	return path.Join(path.Dir(from), target), nil
+func (d *_Disk) Resolve(
+	from string,
+	target string,
+) (string, error) {
+	return path.Join(
+		path.Dir(from),
+		target,
+	), nil
 }
 
 // Load reads the fixture at name.
@@ -97,19 +106,32 @@ func (d *_Disk) Resolve(from string, target string) (string, error) {
 // Revisions:
 //   - 2026-09-20 01:36: initial creation
 func (d *_Disk) Load(name string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(FIXTURE_DIR, name))
+	return os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		name,
+	))
 }
 
 // _Built compiles the named fixture or ends the test.
 //
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
-func _Built(t *testing.T, name string) *runtime.Artifact {
+func _Built(
+	t *testing.T,
+	name string,
+) *runtime.Artifact {
 	t.Helper()
 
-	src, err := os.ReadFile(filepath.Join(FIXTURE_DIR, name))
+	src, err := os.ReadFile(filepath.Join(
+		FIXTURE_DIR,
+		name,
+	))
 	if err != nil {
-		t.Fatalf("read fixture %s: %v", name, err)
+		t.Fatalf(
+			"read fixture %s: %v",
+			name,
+			err,
+		)
 	}
 
 	built, err := runtime.Compile(&runtime.Source{
@@ -118,7 +140,11 @@ func _Built(t *testing.T, name string) *runtime.Artifact {
 		Loader: &_Disk{},
 	})
 	if err != nil {
-		t.Fatalf("compile %s: %v", name, err)
+		t.Fatalf(
+			"compile %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return built
@@ -129,22 +155,41 @@ func _Built(t *testing.T, name string) *runtime.Artifact {
 // Revisions:
 //   - 2026-09-20 01:36: initial creation
 //   - 2026-09-21 08:09: compiles through _Built
-func _Run(t *testing.T, name string) (starlark.Value, error) {
+func _Run(
+	t *testing.T,
+	name string,
+) (starlark.Value, error) {
 	t.Helper()
 
-	return runtime.Start(t.Context(), _Built(t, name)).Wait()
+	return runtime.Start(
+		t.Context(),
+		_Built(
+			t,
+			name,
+		),
+	).Wait()
 }
 
 // _Value runs a fixture that is expected to succeed.
 //
 // Revisions:
 //   - 2026-09-20 01:37: initial creation
-func _Value(t *testing.T, name string) string {
+func _Value(
+	t *testing.T,
+	name string,
+) string {
 	t.Helper()
 
-	value, err := _Run(t, name)
+	value, err := _Run(
+		t,
+		name,
+	)
 	if err != nil {
-		t.Fatalf("run %s: %v", name, err)
+		t.Fatalf(
+			"run %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return value.String()
@@ -156,8 +201,14 @@ func _Value(t *testing.T, name string) string {
 // Revisions:
 //   - 2026-09-20 01:38: initial creation
 func TestRepeat_CallsExactlyThatManyTimes(t *testing.T) {
-	if got := _Value(t, "repeat.star"); got != "[3, 3]" {
-		t.Fatalf("got %s, want [3, 3]", got)
+	if got := _Value(
+		t,
+		"repeat.star",
+	); got != "[3, 3]" {
+		t.Fatalf(
+			"got %s, want [3, 3]",
+			got,
+		)
 	}
 }
 
@@ -166,13 +217,22 @@ func TestRepeat_CallsExactlyThatManyTimes(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:38: initial creation
 func TestRepeat_StopsAtTheFirstError(t *testing.T) {
-	_, err := _Run(t, "repeat_stops.star")
+	_, err := _Run(
+		t,
+		"repeat_stops.star",
+	)
 	if err == nil {
 		t.Fatal("a failing repeat succeeded")
 	}
 
-	if !strings.Contains(err.Error(), "attempt 1") {
-		t.Fatalf("stopped somewhere other than the first attempt: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"attempt 1",
+	) {
+		t.Fatalf(
+			"stopped somewhere other than the first attempt: %v",
+			err,
+		)
 	}
 }
 
@@ -182,8 +242,14 @@ func TestRepeat_StopsAtTheFirstError(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
 func TestRetry_StopsAtTheFirstSuccess(t *testing.T) {
-	if got := _Value(t, "retry.star"); got != "3" {
-		t.Fatalf("got %s, want 3", got)
+	if got := _Value(
+		t,
+		"retry.star",
+	); got != "3" {
+		t.Fatalf(
+			"got %s, want 3",
+			got,
+		)
 	}
 }
 
@@ -193,16 +259,34 @@ func TestRetry_StopsAtTheFirstSuccess(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:40: initial creation
 func TestRetry_PropagatesTheLastAssertion(t *testing.T) {
-	_, err := _Run(t, "retry_gives_up.star")
-	if !errors.Is(err, core.ERR_ASSERT) {
-		t.Fatalf("got %v, want ERR_ASSERT", err)
+	_, err := _Run(
+		t,
+		"retry_gives_up.star",
+	)
+	if !errors.Is(
+		err,
+		core.ErrAssert,
+	) {
+		t.Fatalf(
+			"got %v, want ErrAssert",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), "3 attempts") {
-		t.Fatalf("does not say how many attempts it made: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"3 attempts",
+	) {
+		t.Fatalf(
+			"does not say how many attempts it made: %v",
+			err,
+		)
 	}
 
-	t.Logf("gave up: %v", err)
+	t.Logf(
+		"gave up: %v",
+		err,
+	)
 }
 
 // TestRetry_DoesNotRetryAFail proves the distinction that makes assert and fail
@@ -212,13 +296,22 @@ func TestRetry_PropagatesTheLastAssertion(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:41: initial creation
 func TestRetry_DoesNotRetryAFail(t *testing.T) {
-	_, err := _Run(t, "retry_ignores_fail.star")
+	_, err := _Run(
+		t,
+		"retry_ignores_fail.star",
+	)
 	if err == nil {
 		t.Fatal("a fail was retried into a success")
 	}
 
-	if !strings.Contains(err.Error(), "attempt 1") {
-		t.Fatalf("a fail was attempted more than once: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"attempt 1",
+	) {
+		t.Fatalf(
+			"a fail was attempted more than once: %v",
+			err,
+		)
 	}
 }
 
@@ -231,15 +324,28 @@ func TestRetry_DoesNotRetryAFail(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
 func TestTimeout_StopsAWaitingCall(t *testing.T) {
-	started := time.Now()
-
-	_, err := _Run(t, "timeout.star")
-	if !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("got %v, want a timeout", err)
+	var (
+		started = time.Now()
+		_, err  = _Run(
+			t,
+			"timeout.star",
+		)
+	)
+	if !strings.Contains(
+		err.Error(),
+		"timed out",
+	) {
+		t.Fatalf(
+			"got %v, want a timeout",
+			err,
+		)
 	}
 
 	if time.Since(started) > BUDGET {
-		t.Fatalf("waited %s for a call it was bounding", time.Since(started))
+		t.Fatalf(
+			"waited %s for a call it was bounding",
+			time.Since(started),
+		)
 	}
 }
 
@@ -248,8 +354,14 @@ func TestTimeout_StopsAWaitingCall(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:43: initial creation
 func TestTimeout_LetsAQuickCallThrough(t *testing.T) {
-	if got := _Value(t, "timeout_ok.star"); got != `"finished in time"` {
-		t.Fatalf("got %s", got)
+	if got := _Value(
+		t,
+		"timeout_ok.star",
+	); got != `"finished in time"` {
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -266,14 +378,26 @@ func TestTimeout_LetsAQuickCallThrough(t *testing.T) {
 //   - 2026-09-20 20:53: lambdas are accepted; only a bad count is refused
 func TestFactories_RefuseACountBelowOne(t *testing.T) {
 	for _, name := range []string{ZERO} {
-		t.Run(name, func(t *testing.T) {
-			_, err := _Run(t, name)
-			if err == nil {
-				t.Fatalf("%s was accepted", name)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Run(
+					t,
+					name,
+				)
+				if err == nil {
+					t.Fatalf(
+						"%s was accepted",
+						name,
+					)
+				}
 
-			t.Logf("refused: %v", err)
-		})
+				t.Logf(
+					"refused: %v",
+					err,
+				)
+			},
+		)
 	}
 }
 
@@ -283,13 +407,22 @@ func TestFactories_RefuseACountBelowOne(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:45: initial creation
 func TestAttempt_RefusesOutsideAWrapper(t *testing.T) {
-	_, err := _Run(t, "bare_n.star")
+	_, err := _Run(
+		t,
+		"bare_n.star",
+	)
 	if err == nil {
 		t.Fatal("n() answered outside a wrapper")
 	}
 
-	if !strings.Contains(err.Error(), "only meaningful inside") {
-		t.Fatalf("refused for some other reason: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"only meaningful inside",
+	) {
+		t.Fatalf(
+			"refused for some other reason: %v",
+			err,
+		)
 	}
 }
 
@@ -302,13 +435,22 @@ func TestAttempt_RefusesOutsideAWrapper(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 20:53: initial creation
 func TestFactories_TakeALambda(t *testing.T) {
-	value, err := _Run(t, LAMBDAS)
+	value, err := _Run(
+		t,
+		LAMBDAS,
+	)
 	if err != nil {
-		t.Fatalf("want a wrapped lambda to run, got %v", err)
+		t.Fatalf(
+			"want a wrapped lambda to run, got %v",
+			err,
+		)
 	}
 
 	if value.String() != "1" {
-		t.Fatalf("want the lambda's own result, got %s", value)
+		t.Fatalf(
+			"want the lambda's own result, got %s",
+			value,
+		)
 	}
 }
 
@@ -321,9 +463,18 @@ func TestFactories_TakeALambda(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestTimeout_APanicInsideItFailsTheRunNotTheProcess(t *testing.T) {
-	_, err := _Run(t, "explodes_inside_timeout.star")
-	if err == nil || !strings.Contains(err.Error(), PANIC_TEXT) {
-		t.Fatalf("want the panic as the run's failure, got %v", err)
+	_, err := _Run(
+		t,
+		"explodes_inside_timeout.star",
+	)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		PANIC_TEXT,
+	) {
+		t.Fatalf(
+			"want the panic as the run's failure, got %v",
+			err,
+		)
 	}
 }
 
@@ -334,15 +485,28 @@ func TestTimeout_APanicInsideItFailsTheRunNotTheProcess(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestTimeout_CutsAJoinShort(t *testing.T) {
-	started := time.Now()
-
-	_, err := _Run(t, "timeout_over_join.star")
-	if !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("got %v, want a timeout", err)
+	var (
+		started = time.Now()
+		_, err  = _Run(
+			t,
+			"timeout_over_join.star",
+		)
+	)
+	if !strings.Contains(
+		err.Error(),
+		"timed out",
+	) {
+		t.Fatalf(
+			"got %v, want a timeout",
+			err,
+		)
 	}
 
 	if time.Since(started) > PROMPT {
-		t.Fatalf("a 0.2 second timeout took %s", time.Since(started))
+		t.Fatalf(
+			"a 0.2 second timeout took %s",
+			time.Since(started),
+		)
 	}
 }
 
@@ -353,15 +517,34 @@ func TestTimeout_CutsAJoinShort(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestRetry_AnExhaustedInnerRetryIsOneFailedAttemptOfTheOuter(t *testing.T) {
-	built := _Built(t, "nested_retry.star")
-
-	_, err := runtime.Start(t.Context(), built).Wait()
-	if !errors.Is(err, core.ERR_ASSERT) {
-		t.Fatalf("want the last assertion to end the run, got %v", err)
+	var (
+		built = _Built(
+			t,
+			"nested_retry.star",
+		)
+		_, err = runtime.Start(
+			t.Context(),
+			built,
+		).Wait()
+	)
+	if !errors.Is(
+		err,
+		core.ErrAssert,
+	) {
+		t.Fatalf(
+			"want the last assertion to end the run, got %v",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), "retry(3, inner) gave up after 3 attempts") {
-		t.Fatalf("want three outer attempts, got %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"retry(3, inner) gave up after 3 attempts",
+	) {
+		t.Fatalf(
+			"want three outer attempts, got %v",
+			err,
+		)
 	}
 }
 
@@ -371,8 +554,14 @@ func TestRetry_AnExhaustedInnerRetryIsOneFailedAttemptOfTheOuter(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestRetry_AThreadSpawnedInsideAnAttemptIsInsideIt(t *testing.T) {
-	if got := _Value(t, "spawn_inside_retry.star"); got != "2" {
-		t.Fatalf("want the spawned check to succeed on attempt 2, got %s", got)
+	if got := _Value(
+		t,
+		"spawn_inside_retry.star",
+	); got != "2" {
+		t.Fatalf(
+			"want the spawned check to succeed on attempt 2, got %s",
+			got,
+		)
 	}
 }
 
@@ -381,9 +570,18 @@ func TestRetry_AThreadSpawnedInsideAnAttemptIsInsideIt(t *testing.T) {
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
 func TestSleep_RefusesWhatNoTimerHolds(t *testing.T) {
-	_, err := _Run(t, "huge_sleep.star")
-	if !errors.Is(err, scheduler.ERR_DURATION) {
-		t.Fatalf("want ERR_DURATION, got %v", err)
+	_, err := _Run(
+		t,
+		"huge_sleep.star",
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrDuration,
+	) {
+		t.Fatalf(
+			"want ErrDuration, got %v",
+			err,
+		)
 	}
 }
 
@@ -398,21 +596,35 @@ func TestSleep_RefusesWhatNoTimerHolds(t *testing.T) {
 //   - 2026-10-02 01:04: initial creation
 func TestDelay_WaitsBetweenCallsOnly(t *testing.T) {
 	for _, name := range []string{"delayed_repeat.star", "delayed_retry.star"} {
-		t.Run(name, func(t *testing.T) {
-			started := time.Now()
+		t.Run(
+			name,
+			func(t *testing.T) {
+				var (
+					started = time.Now()
+					got     = _Value(
+						t,
+						name,
+					)
+					took = time.Since(started)
+				)
 
-			got := _Value(t, name)
-			took := time.Since(started)
+				if got != "2" {
+					t.Fatalf(
+						"got %s, want the second call's 2",
+						got,
+					)
+				}
 
-			if got != "2" {
-				t.Fatalf("got %s, want the second call's 2", got)
-			}
-
-			once := took >= PAUSE && took < 2*PAUSE
-			if !once {
-				t.Fatalf("two calls took %s, want one pause of %s", took, PAUSE)
-			}
-		})
+				once := took >= PAUSE && took < 2*PAUSE
+				if !once {
+					t.Fatalf(
+						"two calls took %s, want one pause of %s",
+						took,
+						PAUSE,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -423,15 +635,28 @@ func TestDelay_WaitsBetweenCallsOnly(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 01:04: initial creation
 func TestDelay_EndsWithACancel(t *testing.T) {
-	started := time.Now()
-
-	_, err := _Run(t, "delay_over_timeout.star")
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("got %v, want a timeout", err)
+	var (
+		started = time.Now()
+		_, err  = _Run(
+			t,
+			"delay_over_timeout.star",
+		)
+	)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"timed out",
+	) {
+		t.Fatalf(
+			"got %v, want a timeout",
+			err,
+		)
 	}
 
 	if time.Since(started) > PROMPT {
-		t.Fatalf("a 200 millisecond timeout took %s", time.Since(started))
+		t.Fatalf(
+			"a 200 millisecond timeout took %s",
+			time.Since(started),
+		)
 	}
 }
 
@@ -441,9 +666,18 @@ func TestDelay_EndsWithACancel(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 01:04: initial creation
 func TestDelay_RefusesOneGivenTwice(t *testing.T) {
-	_, err := _Run(t, "delay_twice.star")
-	if err == nil || !strings.Contains(err.Error(), "multiple values") {
-		t.Fatalf("got %v, want the delay refused as given twice", err)
+	_, err := _Run(
+		t,
+		"delay_twice.star",
+	)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"multiple values",
+	) {
+		t.Fatalf(
+			"got %v, want the delay refused as given twice",
+			err,
+		)
 	}
 }
 
@@ -453,9 +687,18 @@ func TestDelay_RefusesOneGivenTwice(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 01:04: initial creation
 func TestDelay_RefusesAFractionOfAMillisecond(t *testing.T) {
-	_, err := _Run(t, "delay_fraction.star")
-	if !errors.Is(err, scheduler.ERR_DURATION) {
-		t.Fatalf("got %v, want ERR_DURATION", err)
+	_, err := _Run(
+		t,
+		"delay_fraction.star",
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrDuration,
+	) {
+		t.Fatalf(
+			"got %v, want ErrDuration",
+			err,
+		)
 	}
 }
 
@@ -512,23 +755,43 @@ func TestWrappers_ReportOneLine(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			into := new(_Lines)
+		t.Run(
+			name,
+			func(t *testing.T) {
+				var (
+					into   = new(_Lines)
+					_, err = artifact.Run(
+						t.Context(),
+						_Built(
+							t,
+							name,
+						),
+						artifact.Reporting(into),
+					)
+				)
+				if (err != nil) != tc.fails {
+					t.Fatalf(
+						"run gave %v",
+						err,
+					)
+				}
 
-			_, err := artifact.Run(
-				t.Context(),
-				_Built(t, name),
-				artifact.Reporting(into),
-			)
-			if (err != nil) != tc.fails {
-				t.Fatalf("run gave %v", err)
-			}
-
-			got := into._All()
-			if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
-				t.Fatalf("got %q, want %q", got, tc.want)
-			}
-		})
+				got := into._All()
+				if strings.Join(
+					got,
+					"\n",
+				) != strings.Join(
+					tc.want,
+					"\n",
+				) {
+					t.Fatalf(
+						"got %q, want %q",
+						got,
+						tc.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -543,7 +806,10 @@ type _Lines struct {
 //
 // Revisions:
 //   - 2026-10-02 01:04: initial creation
-func (l *_Lines) Started(thread string, line *scheduler.Line) {
+func (l *_Lines) Started(
+	thread string,
+	line *scheduler.Line,
+) {
 	if line.Builtin == "" {
 		return
 	}
@@ -559,14 +825,21 @@ func (l *_Lines) Started(thread string, line *scheduler.Line) {
 		line.Count,
 	)
 
-	l.lines = append(l.lines, kept)
+	l.lines = append(
+		l.lines,
+		kept,
+	)
 }
 
 // Ended keeps an end, unless it is the entry's.
 //
 // Revisions:
 //   - 2026-10-02 01:04: initial creation
-func (l *_Lines) Ended(thread string, name string, err error) {
+func (l *_Lines) Ended(
+	thread string,
+	name string,
+	err error,
+) {
 	if name == spelling.ENTRY {
 		return
 	}
@@ -579,7 +852,14 @@ func (l *_Lines) Ended(thread string, name string, err error) {
 		outcome = "failed"
 	}
 
-	l.lines = append(l.lines, fmt.Sprintf("end %q %s", name, outcome))
+	l.lines = append(
+		l.lines,
+		fmt.Sprintf(
+			"end %q %s",
+			name,
+			outcome,
+		),
+	)
 }
 
 // _All is everything kept so far.
@@ -590,5 +870,30 @@ func (l *_Lines) _All() []string {
 	l.guard.Lock()
 	defer l.guard.Unlock()
 
-	return append([]string(nil), l.lines...)
+	return append(
+		[]string(nil),
+		l.lines...,
+	)
+}
+
+// TestRegression_Spawn proves a spawn inside a successful wrapper lives until
+// the run ends: the worker sleeps, the retry succeeds, and main waits long
+// enough for the worker to write its result.
+//
+// Before the fix, the attempt's context was cancelled when the attempt
+// returned, and the spawned worker was cancelled before it could finish.
+//
+// Revisions:
+//   - 2026-10-24 19:30: initial creation
+func TestRegression_Spawn(t *testing.T) {
+	got := _Value(
+		t,
+		"spawn_survives_retry.star",
+	)
+	if got != `"yes"` {
+		t.Fatalf(
+			"got %s, want the worker to finish after the retry returned",
+			got,
+		)
+	}
 }

@@ -19,6 +19,7 @@ const (
 	RETRYSLOW   = "testdata/retryslow.star"
 	SLOWSIBLING = "testdata/slowsibling.star"
 	RAISING     = "testdata/raising.star"
+	BLAMERACE   = "testdata/blamerace.star"
 
 	// BREAKS is the text the failing sample asserts with, and RAISES the text
 	// the raising one fails with.
@@ -47,16 +48,30 @@ const (
 //   - 2026-09-23 23:28: asks the run it started, there being no store
 //   - 2026-10-02 01:35: returns a Graph
 //   - 2026-10-02 13:12: takes no options, Start having none
-func _Ran(t *testing.T, path string) *workflowpb.Graph {
+func _Ran(
+	t *testing.T,
+	path string,
+) *workflowpb.Graph {
 	t.Helper()
 
-	run := observe.Start(t.Context(), _Compile(t, path))
-
-	_, err := run.Wait()
+	var (
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				path,
+			),
+		)
+		_, err = run.Wait()
+	)
 	if err != nil {
 		// How the run ended is what the snapshot below reports, and several
 		// of these scripts end badly on purpose.
-		t.Logf("%s ended with: %v", path, err)
+		t.Logf(
+			"%s ended with: %v",
+			path,
+			err,
+		)
 	}
 
 	return run.Status()
@@ -69,7 +84,10 @@ func _Ran(t *testing.T, path string) *workflowpb.Graph {
 //   - 2026-09-20 01:42: initial creation
 //   - 2026-10-02 01:35: reads a thread's own node before its lines
 //   - 2026-10-02 15:34: one node per function, so there is no thread to say
-func _Node(snap *workflowpb.Graph, name string) *workflowpb.Node {
+func _Node(
+	snap *workflowpb.Graph,
+	name string,
+) *workflowpb.Node {
 	for _, node := range snap.GetFunctions() {
 		if node.GetName() == name {
 			return node
@@ -83,7 +101,11 @@ func _Node(snap *workflowpb.Graph, name string) *workflowpb.Node {
 //
 // Revisions:
 //   - 2026-10-02 15:34: initial creation
-func _Called(snap *workflowpb.Graph, caller string, callee string) bool {
+func _Called(
+	snap *workflowpb.Graph,
+	caller string,
+	callee string,
+) bool {
 	for _, edge := range snap.GetCalls() {
 		if edge.GetCaller() == caller && edge.GetCallee() == callee {
 			return true
@@ -101,20 +123,41 @@ func _Called(snap *workflowpb.Graph, caller string, callee string) bool {
 //   - 2026-10-02 15:34: an edge from main to each spawned function, there
 //     being no threads
 func TestReport_NamesEveryFunctionThatRan(t *testing.T) {
-	snap := _Ran(t, BRANCHING)
+	snap := _Ran(
+		t,
+		BRANCHING,
+	)
 
-	if _Node(snap, ENTRY) == nil {
+	if _Node(
+		snap,
+		ENTRY,
+	) == nil {
 		t.Fatal("want the entry point reported")
 	}
 
 	for _, name := range []string{"alpha", "beta"} {
-		node := _Node(snap, name)
+		node := _Node(
+			snap,
+			name,
+		)
 		if node.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-			t.Fatalf("want %s succeeded, got %v", name, node)
+			t.Fatalf(
+				"want %s succeeded, got %v",
+				name,
+				node,
+			)
 		}
 
-		if !_Called(snap, ENTRY, name) {
-			t.Fatalf("want an edge from main to %s, got %v", name, snap.GetCalls())
+		if !_Called(
+			snap,
+			ENTRY,
+			name,
+		) {
+			t.Fatalf(
+				"want an edge from main to %s, got %v",
+				name,
+				snap.GetCalls(),
+			)
 		}
 	}
 }
@@ -125,10 +168,19 @@ func TestReport_NamesEveryFunctionThatRan(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
 func TestReport_LeavesOutWhatNothingCalled(t *testing.T) {
-	node := _Node(_Ran(t, BRANCHING), UNREACHED)
+	node := _Node(
+		_Ran(
+			t,
+			BRANCHING,
+		),
+		UNREACHED,
+	)
 
 	if node != nil {
-		t.Fatalf("want a function nothing called left out, got %v", node.GetStatus())
+		t.Fatalf(
+			"want a function nothing called left out, got %v",
+			node.GetStatus(),
+		)
 	}
 }
 
@@ -138,20 +190,38 @@ func TestReport_LeavesOutWhatNothingCalled(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 01:42: initial creation
 func TestReport_FailsOnlyWhatFailed(t *testing.T) {
-	snap := _Ran(t, ONEFAILS)
+	snap := _Ran(
+		t,
+		ONEFAILS,
+	)
 
 	if snap.GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want the run failed, got %v", snap.GetStatus())
+		t.Fatalf(
+			"want the run failed, got %v",
+			snap.GetStatus(),
+		)
 	}
 
-	bad := _Node(snap, "bad")
+	bad := _Node(
+		snap,
+		"bad",
+	)
 	if bad.GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want bad failed, got %v", bad)
+		t.Fatalf(
+			"want bad failed, got %v",
+			bad,
+		)
 	}
 
-	good := _Node(snap, "good")
+	good := _Node(
+		snap,
+		"good",
+	)
 	if good == nil || good.GetStatus() == workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want good not failed, got %v", good)
+		t.Fatalf(
+			"want good not failed, got %v",
+			good,
+		)
 	}
 }
 
@@ -163,15 +233,33 @@ func TestReport_FailsOnlyWhatFailed(t *testing.T) {
 //     TestReport_CarriesTheAttemptARetryReached
 //   - 2026-10-02 15:34: one node that succeeded, a node carrying no attempt
 func TestReport_ARetryIsOneSucceededNode(t *testing.T) {
-	snap := _Ran(t, RETRYING)
+	var (
+		snap = _Ran(
+			t,
+			RETRYING,
+		)
+		node = _Node(
+			snap,
+			"flaky",
+		)
+	)
 
-	node := _Node(snap, "flaky")
 	if node.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want the retried function succeeded in the end, got %v", node)
+		t.Fatalf(
+			"want the retried function succeeded in the end, got %v",
+			node,
+		)
 	}
 
-	if !_Called(snap, ENTRY, "flaky") {
-		t.Fatalf("want an edge from main to flaky, got %v", snap.GetCalls())
+	if !_Called(
+		snap,
+		ENTRY,
+		"flaky",
+	) {
+		t.Fatalf(
+			"want an edge from main to flaky, got %v",
+			snap.GetCalls(),
+		)
 	}
 }
 
@@ -190,14 +278,26 @@ func TestReport_ARetryIsOneSucceededNode(t *testing.T) {
 //   - 2026-09-20 01:42: initial creation
 //   - 2026-10-02 15:34: polls the function's node, which carries no attempt
 func TestReport_NeverShowsACaughtFailure(t *testing.T) {
-	run := observe.Start(t.Context(), _Compile(t, RETRYSLOW))
-
-	seen := 0
+	var (
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				RETRYSLOW,
+			),
+		)
+		seen = 0
+	)
 
 	for {
-		snap := run.Status()
+		var (
+			snap = run.Status()
+			node = _Node(
+				snap,
+				"flaky",
+			)
+		)
 
-		node := _Node(snap, "flaky")
 		if node != nil {
 			seen++
 
@@ -214,7 +314,10 @@ func TestReport_NeverShowsACaughtFailure(t *testing.T) {
 	}
 
 	if seen < TRIES {
-		t.Fatalf("want the retry polled while it ran, only saw it %d times", seen)
+		t.Fatalf(
+			"want the retry polled while it ran, only saw it %d times",
+			seen,
+		)
 	}
 }
 
@@ -225,15 +328,29 @@ func TestReport_NeverShowsACaughtFailure(t *testing.T) {
 //   - 2026-09-20 01:42: initial creation
 //   - 2026-10-02 15:34: one node, which carries no attempt
 func TestReport_CountsEveryRepeat(t *testing.T) {
-	snap := _Ran(t, REPEATING)
+	var (
+		snap = _Ran(
+			t,
+			REPEATING,
+		)
+		node = _Node(
+			snap,
+			"step",
+		)
+	)
 
-	node := _Node(snap, "step")
 	if node.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want the repeated function succeeded, got %v", node)
+		t.Fatalf(
+			"want the repeated function succeeded, got %v",
+			node,
+		)
 	}
 
 	if len(snap.GetFunctions()) != 2 {
-		t.Fatalf("want main and step alone, got %v", snap.GetFunctions())
+		t.Fatalf(
+			"want main and step alone, got %v",
+			snap.GetFunctions(),
+		)
 	}
 }
 
@@ -244,20 +361,37 @@ func TestReport_CountsEveryRepeat(t *testing.T) {
 //   - 2026-09-20 11:34: initial creation
 //   - 2026-10-03 00:22: stops the run by cancelling its context, the one way to stop one
 func TestReport_CancelledIsNotFailed(t *testing.T) {
-	ctx, stop := context.WithCancel(t.Context())
-	run := observe.Start(ctx, _Compile(t, SLOW))
+	var (
+		ctx, stop = context.WithCancel(t.Context())
+		run       = observe.Start(
+			ctx,
+			_Compile(
+				t,
+				SLOW,
+			),
+		)
+	)
 
 	stop()
 
 	_, err := run.Wait()
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("want the cancellation, got %v", err)
+	if !errors.Is(
+		err,
+		context.Canceled,
+	) {
+		t.Fatalf(
+			"want the cancellation, got %v",
+			err,
+		)
 	}
 
 	snap := run.Status()
 
 	if snap.GetStatus() != workflowpb.Status_STATUS_CANCELLED {
-		t.Fatalf("want cancelled, got %v", snap.GetStatus())
+		t.Fatalf(
+			"want cancelled, got %v",
+			snap.GetStatus(),
+		)
 	}
 }
 
@@ -267,10 +401,16 @@ func TestReport_CancelledIsNotFailed(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 11:34: initial creation
 func TestReport_AFailureIsStillAFailure(t *testing.T) {
-	snap := _Ran(t, ONEFAILS)
+	snap := _Ran(
+		t,
+		ONEFAILS,
+	)
 
 	if snap.GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want the run failed, got %v", snap.GetStatus())
+		t.Fatalf(
+			"want the run failed, got %v",
+			snap.GetStatus(),
+		)
 	}
 }
 
@@ -284,16 +424,33 @@ func TestReport_AFailureIsStillAFailure(t *testing.T) {
 // Revisions:
 //   - 2026-09-20 11:34: initial creation
 func TestReport_ASiblingStoppedByFailFastIsCancelled(t *testing.T) {
-	snap := _Ran(t, SLOWSIBLING)
+	var (
+		snap = _Ran(
+			t,
+			SLOWSIBLING,
+		)
+		bad = _Node(
+			snap,
+			"bad",
+		)
+	)
 
-	bad := _Node(snap, "bad")
 	if bad.GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want the function that asserted to be failed, got %v", bad)
+		t.Fatalf(
+			"want the function that asserted to be failed, got %v",
+			bad,
+		)
 	}
 
-	slow := _Node(snap, "patient")
+	slow := _Node(
+		snap,
+		"patient",
+	)
 	if slow.GetStatus() != workflowpb.Status_STATUS_CANCELLED {
-		t.Fatalf("want the sibling cancelled rather than failed, got %v", slow)
+		t.Fatalf(
+			"want the sibling cancelled rather than failed, got %v",
+			slow,
+		)
 	}
 }
 
@@ -304,10 +461,19 @@ func TestReport_ASiblingStoppedByFailFastIsCancelled(t *testing.T) {
 //   - 2026-09-20 11:36: initial creation
 //   - 2026-10-02 15:34: the message is the cause's, a node carrying none
 func TestReport_AFailureCarriesItsMessage(t *testing.T) {
-	snap := _Ran(t, ONEFAILS)
+	snap := _Ran(
+		t,
+		ONEFAILS,
+	)
 
-	if !strings.Contains(snap.GetCause().GetFailure(), BREAKS) {
-		t.Fatalf("want the assertion's own words, got %v", snap.GetCause())
+	if !strings.Contains(
+		snap.GetCause().GetFailure(),
+		BREAKS,
+	) {
+		t.Fatalf(
+			"want the assertion's own words, got %v",
+			snap.GetCause(),
+		)
 	}
 }
 
@@ -319,18 +485,35 @@ func TestReport_AFailureCarriesItsMessage(t *testing.T) {
 //   - 2026-10-02 15:34: reads the cause alone, a node carrying no message
 //   - 2026-10-03 00:22: stops the run by cancelling its context, the one way to stop one
 func TestReport_ACancellationCarriesNoMessage(t *testing.T) {
-	ctx, stop := context.WithCancel(t.Context())
-	run := observe.Start(ctx, _Compile(t, SLOW))
+	var (
+		ctx, stop = context.WithCancel(t.Context())
+		run       = observe.Start(
+			ctx,
+			_Compile(
+				t,
+				SLOW,
+			),
+		)
+	)
 
 	stop()
 
 	_, err := run.Wait()
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("want the cancellation, got %v", err)
+	if !errors.Is(
+		err,
+		context.Canceled,
+	) {
+		t.Fatalf(
+			"want the cancellation, got %v",
+			err,
+		)
 	}
 
 	if run.Status().GetCause() != nil {
-		t.Fatalf("want a cancelled run to have no cause, got %v", run.Status().GetCause())
+		t.Fatalf(
+			"want a cancelled run to have no cause, got %v",
+			run.Status().GetCause(),
+		)
 	}
 }
 
@@ -342,10 +525,16 @@ func TestReport_ACancellationCarriesNoMessage(t *testing.T) {
 //   - 2026-10-02 01:35: reads every node of a Graph, lines included
 //   - 2026-10-02 15:34: reads the cause alone, a node carrying no message
 func TestReport_SuccessCarriesNoMessage(t *testing.T) {
-	snap := _Ran(t, BRANCHING)
+	snap := _Ran(
+		t,
+		BRANCHING,
+	)
 
 	if snap.GetCause() != nil {
-		t.Fatalf("want a succeeded run to have no cause, got %v", snap.GetCause())
+		t.Fatalf(
+			"want a succeeded run to have no cause, got %v",
+			snap.GetCause(),
+		)
 	}
 }
 
@@ -358,17 +547,31 @@ func TestReport_SuccessCarriesNoMessage(t *testing.T) {
 //     TestReport_TheCauseNamesItsFunctionAndThread
 //   - 2026-10-02 15:34: names the function, a graph having no threads
 func TestReport_TheCauseNamesItsFunction(t *testing.T) {
-	snap := _Ran(t, ONEFAILS)
+	var (
+		snap = _Ran(
+			t,
+			ONEFAILS,
+		)
+		cause = snap.GetCause()
+	)
 
-	cause := snap.GetCause()
 	if cause.GetFunction() != "bad" {
-		t.Fatalf("want the function that failed, got %v", cause)
+		t.Fatalf(
+			"want the function that failed, got %v",
+			cause,
+		)
 	}
 
 	// Following the cause has to reach a node, which is the whole point.
-	node := _Node(snap, cause.GetFunction())
+	node := _Node(
+		snap,
+		cause.GetFunction(),
+	)
 	if node.GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want the node it names to be the failed one, got %v", node)
+		t.Fatalf(
+			"want the node it names to be the failed one, got %v",
+			node,
+		)
 	}
 }
 
@@ -380,10 +583,17 @@ func TestReport_TheCauseNamesItsFunction(t *testing.T) {
 //     TestReport_AFailureOnTheSpineNamesTheSpine
 //   - 2026-10-02 15:34: names main, a graph having no spine
 func TestReport_AFailureOfTheEntryNamesTheEntry(t *testing.T) {
-	snap := _Ran(t, FAILING)
+	snap := _Ran(
+		t,
+		FAILING,
+	)
 
 	if snap.GetCause().GetFunction() != ENTRY {
-		t.Fatalf("want %s, got %v", ENTRY, snap.GetCause())
+		t.Fatalf(
+			"want %s, got %v",
+			ENTRY,
+			snap.GetCause(),
+		)
 	}
 }
 
@@ -397,17 +607,37 @@ func TestReport_AFailureOfTheEntryNamesTheEntry(t *testing.T) {
 //     TestReport_AnEntryPointThatRaisesFailsTheSpine
 //   - 2026-10-02 15:34: reads main's node, and the cause for what it raised
 func TestReport_AnEntryPointThatRaisesFails(t *testing.T) {
-	snap := _Ran(t, RAISING)
+	snap := _Ran(
+		t,
+		RAISING,
+	)
 
-	if _Node(snap, ENTRY).GetStatus() != workflowpb.Status_STATUS_FAILED {
-		t.Fatalf("want main failed, got %v", _Node(snap, ENTRY))
+	if _Node(
+		snap,
+		ENTRY,
+	).GetStatus() != workflowpb.Status_STATUS_FAILED {
+		t.Fatalf(
+			"want main failed, got %v",
+			_Node(
+				snap,
+				ENTRY,
+			),
+		)
 	}
 
-	cause := snap.GetCause()
+	var (
+		cause  = snap.GetCause()
+		blamed = cause.GetFunction() == ENTRY && strings.Contains(
+			cause.GetFailure(),
+			RAISES,
+		)
+	)
 
-	blamed := cause.GetFunction() == ENTRY && strings.Contains(cause.GetFailure(), RAISES)
 	if !blamed {
-		t.Fatalf("want main blamed, with what it raised, got %v", cause)
+		t.Fatalf(
+			"want main blamed, with what it raised, got %v",
+			cause,
+		)
 	}
 }
 
@@ -420,18 +650,89 @@ func TestReport_AnEntryPointThatRaisesFails(t *testing.T) {
 //   - 2026-10-02 15:34: reads main's node
 //   - 2026-10-03 00:22: stops the run by cancelling its context, the one way to stop one
 func TestReport_AStoppedRunCancelsTheEntry(t *testing.T) {
-	ctx, stop := context.WithCancel(t.Context())
-	run := observe.Start(ctx, _Compile(t, SLOW))
+	var (
+		ctx, stop = context.WithCancel(t.Context())
+		run       = observe.Start(
+			ctx,
+			_Compile(
+				t,
+				SLOW,
+			),
+		)
+	)
 
 	stop()
 
 	_, err := run.Wait()
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("want the cancellation, got %v", err)
+	if !errors.Is(
+		err,
+		context.Canceled,
+	) {
+		t.Fatalf(
+			"want the cancellation, got %v",
+			err,
+		)
 	}
 
-	entry := _Node(run.Status(), ENTRY)
+	entry := _Node(
+		run.Status(),
+		ENTRY,
+	)
 	if entry.GetStatus() != workflowpb.Status_STATUS_CANCELLED {
-		t.Fatalf("want main cancelled, got %v", entry)
+		t.Fatalf(
+			"want main cancelled, got %v",
+			entry,
+		)
+	}
+}
+
+// TestRegression_Blame checks that Cause.Function names the function whose
+// error Wait returns, not the first function the recorder heard fail.
+//
+// The script spawns a (sleeps 200 ms, then fails) and b (fails at once) and
+// joins them in that order. join returns the first failure in argument order,
+// which is a. Before this fix, Cause named b, because b failed first in wall
+// time, while the error text named a.
+//
+// Revisions:
+//   - 2026-10-24 20:30: initial creation
+func TestRegression_Blame(t *testing.T) {
+	var (
+		run = observe.Start(
+			t.Context(),
+			_Compile(
+				t,
+				BLAMERACE,
+			),
+		)
+		_, err = run.Wait()
+	)
+	if err == nil {
+		t.Fatal("want the run to fail")
+	}
+
+	var (
+		snap  = run.Status()
+		cause = snap.GetCause()
+		text  = err.Error()
+	)
+
+	if cause == nil {
+		t.Fatal("want a cause on a failed run")
+	}
+
+	if cause.GetFunction() == "" {
+		t.Fatal("want a function named in the cause")
+	}
+
+	if !strings.HasPrefix(
+		text,
+		cause.GetFunction()+":",
+	) {
+		t.Fatalf(
+			"error names %q but cause names %q",
+			text,
+			cause.GetFunction(),
+		)
 	}
 }

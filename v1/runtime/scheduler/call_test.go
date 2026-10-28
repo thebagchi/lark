@@ -14,12 +14,14 @@ import (
 // CALLED is a script the hidden call is tested against: one function taking a
 // keyword, so a test can see that the hidden one did not reach it, and a
 // lambda bound to a name, as a loaded module can hold one.
-const CALLED = `
+const (
+	CALLED = `
 def greet(name = "world"):
     return "hello " + name
 
 anonymous = lambda: 1
 `
+)
 
 // TestCalling_ReportsAScriptFunction checks the hidden call reports a script
 // function's call as a line of the thread that made it, with the branch it
@@ -29,44 +31,72 @@ anonymous = lambda: 1
 //   - 2026-10-02 00:42: initial creation
 //   - 2026-10-03 20:54: checks what the run produced, which Begin's function answers with
 func TestCalling_ReportsAScriptFunction(t *testing.T) {
-	into := new(_Lines)
-	thread := &starlark.Thread{Name: "spine"}
-
-	settings := &scheduler.Settings{Reporter: into}
-	finish := scheduler.Begin(t.Context(), thread, spelling.ENTRY, settings)
-
-	kwargs := []starlark.Tuple{
-		{starlark.String(spelling.BUILTIN), starlark.String("if")},
-		{starlark.String("name"), starlark.String("ada")},
-	}
-
-	value, err := starlark.Call(thread, scheduler.CALL, starlark.Tuple{_Greet(t)}, kwargs)
+	var (
+		into   = new(_Lines)
+		thread = &starlark.Thread{
+			Name: "spine",
+		}
+		settings = &scheduler.Settings{
+			Reporter: into,
+		}
+		finish = scheduler.Begin(
+			t.Context(),
+			thread,
+			spelling.ENTRY,
+			settings,
+		)
+		kwargs = []starlark.Tuple{
+			{starlark.String(spelling.BUILTIN), starlark.String("if")},
+			{starlark.String("name"), starlark.String("ada")},
+		}
+		value, err = starlark.Call(
+			thread,
+			scheduler.CALL,
+			starlark.Tuple{_Greet(t)},
+			kwargs,
+		)
+	)
 
 	err = finish(err)
-
 	if err != nil {
-		t.Fatalf("call: %v", err)
+		t.Fatalf(
+			"call: %v",
+			err,
+		)
 	}
 
 	if value != starlark.String("hello ada") {
-		t.Fatalf("got %v", value)
+		t.Fatalf(
+			"got %v",
+			value,
+		)
 	}
 
-	want := []string{
-		"start thread_0 main ",
-		"start thread_0 greet if",
-		"end thread_0 greet",
-		"end thread_0 main",
-	}
+	var (
+		want = []string{
+			"start thread_0 main ",
+			"start thread_0 greet if",
+			"end thread_0 greet",
+			"end thread_0 main",
+		}
+		got = into._All()
+	)
 
-	got := into._All()
 	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
+		t.Fatalf(
+			"got %v, want %v",
+			got,
+			want,
+		)
 	}
 
 	for idx := range want {
 		if got[idx] != want[idx] {
-			t.Fatalf("got %v, want %v", got, want)
+			t.Fatalf(
+				"got %v, want %v",
+				got,
+				want,
+			)
 		}
 	}
 }
@@ -78,25 +108,45 @@ func TestCalling_ReportsAScriptFunction(t *testing.T) {
 //   - 2026-10-02 00:42: initial creation
 //   - 2026-10-03 20:54: checks what the run produced, which Begin's function answers with
 func TestCalling_CallsABuiltinWithoutReporting(t *testing.T) {
-	into := new(_Lines)
-	thread := &starlark.Thread{Name: "spine"}
-
-	settings := &scheduler.Settings{Reporter: into}
-	finish := scheduler.Begin(t.Context(), thread, spelling.ENTRY, settings)
-
-	length := starlark.Universe["len"]
-	args := starlark.Tuple{length, starlark.String("four")}
-
-	value, err := starlark.Call(thread, scheduler.CALL, args, nil)
+	var (
+		into   = new(_Lines)
+		thread = &starlark.Thread{
+			Name: "spine",
+		}
+		settings = &scheduler.Settings{
+			Reporter: into,
+		}
+		finish = scheduler.Begin(
+			t.Context(),
+			thread,
+			spelling.ENTRY,
+			settings,
+		)
+		length     = starlark.Universe["len"]
+		args       = starlark.Tuple{length, starlark.String("four")}
+		value, err = starlark.Call(
+			thread,
+			scheduler.CALL,
+			args,
+			nil,
+		)
+	)
 
 	err = finish(err)
 
 	if err != nil || value != starlark.MakeInt(len("four")) {
-		t.Fatalf("got %v, %v", value, err)
+		t.Fatalf(
+			"got %v, %v",
+			value,
+			err,
+		)
 	}
 
 	if got := into._All(); len(got) != 2 {
-		t.Fatalf("want only main's own start and end, got %v", got)
+		t.Fatalf(
+			"want only main's own start and end, got %v",
+			got,
+		)
 	}
 }
 
@@ -107,24 +157,47 @@ func TestCalling_CallsABuiltinWithoutReporting(t *testing.T) {
 //   - 2026-10-02 01:20: initial creation
 //   - 2026-10-03 20:54: checks what the run produced, which Begin's function answers with
 func TestCalling_CallsALambdaWithoutReporting(t *testing.T) {
-	into := new(_Lines)
-	thread := &starlark.Thread{Name: "spine"}
-
-	settings := &scheduler.Settings{Reporter: into}
-	finish := scheduler.Begin(t.Context(), thread, spelling.ENTRY, settings)
-
-	args := starlark.Tuple{_Named(t, "anonymous")}
-
-	value, err := starlark.Call(thread, scheduler.CALL, args, nil)
+	var (
+		into   = new(_Lines)
+		thread = &starlark.Thread{
+			Name: "spine",
+		}
+		settings = &scheduler.Settings{
+			Reporter: into,
+		}
+		finish = scheduler.Begin(
+			t.Context(),
+			thread,
+			spelling.ENTRY,
+			settings,
+		)
+		args = starlark.Tuple{_Named(
+			t,
+			"anonymous",
+		)}
+		value, err = starlark.Call(
+			thread,
+			scheduler.CALL,
+			args,
+			nil,
+		)
+	)
 
 	err = finish(err)
 
 	if err != nil || value != starlark.MakeInt(1) {
-		t.Fatalf("got %v, %v", value, err)
+		t.Fatalf(
+			"got %v, %v",
+			value,
+			err,
+		)
 	}
 
 	if got := into._All(); len(got) != 2 {
-		t.Fatalf("want only main's own start and end, got %v", got)
+		t.Fatalf(
+			"want only main's own start and end, got %v",
+			got,
+		)
 	}
 }
 
@@ -134,22 +207,32 @@ func TestCalling_CallsALambdaWithoutReporting(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 00:42: initial creation
 func TestHidden_TakesTheKeywordOut(t *testing.T) {
-	kwargs := []starlark.Tuple{
-		{starlark.String("a"), starlark.MakeInt(1)},
-		{starlark.String(spelling.BINDING), starlark.String("h1")},
-		{starlark.String("b"), starlark.MakeInt(2)},
-	}
-
-	found, rest := scheduler.Hidden(kwargs, spelling.BINDING)
+	var (
+		kwargs = []starlark.Tuple{
+			{starlark.String("a"), starlark.MakeInt(1)},
+			{starlark.String(spelling.BINDING), starlark.String("h1")},
+			{starlark.String("b"), starlark.MakeInt(2)},
+		}
+		found, rest = scheduler.Hidden(
+			kwargs,
+			spelling.BINDING,
+		)
+	)
 
 	if found != "h1" {
-		t.Fatalf("found %q", found)
+		t.Fatalf(
+			"found %q",
+			found,
+		)
 	}
 
 	kept := len(rest) == 2 && rest[0][0] == starlark.String("a") &&
 		rest[1][0] == starlark.String("b")
 	if !kept {
-		t.Fatalf("kept %v", rest)
+		t.Fatalf(
+			"kept %v",
+			rest,
+		)
 	}
 }
 
@@ -165,34 +248,58 @@ func TestHidden_TakesTheKeywordOut(t *testing.T) {
 // Revisions:
 //   - 2026-10-03 23:36: initial creation
 func TestHidden_TakesOutEveryPairOfTheName(t *testing.T) {
-	into := new(_Lines)
-	thread := &starlark.Thread{Name: "spine"}
-
-	settings := &scheduler.Settings{Reporter: into}
-	finish := scheduler.Begin(t.Context(), thread, spelling.ENTRY, settings)
-
-	kwargs := []starlark.Tuple{
-		{starlark.String(spelling.BUILTIN), starlark.String("if")},
-		{starlark.String("name"), starlark.String("ada")},
-		{starlark.String(spelling.BUILTIN), starlark.String("written")},
-	}
-
-	value, err := starlark.Call(thread, scheduler.CALL, starlark.Tuple{_Greet(t)}, kwargs)
+	var (
+		into   = new(_Lines)
+		thread = &starlark.Thread{
+			Name: "spine",
+		}
+		settings = &scheduler.Settings{
+			Reporter: into,
+		}
+		finish = scheduler.Begin(
+			t.Context(),
+			thread,
+			spelling.ENTRY,
+			settings,
+		)
+		kwargs = []starlark.Tuple{
+			{starlark.String(spelling.BUILTIN), starlark.String("if")},
+			{starlark.String("name"), starlark.String("ada")},
+			{starlark.String(spelling.BUILTIN), starlark.String("written")},
+		}
+		value, err = starlark.Call(
+			thread,
+			scheduler.CALL,
+			starlark.Tuple{_Greet(t)},
+			kwargs,
+		)
+	)
 
 	err = finish(err)
 	if err != nil {
-		t.Fatalf("call: %v", err)
+		t.Fatalf(
+			"call: %v",
+			err,
+		)
 	}
 
 	if value != starlark.String("hello ada") {
-		t.Fatalf("got %v", value)
+		t.Fatalf(
+			"got %v",
+			value,
+		)
 	}
 
-	got := into._All()
+	var (
+		got      = into._All()
+		reported = len(got) > 1 && got[1] == "start thread_0 greet if"
+	)
 
-	reported := len(got) > 1 && got[1] == "start thread_0 greet if"
 	if !reported {
-		t.Fatalf("got %v, want greet reported as the dialect's if", got)
+		t.Fatalf(
+			"got %v, want greet reported as the dialect's if",
+			got,
+		)
 	}
 }
 
@@ -203,7 +310,10 @@ func TestHidden_TakesOutEveryPairOfTheName(t *testing.T) {
 func _Greet(t *testing.T) starlark.Value {
 	t.Helper()
 
-	return _Named(t, "greet")
+	return _Named(
+		t,
+		"greet",
+	)
 }
 
 // _Named is the global CALLED binds to name, compiled in the runtime's
@@ -211,18 +321,26 @@ func _Greet(t *testing.T) starlark.Value {
 //
 // Revisions:
 //   - 2026-10-02 01:20: initial creation, from _Greet's body
-func _Named(t *testing.T, name string) starlark.Value {
+func _Named(
+	t *testing.T,
+	name string,
+) starlark.Value {
 	t.Helper()
 
 	globals, err := starlark.ExecFileOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: "called"},
+		&starlark.Thread{
+			Name: "called",
+		},
 		"called.star",
 		CALLED,
 		nil,
 	)
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
 	return globals[name]
@@ -238,22 +356,35 @@ type _Lines struct {
 //
 // Revisions:
 //   - 2026-10-02 00:42: initial creation
-func (l *_Lines) Started(thread string, line *scheduler.Line) {
+func (l *_Lines) Started(
+	thread string,
+	line *scheduler.Line,
+) {
 	l.guard.Lock()
 	defer l.guard.Unlock()
 
-	l.lines = append(l.lines, "start "+thread+" "+line.Name+" "+line.Builtin)
+	l.lines = append(
+		l.lines,
+		"start "+thread+" "+line.Name+" "+line.Builtin,
+	)
 }
 
 // Ended keeps the end.
 //
 // Revisions:
 //   - 2026-10-02 00:42: initial creation
-func (l *_Lines) Ended(thread string, name string, err error) {
+func (l *_Lines) Ended(
+	thread string,
+	name string,
+	err error,
+) {
 	l.guard.Lock()
 	defer l.guard.Unlock()
 
-	l.lines = append(l.lines, "end "+thread+" "+name)
+	l.lines = append(
+		l.lines,
+		"end "+thread+" "+name,
+	)
 }
 
 // _All is everything kept so far.
@@ -264,5 +395,8 @@ func (l *_Lines) _All() []string {
 	l.guard.Lock()
 	defer l.guard.Unlock()
 
-	return append([]string(nil), l.lines...)
+	return append(
+		[]string(nil),
+		l.lines...,
+	)
 }

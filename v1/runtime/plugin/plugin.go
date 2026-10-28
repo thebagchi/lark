@@ -14,7 +14,10 @@ import (
 	"go.starlark.net/syntax"
 )
 
-var ERR_CONFLICT = errors.New("two plugins supply one name")
+// ErrConflict is returned when two plugins supply one name.
+var (
+	ErrConflict = errors.New("two plugins supply one name")
+)
 
 // Checking is a plugin that can refuse a use of its names by reading the
 // source, before anything runs.
@@ -48,7 +51,9 @@ type Plugin interface {
 // one at a time before anything reads it, so there is nothing to guard. A
 // caller adding to it copies it first - slices.Concat - since appending to a
 // shared list writes into whatever spare room the next caller sees too.
-var DEFAULT []Plugin
+var (
+	DEFAULT []Plugin
+)
 
 // Register adds plugin to DEFAULT, and is meant to be called from the init of
 // one of the runtime's own plugins, so that importing that package is what
@@ -64,13 +69,16 @@ var DEFAULT []Plugin
 //   - 2026-09-21 09:46: reaches DEFAULT
 //   - 2026-10-03 08:27: appends to DEFAULT, a list rather than a registry
 func Register(plugin Plugin) {
-	DEFAULT = append(DEFAULT, plugin)
+	DEFAULT = append(
+		DEFAULT,
+		plugin,
+	)
 }
 
 // Environment merges the names every plugin supplies into one environment, in
 // the order the plugins are given.
 //
-// Returns ERR_CONFLICT naming both plugins and the name they clash on. A script's
+// Returns ErrConflict naming both plugins and the name they clash on. A script's
 // environment is decided before anything runs, so a clash is refused there
 // rather than resolved silently - a shadowed builtin is a defect that surfaces
 // much later, as wrong behaviour, somewhere else.
@@ -80,8 +88,10 @@ func Register(plugin Plugin) {
 //   - 2026-09-21 09:46: a method on the registry
 //   - 2026-10-03 08:27: a function of the plugins given, there being no registry
 func Environment(plugins []Plugin) (starlark.StringDict, error) {
-	merged := starlark.StringDict{}
-	owner := map[string]string{}
+	var (
+		merged = starlark.StringDict{}
+		owner  = map[string]string{}
+	)
 
 	for _, plugin := range plugins {
 		names := plugin.Values()
@@ -96,7 +106,7 @@ func Environment(plugins []Plugin) (starlark.StringDict, error) {
 					plugin.Name(),
 					key,
 					first,
-					ERR_CONFLICT,
+					ErrConflict,
 				)
 			}
 

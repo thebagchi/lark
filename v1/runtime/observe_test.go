@@ -20,13 +20,22 @@ import (
 //     TestFacade_StartsPollsAndWaitsThroughOneImport
 //   - 2026-09-23 23:35: holds the run rather than an id into a store
 func TestFacade_StartsWaitsAndAsksThroughOneImport(t *testing.T) {
-	run := runtime.Start(t.Context(), _Compiled(t, HOST_FIXTURE))
+	var run = runtime.Start(
+		t.Context(),
+		_Compiled(
+			t,
+			HOST_FIXTURE,
+		),
+	)
 
 	begun := run.Status().GetStatus()
 
 	if begun != workflowpb.Status_STATUS_RUNNING &&
 		begun != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want a run under way or done, got %v", begun)
+		t.Fatalf(
+			"want a run under way or done, got %v",
+			begun,
+		)
 	}
 
 	got, err := run.Wait()
@@ -35,11 +44,18 @@ func TestFacade_StartsWaitsAndAsksThroughOneImport(t *testing.T) {
 	}
 
 	if got.String() != EXPECTED_TOTAL {
-		t.Fatalf("want %s, got %s", EXPECTED_TOTAL, got)
+		t.Fatalf(
+			"want %s, got %s",
+			EXPECTED_TOTAL,
+			got,
+		)
 	}
 
 	if run.Status().GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
-		t.Fatalf("want succeeded, got %v", run.Status().GetStatus())
+		t.Fatalf(
+			"want succeeded, got %v",
+			run.Status().GetStatus(),
+		)
 	}
 }
 
@@ -56,10 +72,21 @@ func TestFacade_StartsWaitsAndAsksThroughOneImport(t *testing.T) {
 //   - 2026-09-23 23:35: there is no store to share, so this checks the two
 //     calls produce the same thing
 func TestFacade_StartIsObservesOwn(t *testing.T) {
-	built := _Compiled(t, HOST_FIXTURE)
+	built := _Compiled(
+		t,
+		HOST_FIXTURE,
+	)
 
-	through := runtime.Start(t.Context(), built)
-	direct := observe.Start(t.Context(), built)
+	var (
+		through = runtime.Start(
+			t.Context(),
+			built,
+		)
+		direct = observe.Start(
+			t.Context(),
+			built,
+		)
+	)
 
 	for _, run := range []*runtime.Execution{through, direct} {
 		got, err := run.Wait()
@@ -68,7 +95,11 @@ func TestFacade_StartIsObservesOwn(t *testing.T) {
 		}
 
 		if got.String() != EXPECTED_TOTAL {
-			t.Fatalf("want %s, got %s", EXPECTED_TOTAL, got)
+			t.Fatalf(
+				"want %s, got %s",
+				EXPECTED_TOTAL,
+				got,
+			)
 		}
 	}
 }

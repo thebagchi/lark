@@ -19,7 +19,9 @@ import (
 // Revisions:
 //   - 2026-09-30 21:31: initial creation
 func TestEvent_APostedEventIsSeenWithNoTimeToWait(t *testing.T) {
-	got, err := _Run(t, `
+	got, err := _Run(
+		t,
+		`
 def main():
     event.post("ready", "done")
 
@@ -32,13 +34,17 @@ def main():
             missed = missed + 1
 
     return missed
-`)
+`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if got.String() != "0" {
-		t.Fatalf("missed %s of 200 waits of zero on an event already posted", got)
+		t.Fatalf(
+			"missed %s of 200 waits of zero on an event already posted",
+			got,
+		)
 	}
 }
 
@@ -50,7 +56,9 @@ def main():
 //   - 2026-09-30 22:24: initial creation
 func TestEvent_ABudgetRefusalDoesNotStopTheRun(t *testing.T) {
 	built, err := runtime.Compile(
-		&runtime.Source{Entry: "budget.star", Text: []byte(`
+		&runtime.Source{
+			Entry: "budget.star",
+			Text: []byte(`
 def poster():
     event.post("huge", "x" * (128 * 1024))
 
@@ -60,19 +68,30 @@ def main():
     sleep(200)
 
     return "survived"
-`)},
+`),
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := runtime.Start(t.Context(), built, runtime.WithMemory(64<<10)).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		built,
+		runtime.WithMemory(64<<10),
+	).Wait()
 	if err != nil {
-		t.Fatalf("an unjoined post the budget refused ended the run: %v", err)
+		t.Fatalf(
+			"an unjoined post the budget refused ended the run: %v",
+			err,
+		)
 	}
 
 	if got.String() != `"survived"` {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -84,19 +103,34 @@ def main():
 // Revisions:
 //   - 2026-09-30 22:24: initial creation
 func TestEvent_ARetrySurfacesASecondPostOnTheFirstAttempt(t *testing.T) {
-	_, err := _Run(t, `
+	_, err := _Run(
+		t,
+		`
 def poster():
     event.post("once", 1)
     event.post("once", 2)
 
 def main():
     return retry(3, poster)
-`)
-	if !errors.Is(err, event.ERR_POSTED) {
-		t.Fatalf("got %v, want ERR_POSTED", err)
+`,
+	)
+	if !errors.Is(
+		err,
+		event.ErrPosted,
+	) {
+		t.Fatalf(
+			"got %v, want ErrPosted",
+			err,
+		)
 	}
 
-	if !strings.Contains(err.Error(), "attempt 1") {
-		t.Fatalf("a second post was tried again: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"attempt 1",
+	) {
+		t.Fatalf(
+			"a second post was tried again: %v",
+			err,
+		)
 	}
 }

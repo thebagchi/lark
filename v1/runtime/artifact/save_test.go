@@ -31,19 +31,34 @@ func _Program(code []byte) (*starlark.Program, error) {
 // Revisions:
 //   - 2026-09-19 23:26: initial creation, as _Decoded over one message per unit
 //   - 2026-09-21 17:19: one bundle, which is what Save now returns
-func _Bundle(t *testing.T, name string) *artifactpb.Artifact {
+func _Bundle(
+	t *testing.T,
+	name string,
+) *artifactpb.Artifact {
 	t.Helper()
 
-	saved, err := _Built(t, name).Save()
+	saved, err := _Built(
+		t,
+		name,
+	).Save()
 	if err != nil {
-		t.Fatalf("save: %v", err)
+		t.Fatalf(
+			"save: %v",
+			err,
+		)
 	}
 
 	bundle := new(artifactpb.Artifact)
 
-	err = proto.Unmarshal(saved, bundle)
+	err = proto.Unmarshal(
+		saved,
+		bundle,
+	)
 	if err != nil {
-		t.Fatalf("unmarshal: %v", err)
+		t.Fatalf(
+			"unmarshal: %v",
+			err,
+		)
 	}
 
 	return bundle
@@ -60,16 +75,27 @@ func _Bundle(t *testing.T, name string) *artifactpb.Artifact {
 //   - 2026-09-19 23:27: initial creation
 //   - 2026-09-21 17:19: reads one bundle
 func TestSave_CarriesWhatAContainerNeeds(t *testing.T) {
-	bundle := _Bundle(t, SAVE_FIXTURE)
+	bundle := _Bundle(
+		t,
+		SAVE_FIXTURE,
+	)
 
 	if bundle.GetEntry() != LAST_SAVED {
-		t.Fatalf("entry is %q, want %q", bundle.GetEntry(), LAST_SAVED)
+		t.Fatalf(
+			"entry is %q, want %q",
+			bundle.GetEntry(),
+			LAST_SAVED,
+		)
 	}
 
 	units := bundle.GetUnits()
 
 	if len(units) != SAVED_UNITS {
-		t.Fatalf("saved %d units, want %d", len(units), SAVED_UNITS)
+		t.Fatalf(
+			"saved %d units, want %d",
+			len(units),
+			SAVED_UNITS,
+		)
 	}
 
 	var entry *artifactpb.Unit
@@ -80,7 +106,10 @@ func TestSave_CarriesWhatAContainerNeeds(t *testing.T) {
 		}
 
 		if len(unit.GetCode()) == 0 {
-			t.Fatalf("unit %s carries no code", unit.GetName())
+			t.Fatalf(
+				"unit %s carries no code",
+				unit.GetName(),
+			)
 		}
 
 		if unit.GetName() == LAST_SAVED {
@@ -89,7 +118,10 @@ func TestSave_CarriesWhatAContainerNeeds(t *testing.T) {
 	}
 
 	if entry == nil {
-		t.Fatalf("saved units do not include %s", LAST_SAVED)
+		t.Fatalf(
+			"saved units do not include %s",
+			LAST_SAVED,
+		)
 	}
 
 	if entry.GetLoads()[EXPECTED_EDGE] != EXPECTED_EDGE {
@@ -108,9 +140,13 @@ func TestSave_CarriesWhatAContainerNeeds(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 23:28: initial creation
 func TestSave_IsInInitialisationOrder(t *testing.T) {
-	units := _Bundle(t, SAVE_FIXTURE).GetUnits()
-
-	seen := map[string]bool{}
+	var (
+		units = _Bundle(
+			t,
+			SAVE_FIXTURE,
+		).GetUnits()
+		seen = map[string]bool{}
+	)
 
 	for _, unit := range units {
 		for spelling, name := range unit.GetLoads() {
@@ -129,7 +165,10 @@ func TestSave_IsInInitialisationOrder(t *testing.T) {
 	}
 
 	if units[0].GetName() != FIRST_SAVED || units[len(units)-1].GetName() != LAST_SAVED {
-		t.Fatalf("saved order is not dependencies first: %v", _Names(units))
+		t.Fatalf(
+			"saved order is not dependencies first: %v",
+			_Names(units),
+		)
 	}
 }
 
@@ -138,10 +177,17 @@ func TestSave_IsInInitialisationOrder(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 23:28: initial creation
 func _Names(units []*artifactpb.Unit) []string {
-	names := make([]string, 0, len(units))
+	names := make(
+		[]string,
+		0,
+		len(units),
+	)
 
 	for _, unit := range units {
-		names = append(names, unit.GetName())
+		names = append(
+			names,
+			unit.GetName(),
+		)
 	}
 
 	return names
@@ -154,10 +200,17 @@ func _Names(units []*artifactpb.Unit) []string {
 // Revisions:
 //   - 2026-09-19 23:29: initial creation
 func TestSave_EveryUnitRoundTripsAsAProgram(t *testing.T) {
-	for _, unit := range _Bundle(t, SAVE_FIXTURE).GetUnits() {
+	for _, unit := range _Bundle(
+		t,
+		SAVE_FIXTURE,
+	).GetUnits() {
 		program, err := _Program(unit.GetCode())
 		if err != nil {
-			t.Fatalf("decode %s: %v", unit.GetName(), err)
+			t.Fatalf(
+				"decode %s: %v",
+				unit.GetName(),
+				err,
+			)
 		}
 
 		if program.NumLoads() != len(unit.GetLoads()) {

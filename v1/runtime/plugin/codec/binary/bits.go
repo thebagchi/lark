@@ -64,7 +64,10 @@ func Encode(data []byte) string {
 	out.Grow(len(data) * BITS_PER_BYTE)
 
 	for _, octet := range data {
-		binary.LittleEndian.PutUint64(digits[:], _Digits(octet))
+		binary.LittleEndian.PutUint64(
+			digits[:],
+			_Digits(octet),
+		)
 		out.Write(digits[:])
 	}
 
@@ -77,22 +80,37 @@ func Encode(data []byte) string {
 // to_bytes refuses a count that is not whole bytes itself. The bits carry no
 // prefix: a reader takes 0b off first, since it counts the bits as well.
 //
-// Returns ERR_BITS, naming who, for text that is not made only of 0 and 1.
+// Returns ErrBits, naming who, for text that is not made only of 0 and 1.
 //
 // Revisions:
 //   - 2026-10-08 17:47: initial creation, from the packing codec's bits2bytes and
 //     bits2hex each did
-func Decode(who string, bits string) ([]byte, error) {
-	err := _Check(who, bits)
+func Decode(
+	who string,
+	bits string,
+) ([]byte, error) {
+	err := _Check(
+		who,
+		bits,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	padded := _Padded(bits)
-	data := make([]byte, 0, len(padded)/BITS_PER_BYTE)
+	var (
+		padded = _Padded(bits)
+		data   = make(
+			[]byte,
+			0,
+			len(padded)/BITS_PER_BYTE,
+		)
+	)
 
 	for at := 0; at < len(padded); at += BITS_PER_BYTE {
-		data = append(data, _ByteOfBits(padded[at:at+BITS_PER_BYTE]))
+		data = append(
+			data,
+			_ByteOfBits(padded[at:at+BITS_PER_BYTE]),
+		)
 	}
 
 	return data, nil
@@ -108,19 +126,32 @@ func Decode(who string, bits string) ([]byte, error) {
 //   - 2026-09-21 10:35: initial creation, as codec's _Bits
 //   - 2026-10-03 19:02: eight characters at a time in a word
 //   - 2026-10-08 17:47: moved to binary, as _Check
-func _Check(who string, text string) error {
+func _Check(
+	who string,
+	text string,
+) error {
 	whole := len(text) - len(text)%BITS_PER_BYTE
 
 	for at := 0; at < whole; at += BITS_PER_BYTE {
 		digits := _Word(text[at:at+BITS_PER_BYTE])&SHARED == ZEROS
 		if !digits {
-			return fmt.Errorf("%s got %q: %w", who, text, ERR_BITS)
+			return fmt.Errorf(
+				"%s got %q: %w",
+				who,
+				text,
+				ErrBits,
+			)
 		}
 	}
 
 	for _, char := range text[whole:] {
 		if char != '0' && char != '1' {
-			return fmt.Errorf("%s got %q: %w", who, text, ERR_BITS)
+			return fmt.Errorf(
+				"%s got %q: %w",
+				who,
+				text,
+				ErrBits,
+			)
 		}
 	}
 
@@ -138,7 +169,10 @@ func _Padded(bits string) string {
 		return bits
 	}
 
-	return strings.Repeat(PAD, BITS_PER_BYTE-short) + bits
+	return strings.Repeat(
+		PAD,
+		BITS_PER_BYTE-short,
+	) + bits
 }
 
 // _ByteOfBits is the byte eight 0/1 characters spell, the first most
@@ -173,8 +207,10 @@ func _ByteOfBits(bits string) byte {
 //   - 2026-10-03 19:02: initial creation
 //   - 2026-10-08 17:47: moved to binary
 func _Digits(octet byte) uint64 {
-	kept := (uint64(octet) * LANES) & SPREAD
-	lifted := (kept + CARRY) >> (BITS_PER_BYTE - 1)
+	var (
+		kept   = (uint64(octet) * LANES) & SPREAD
+		lifted = (kept + CARRY) >> (BITS_PER_BYTE - 1)
+	)
 
 	return (lifted & LANES) | ZEROS
 }

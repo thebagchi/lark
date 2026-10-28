@@ -9,12 +9,12 @@ import (
 )
 
 const (
-	// _LONG is a string long enough that its bytes dominate the fixed word
+	// LONG is a string long enough that its bytes dominate the fixed word
 	// every value pays, so a test can tell one from the other.
-	_LONG = 4096
+	LONG = 4096
 
-	// _WIDE is how many elements the list fixtures hold.
-	_WIDE = 100
+	// WIDE is how many elements the list fixtures hold.
+	WIDE = 100
 )
 
 // TestSize_CountsWhatItCanCount is the shape of the estimate rather than exact
@@ -28,19 +28,36 @@ const (
 // Revisions:
 //   - 2026-09-27 01:52: initial creation
 func TestSize_CountsWhatItCanCount(t *testing.T) {
-	short := deep.Size(starlark.String("x"))
-	long := deep.Size(starlark.String(string(make([]byte, _LONG))))
+	var (
+		short = deep.Size(starlark.String("x"))
+		long  = deep.Size(starlark.String(string(make(
+			[]byte,
+			LONG,
+		))))
+	)
 
 	if short <= 0 {
-		t.Fatalf("a one-character string costs %d, want more than nothing", short)
+		t.Fatalf(
+			"a one-character string costs %d, want more than nothing",
+			short,
+		)
 	}
 
 	if long <= short {
-		t.Fatalf("%d bytes cost %d and one byte cost %d", _LONG, long, short)
+		t.Fatalf(
+			"%d bytes cost %d and one byte cost %d",
+			LONG,
+			long,
+			short,
+		)
 	}
 
-	if long < _LONG {
-		t.Fatalf("%d bytes cost %d, which is less than the bytes", _LONG, long)
+	if long < LONG {
+		t.Fatalf(
+			"%d bytes cost %d, which is less than the bytes",
+			LONG,
+			long,
+		)
 	}
 
 	// None costs something, so a list of them is not free.
@@ -50,16 +67,19 @@ func TestSize_CountsWhatItCanCount(t *testing.T) {
 
 	held := starlark.NewList(nil)
 
-	for range _WIDE {
+	for range WIDE {
 		err := held.Append(starlark.String("x"))
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	if deep.Size(held) <= int64(_WIDE)*short {
-		t.Fatalf("a list of %d costs %d, want more than its contents",
-			_WIDE, deep.Size(held))
+	if deep.Size(held) <= int64(WIDE)*short {
+		t.Fatalf(
+			"a list of %d costs %d, want more than its contents",
+			WIDE,
+			deep.Size(held),
+		)
 	}
 }
 
@@ -75,24 +95,35 @@ func TestSize_CountsWhatItCanCount(t *testing.T) {
 // Revisions:
 //   - 2026-09-27 01:52: initial creation
 func TestSize_WeighsATuple(t *testing.T) {
-	held := starlark.Tuple{starlark.String("a"), starlark.MakeInt(1)}
-
-	got := deep.Size(held)
+	var (
+		held = starlark.Tuple{starlark.String("a"), starlark.MakeInt(1)}
+		got  = deep.Size(held)
+	)
 	if got <= 0 {
-		t.Fatalf("a tuple costs %d, want more than nothing", got)
+		t.Fatalf(
+			"a tuple costs %d, want more than nothing",
+			got,
+		)
 	}
 
 	// Nested, which is where the mark would have been taken.
 	nested := starlark.Tuple{held, held}
 
 	if deep.Size(nested) <= got {
-		t.Fatalf("a tuple of two tuples costs %d, one costs %d", deep.Size(nested), got)
+		t.Fatalf(
+			"a tuple of two tuples costs %d, one costs %d",
+			deep.Size(nested),
+			got,
+		)
 	}
 
 	// And inside the containers that are marked.
 	inside := starlark.NewList([]starlark.Value{held, nested})
 	if deep.Size(inside) <= got {
-		t.Fatalf("a list holding tuples costs %d", deep.Size(inside))
+		t.Fatalf(
+			"a list holding tuples costs %d",
+			deep.Size(inside),
+		)
 	}
 }
 
@@ -104,9 +135,10 @@ func TestSize_WeighsATuple(t *testing.T) {
 // Revisions:
 //   - 2026-09-27 01:52: initial creation
 func TestSize_ATuplesCycleTerminates(t *testing.T) {
-	held := starlark.NewList(nil)
-
-	err := held.Append(starlark.Tuple{starlark.String("a"), held})
+	var (
+		held = starlark.NewList(nil)
+		err  = held.Append(starlark.Tuple{starlark.String("a"), held})
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +146,10 @@ func TestSize_ATuplesCycleTerminates(t *testing.T) {
 	// Returns rather than recurring forever, which is the whole assertion.
 	got := deep.Size(held)
 	if got <= 0 {
-		t.Fatalf("a list reaching itself through a tuple costs %d", got)
+		t.Fatalf(
+			"a list reaching itself through a tuple costs %d",
+			got,
+		)
 	}
 }
 
@@ -124,16 +159,23 @@ func TestSize_ATuplesCycleTerminates(t *testing.T) {
 // Revisions:
 //   - 2026-09-27 01:52: initial creation
 func TestSize_ADictCycleTerminates(t *testing.T) {
-	held := starlark.NewDict(1)
-
-	err := held.SetKey(starlark.String("self"), held)
+	var (
+		held = starlark.NewDict(1)
+		err  = held.SetKey(
+			starlark.String("self"),
+			held,
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	got := deep.Size(held)
 	if got <= 0 {
-		t.Fatalf("a dictionary holding itself costs %d", got)
+		t.Fatalf(
+			"a dictionary holding itself costs %d",
+			got,
+		)
 	}
 }
 
@@ -147,7 +189,10 @@ func TestSize_ADictCycleTerminates(t *testing.T) {
 // Revisions:
 //   - 2026-09-27 01:52: initial creation
 func TestSize_SaysSomethingAboutWhatItDoesNotKnow(t *testing.T) {
-	if deep.Size(starlark.NewBuiltin("f", nil)) <= 0 {
+	if deep.Size(starlark.NewBuiltin(
+		"f",
+		nil,
+	)) <= 0 {
 		t.Fatal("a value this does not know costs nothing")
 	}
 }

@@ -16,23 +16,33 @@ import (
 )
 
 // SCRIPT is what a failure calls the expression it was given.
-const SCRIPT = "base32_test.star"
+const (
+	SCRIPT = "base32_test.star"
+)
 
 // _Eval evaluates one expression against the default environment.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Eval(t *testing.T, expression string) (string, error) {
+func _Eval(
+	t *testing.T,
+	expression string,
+) (string, error) {
 	t.Helper()
 
 	env, err := plugin.Environment(plugin.DEFAULT)
 	if err != nil {
-		t.Fatalf("environment: %v", err)
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
 	}
 
 	value, err := starlark.EvalOptions(
 		dialect.OPTIONS,
-		&starlark.Thread{Name: SCRIPT},
+		&starlark.Thread{
+			Name: SCRIPT,
+		},
 		SCRIPT,
 		expression,
 		env,
@@ -51,29 +61,84 @@ func _Eval(t *testing.T, expression string) (string, error) {
 //   - 2026-09-24 00:53: moved here, spelled as members of the base32 module
 func TestEncode_MatchesRFC4648(t *testing.T) {
 	cases := []struct{ name, expression, want string }{
-		{"empty", `base32.encode("")`, `""`},
-		{"one", `base32.encode("f")`, `"MY======"`},
-		{"two", `base32.encode("fo")`, `"MZXQ===="`},
-		{"three", `base32.encode("foo")`, `"MZXW6==="`},
-		{"four", `base32.encode("foob")`, `"MZXW6YQ="`},
-		{"five", `base32.encode("fooba")`, `"MZXW6YTB"`},
-		{"six", `base32.encode("foobar")`, `"MZXW6YTBOI======"`},
-		{"decode padded", `base32.decode("MZXW6YTBOI======")`, `b"foobar"`},
-		{"decode unpadded", `base32.decode("MZXW6YTBOI")`, `b"foobar"`},
-		{"round trip", `base32.decode(base32.encode(b"\x00\xff"))`, `b"\x00\xff"`},
+		{
+			"empty",
+			`base32.encode("")`,
+			`""`,
+		},
+		{
+			"one",
+			`base32.encode("f")`,
+			`"MY======"`,
+		},
+		{
+			"two",
+			`base32.encode("fo")`,
+			`"MZXQ===="`,
+		},
+		{
+			"three",
+			`base32.encode("foo")`,
+			`"MZXW6==="`,
+		},
+		{
+			"four",
+			`base32.encode("foob")`,
+			`"MZXW6YQ="`,
+		},
+		{
+			"five",
+			`base32.encode("fooba")`,
+			`"MZXW6YTB"`,
+		},
+		{
+			"six",
+			`base32.encode("foobar")`,
+			`"MZXW6YTBOI======"`,
+		},
+		{
+			"decode padded",
+			`base32.decode("MZXW6YTBOI======")`,
+			`b"foobar"`,
+		},
+		{
+			"decode unpadded",
+			`base32.decode("MZXW6YTBOI")`,
+			`b"foobar"`,
+		},
+		{
+			"round trip",
+			`base32.decode(base32.encode(b"\x00\xff"))`,
+			`b"\x00\xff"`,
+		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			got, err := _Eval(t, item.expression)
-			if err != nil {
-				t.Fatalf("%s: %v", item.expression, err)
-			}
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				got, err := _Eval(
+					t,
+					item.expression,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s: %v",
+						item.expression,
+						err,
+					)
+				}
 
-			if got != item.want {
-				t.Fatalf("%s gave %s, want %s", item.expression, got, item.want)
-			}
-		})
+				if got != item.want {
+					t.Fatalf(
+						"%s gave %s, want %s",
+						item.expression,
+						got,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -88,16 +153,38 @@ func TestBase32_RefusesWhatItCannotRead(t *testing.T) {
 		expression string
 		want       error
 	}{
-		{"of a number", `base32.encode(1)`, unpack.ERR_DATA},
-		{"not base32", `base32.decode("1111")`, base32.ERR_ENCODED},
+		{
+			"of a number",
+			`base32.encode(1)`,
+			unpack.ErrData,
+		},
+		{
+			"not base32",
+			`base32.decode("1111")`,
+			base32.ErrEncoded,
+		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			_, err := _Eval(t, item.expression)
-			if !errors.Is(err, item.want) {
-				t.Fatalf("%s gave %v, want %v", item.expression, err, item.want)
-			}
-		})
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				_, err := _Eval(
+					t,
+					item.expression,
+				)
+				if !errors.Is(
+					err,
+					item.want,
+				) {
+					t.Fatalf(
+						"%s gave %v, want %v",
+						item.expression,
+						err,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }

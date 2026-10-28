@@ -25,11 +25,11 @@ const (
 	// PLUGIN_TOKEN is what the host issues and the plugin must present.
 	PLUGIN_TOKEN = "a-token-only-these-two-know"
 
-	// _ATTACHED is how long to wait for the plugin to announce itself, and
-	// _NOTICED how long for the host to notice it gone. Both enormous next to
+	// ATTACHED is how long to wait for the plugin to announce itself, and
+	// NOTICED how long for the host to notice it gone. Both enormous next to
 	// the milliseconds they take.
-	_ATTACHED = 20 * time.Second
-	_NOTICED  = 20 * time.Second
+	ATTACHED = 20 * time.Second
+	NOTICED  = 20 * time.Second
 
 	// PROC is where this system publishes what every process is running, and
 	// CMDLINE the arguments it was given. Read to prove a secret is not among
@@ -48,13 +48,29 @@ const (
 func _Clock(t *testing.T) string {
 	t.Helper()
 
-	binary := filepath.Join(t.TempDir(), "clock")
-	build := exec.Command("go", "build", "-o", binary, "./cmd/clock")
+	var (
+		binary = filepath.Join(
+			t.TempDir(),
+			"clock",
+		)
+		build = exec.Command(
+			"go",
+			"build",
+			"-o",
+			binary,
+			"./cmd/clock",
+		)
+	)
+
 	build.Dir = _ModuleRoot(t)
 
 	out, err := build.CombinedOutput()
 	if err != nil {
-		t.Fatalf("building clock: %v\n%s", err, out)
+		t.Fatalf(
+			"building clock: %v\n%s",
+			err,
+			out,
+		)
 	}
 
 	return binary
@@ -74,7 +90,10 @@ func _Host(t *testing.T) (*remote.Listener, string) {
 
 	// A short path: a unix socket has a low length limit, and a test name is
 	// not short.
-	dir, err := os.MkdirTemp("", "lk")
+	dir, err := os.MkdirTemp(
+		"",
+		"lk",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,9 +102,15 @@ func _Host(t *testing.T) (*remote.Listener, string) {
 		_ = os.RemoveAll(dir)
 	})
 
-	socket := filepath.Join(dir, "s")
+	var socket = filepath.Join(
+		dir,
+		"s",
+	)
 
-	listener, err := remote.Listen(socket, PLUGIN_TOKEN)
+	listener, err := remote.Listen(
+		socket,
+		PLUGIN_TOKEN,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +132,12 @@ func _Host(t *testing.T) (*remote.Listener, string) {
 // Revisions:
 //   - 2026-09-25 07:02: initial creation
 //   - 2026-09-26 01:56: waits on Live, so a restart is seen
-func _Attached(t *testing.T, listener *remote.Listener, binary string, socket string) *exec.Cmd {
+func _Attached(
+	t *testing.T,
+	listener *remote.Listener,
+	binary string,
+	socket string,
+) *exec.Cmd {
 	t.Helper()
 
 	held := exec.Command(binary)
@@ -116,7 +146,8 @@ func _Attached(t *testing.T, listener *remote.Listener, binary string, socket st
 	// Where to dial and what to present, in the environment rather than in
 	// arguments: an argument is in the process table, and the token is the one
 	// thing between a local process and putting names into every script.
-	held.Env = append(os.Environ(),
+	held.Env = append(
+		os.Environ(),
 		remote.SOCKET_ENV+"="+socket,
 		remote.TOKEN_ENV+"="+PLUGIN_TOKEN,
 	)
@@ -131,7 +162,7 @@ func _Attached(t *testing.T, listener *remote.Listener, binary string, socket st
 		_ = held.Wait()
 	})
 
-	deadline := time.Now().Add(_ATTACHED)
+	deadline := time.Now().Add(ATTACHED)
 
 	for time.Now().Before(deadline) {
 		if len(listener.Live()) > 0 {
@@ -153,7 +184,12 @@ func _Attached(t *testing.T, listener *remote.Listener, binary string, socket st
 //   - 2026-09-25 07:02: initial creation
 func TestPlugin_AnotherProcessSuppliesNames(t *testing.T) {
 	listener, socket := _Host(t)
-	_Attached(t, listener, _Clock(t), socket)
+	_Attached(
+		t,
+		listener,
+		_Clock(t),
+		socket,
+	)
 
 	built, err := runtime.Compile(
 		&runtime.Source{
@@ -166,13 +202,22 @@ func TestPlugin_AnotherProcessSuppliesNames(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := runtime.Start(t.Context(), built).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("calling another process: %v", err)
+		t.Fatalf(
+			"calling another process: %v",
+			err,
+		)
 	}
 
 	if got.String() != "5.0" {
-		t.Fatalf("got %s, want 5.0", got)
+		t.Fatalf(
+			"got %s, want 5.0",
+			got,
+		)
 	}
 }
 
@@ -189,24 +234,44 @@ func TestPlugin_AnotherProcessSuppliesNames(t *testing.T) {
 //   - 2026-09-26 01:52: a replacement works, where it used to be refused as a
 //     conflict with the plugin that had died
 func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
-	listener, socket := _Host(t)
-	held := _Attached(t, listener, _Clock(t), socket)
-
-	plugins := runtime.WithPlugins(listener.Plugins()...)
-	src := []byte("def main():\n    return clock.add(1, 1)\n")
-
-	built, err := runtime.Compile(&runtime.Source{Entry: "remote.star", Text: src}, plugins)
+	var (
+		listener, socket = _Host(t)
+		held             = _Attached(
+			t,
+			listener,
+			_Clock(t),
+			socket,
+		)
+		plugins    = runtime.WithPlugins(listener.Plugins()...)
+		src        = []byte("def main():\n    return clock.add(1, 1)\n")
+		built, err = runtime.Compile(
+			&runtime.Source{
+				Entry: "remote.star",
+				Text:  src,
+			},
+			plugins,
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := runtime.Start(t.Context(), built).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("before the kill: %v", err)
+		t.Fatalf(
+			"before the kill: %v",
+			err,
+		)
 	}
 
 	if got.String() != "2.0" {
-		t.Fatalf("before the kill, got %s", got)
+		t.Fatalf(
+			"before the kill, got %s",
+			got,
+		)
 	}
 
 	err = held.Process.Kill()
@@ -216,10 +281,13 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 
 	_ = held.Wait()
 
-	deadline := time.Now().Add(_NOTICED)
+	deadline := time.Now().Add(NOTICED)
 
 	for time.Now().Before(deadline) {
-		_, err = runtime.Start(t.Context(), built).Wait()
+		_, err = runtime.Start(
+			t.Context(),
+			built,
+		).Wait()
 		if err != nil {
 			break
 		}
@@ -227,8 +295,14 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if !errors.Is(err, remote.ERR_GONE) {
-		t.Fatalf("after the kill: %v, want ERR_GONE", err)
+	if !errors.Is(
+		err,
+		remote.ErrGone,
+	) {
+		t.Fatalf(
+			"after the kill: %v, want ErrGone",
+			err,
+		)
 	}
 
 	// The names are still there. A run has already built its environment, so
@@ -242,20 +316,43 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 	// connection is for: the registry has no removal, so a second adapter for
 	// the same name would have clashed with the dead one for as long as the
 	// host lived, and a plugin could be started exactly once.
-	_Attached(t, listener, _Clock(t), socket)
+	_Attached(
+		t,
+		listener,
+		_Clock(t),
+		socket,
+	)
 
-	built, err = runtime.Compile(&runtime.Source{Entry: "again.star", Text: src}, plugins)
+	built, err = runtime.Compile(
+		&runtime.Source{
+			Entry: "again.star",
+			Text:  src,
+		},
+		plugins,
+	)
 	if err != nil {
-		t.Fatalf("compiling after a restart: %v", err)
+		t.Fatalf(
+			"compiling after a restart: %v",
+			err,
+		)
 	}
 
-	got, err = runtime.Start(t.Context(), built).Wait()
+	got, err = runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("calling a restarted plugin: %v", err)
+		t.Fatalf(
+			"calling a restarted plugin: %v",
+			err,
+		)
 	}
 
 	if got.String() != "2.0" {
-		t.Fatalf("after the restart, got %s", got)
+		t.Fatalf(
+			"after the restart, got %s",
+			got,
+		)
 	}
 }
 
@@ -270,50 +367,88 @@ func TestPlugin_KillingItFailsItsNamesAndNotTheHost(t *testing.T) {
 // Revisions:
 //   - 2026-09-26 00:22: initial creation
 func TestLoad_ADirectoryOfPluginsIsStartedAndKeptReady(t *testing.T) {
-	listener, _ := _Host(t)
-
-	dir := t.TempDir()
-
-	build := exec.Command(
-		"go",
-		"build",
-		"-o",
-		filepath.Join(dir, "lark-clock.bin"),
-		"./cmd/clock",
+	var (
+		listener, _ = _Host(t)
+		dir         = t.TempDir()
+		build       = exec.Command(
+			"go",
+			"build",
+			"-o",
+			filepath.Join(
+				dir,
+				"lark-clock.bin",
+			),
+			"./cmd/clock",
+		)
 	)
+
 	build.Dir = _ModuleRoot(t)
 
 	out, err := build.CombinedOutput()
 	if err != nil {
-		t.Fatalf("building the plugin: %v\n%s", err, out)
+		t.Fatalf(
+			"building the plugin: %v\n%s",
+			err,
+			out,
+		)
 	}
 
 	// Matches lark-*.bin, is not a program.
-	err = os.WriteFile(filepath.Join(dir, "lark-broken.bin"), []byte("not a program"), 0o600)
+	err = os.WriteFile(
+		filepath.Join(
+			dir,
+			"lark-broken.bin",
+		),
+		[]byte("not a program"),
+		0o600,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// And one that is a program but is not ours to start.
-	err = os.WriteFile(filepath.Join(dir, "other.bin"), []byte("not ours"), 0o600)
+	err = os.WriteFile(
+		filepath.Join(
+			dir,
+			"other.bin",
+		),
+		[]byte("not ours"),
+		0o600,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	loading, err := listener.Load(dir, "")
+	loading, err := listener.Load(
+		dir,
+		"",
+	)
 	if err != nil {
-		t.Fatalf("loading %s: %v", dir, err)
+		t.Fatalf(
+			"loading %s: %v",
+			dir,
+			err,
+		)
 	}
 
 	if len(loading.Loaded) != 1 {
-		t.Fatalf("loaded %v, want one", loading.Loaded)
+		t.Fatalf(
+			"loaded %v, want one",
+			loading.Loaded,
+		)
 	}
 
 	if len(loading.Skipped) != 1 {
-		t.Fatalf("skipped %v, want one", loading.Skipped)
+		t.Fatalf(
+			"skipped %v, want one",
+			loading.Skipped,
+		)
 	}
 
-	t.Logf("skipped: %v", loading.Skipped[0])
+	t.Logf(
+		"skipped: %v",
+		loading.Skipped[0],
+	)
 
 	// The names it announced work, which is what loading was for.
 	built, err := runtime.Compile(
@@ -327,13 +462,22 @@ func TestLoad_ADirectoryOfPluginsIsStartedAndKeptReady(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := runtime.Start(t.Context(), built).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("calling a loaded plugin: %v", err)
+		t.Fatalf(
+			"calling a loaded plugin: %v",
+			err,
+		)
 	}
 
 	if got.String() != "5.0" {
-		t.Fatalf("got %s, want 5.0", got)
+		t.Fatalf(
+			"got %s, want 5.0",
+			got,
+		)
 	}
 }
 
@@ -346,70 +490,157 @@ func TestLoad_ADirectoryOfPluginsIsStartedAndKeptReady(t *testing.T) {
 // Revisions:
 //   - 2026-09-26 00:48: initial creation
 func TestLark_PluginsFlag(t *testing.T) {
-	root := _ModuleRoot(t)
-	dir := t.TempDir()
-
-	lark := filepath.Join(dir, "lark")
-	plugins := filepath.Join(dir, "plugins")
-
-	err := os.Mkdir(plugins, 0o750)
+	var (
+		root = _ModuleRoot(t)
+		dir  = t.TempDir()
+		lark = filepath.Join(
+			dir,
+			"lark",
+		)
+		plugins = filepath.Join(
+			dir,
+			"plugins",
+		)
+		err = os.Mkdir(
+			plugins,
+			0o750,
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	for _, item := range []struct{ out, from string }{
-		{lark, "./cmd/lark"},
-		{filepath.Join(plugins, "lark-clock.bin"), "./cmd/clock"},
+		{
+			lark,
+			"./cmd/lark",
+		},
+		{
+			filepath.Join(
+				plugins,
+				"lark-clock.bin",
+			),
+			"./cmd/clock",
+		},
 	} {
-		build := exec.Command("go", "build", "-o", item.out, item.from)
+		build := exec.Command(
+			"go",
+			"build",
+			"-o",
+			item.out,
+			item.from,
+		)
 		build.Dir = root
 
 		out, err := build.CombinedOutput()
 		if err != nil {
-			t.Fatalf("building %s: %v\n%s", item.from, err, out)
+			t.Fatalf(
+				"building %s: %v\n%s",
+				item.from,
+				err,
+				out,
+			)
 		}
 	}
 
-	script := filepath.Join(dir, "run.star")
+	script := filepath.Join(
+		dir,
+		"run.star",
+	)
 
-	err = os.WriteFile(script, []byte("def main():\n    print(clock.add(2, 3))\n"), 0o600)
+	err = os.WriteFile(
+		script,
+		[]byte("def main():\n    print(clock.add(2, 3))\n"),
+		0o600,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Without the flag the name is not there, and the failure says so rather
 	// than reading as a plugin that went away.
-	code, out := _LarkCode(t, lark, "-s", script)
+	code, out := _LarkCode(
+		t,
+		lark,
+		"-s",
+		script,
+	)
 	if code == 0 {
-		t.Fatalf("no -p: exit 0, want a failure\n%s", out)
+		t.Fatalf(
+			"no -p: exit 0, want a failure\n%s",
+			out,
+		)
 	}
 
-	if !strings.Contains(string(out), "undefined: clock") {
-		t.Fatalf("no -p: %s, want an undefined name", out)
+	if !strings.Contains(
+		string(out),
+		"undefined: clock",
+	) {
+		t.Fatalf(
+			"no -p: %s, want an undefined name",
+			out,
+		)
 	}
 
 	// With it, the plugin is started, answers, and the run succeeds.
-	code, out = _LarkCode(t, lark, "-s", script, "-p", plugins)
+	code, out = _LarkCode(
+		t,
+		lark,
+		"-s",
+		script,
+		"-p",
+		plugins,
+	)
 	if code != 0 {
-		t.Fatalf("-p: exit %d\n%s", code, out)
+		t.Fatalf(
+			"-p: exit %d\n%s",
+			code,
+			out,
+		)
 	}
 
-	if !strings.Contains(string(out), "5.0") {
-		t.Fatalf("-p: %s, want 5.0 from the plugin", out)
+	if !strings.Contains(
+		string(out),
+		"5.0",
+	) {
+		t.Fatalf(
+			"-p: %s, want 5.0 from the plugin",
+			out,
+		)
 	}
 
 	// A directory with nothing in it is not a failure, and leaves the name
 	// undefined rather than present and broken.
-	empty := filepath.Join(dir, "none")
+	empty := filepath.Join(
+		dir,
+		"none",
+	)
 
-	err = os.Mkdir(empty, 0o750)
+	err = os.Mkdir(
+		empty,
+		0o750,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	code, out = _LarkCode(t, lark, "-s", script, "-p", empty)
-	if code == 0 || !strings.Contains(string(out), "undefined: clock") {
-		t.Fatalf("-p on an empty directory: exit %d\n%s", code, out)
+	code, out = _LarkCode(
+		t,
+		lark,
+		"-s",
+		script,
+		"-p",
+		empty,
+	)
+	if code == 0 || !strings.Contains(
+		string(out),
+		"undefined: clock",
+	) {
+		t.Fatalf(
+			"-p on an empty directory: exit %d\n%s",
+			code,
+			out,
+		)
 	}
 }
 
@@ -426,7 +657,10 @@ func TestLark_PluginsFlag(t *testing.T) {
 //   - 2026-10-02 17:12: hands the listener no registry, since it keeps what
 //     attaches itself
 func TestPlugin_SocketIsPrivateAndGoesAway(t *testing.T) {
-	dir, err := os.MkdirTemp("", "lk")
+	dir, err := os.MkdirTemp(
+		"",
+		"lk",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,9 +669,15 @@ func TestPlugin_SocketIsPrivateAndGoesAway(t *testing.T) {
 		_ = os.RemoveAll(dir)
 	})
 
-	socket := filepath.Join(dir, "s")
+	var socket = filepath.Join(
+		dir,
+		"s",
+	)
 
-	listener, err := remote.Listen(socket, PLUGIN_TOKEN)
+	listener, err := remote.Listen(
+		socket,
+		PLUGIN_TOKEN,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,17 +688,29 @@ func TestPlugin_SocketIsPrivateAndGoesAway(t *testing.T) {
 	}
 
 	if about.Mode().Perm() != 0o600 {
-		t.Fatalf("socket mode %o, want 0600", about.Mode().Perm())
+		t.Fatalf(
+			"socket mode %o, want 0600",
+			about.Mode().Perm(),
+		)
 	}
 
 	err = listener.Close()
 	if err != nil {
-		t.Fatalf("closing: %v", err)
+		t.Fatalf(
+			"closing: %v",
+			err,
+		)
 	}
 
 	_, err = os.Stat(socket)
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the socket is still there after close: %v", err)
+	if !errors.Is(
+		err,
+		os.ErrNotExist,
+	) {
+		t.Fatalf(
+			"the socket is still there after close: %v",
+			err,
+		)
 	}
 }
 
@@ -473,19 +725,32 @@ func TestPlugin_SocketIsPrivateAndGoesAway(t *testing.T) {
 // Revisions:
 //   - 2026-09-26 01:15: initial creation, from QA's probes
 func TestPlugin_TheTokenIsNowhereAnyoneCanRead(t *testing.T) {
-	listener, socket := _Host(t)
-	binary := _Clock(t)
+	var (
+		listener, socket = _Host(t)
+		binary           = _Clock(t)
+	)
 
-	_Attached(t, listener, binary, socket)
+	_Attached(
+		t,
+		listener,
+		binary,
+		socket,
+	)
 
 	// The search has to be able to find something before its not finding the
 	// token means anything. The plugin is running and was started by path, so
 	// it is there to be found.
-	if !_ArgsContain(t, binary) {
+	if !_ArgsContain(
+		t,
+		binary,
+	) {
 		t.Fatal("the search cannot see a process it was told is running")
 	}
 
-	if _ArgsContain(t, PLUGIN_TOKEN) {
+	if _ArgsContain(
+		t,
+		PLUGIN_TOKEN,
+	) {
 		t.Fatal("the token is in a process argument list, where anyone can read it")
 	}
 }
@@ -501,43 +766,72 @@ func TestPlugin_TheTokenIsNowhereAnyoneCanRead(t *testing.T) {
 // Revisions:
 //   - 2026-09-26 01:15: initial creation, from QA's probes
 func TestPlugin_NothingOutlivesTheHost(t *testing.T) {
-	listener, _ := _Host(t)
+	var (
+		listener, _ = _Host(t)
+		dir         = t.TempDir()
+		named       = filepath.Join(
+			dir,
+			"lark-clock.bin",
+		)
+		build = exec.Command(
+			"go",
+			"build",
+			"-o",
+			named,
+			"./cmd/clock",
+		)
+	)
 
-	dir := t.TempDir()
-	named := filepath.Join(dir, "lark-clock.bin")
-
-	build := exec.Command("go", "build", "-o", named, "./cmd/clock")
 	build.Dir = _ModuleRoot(t)
 
 	out, err := build.CombinedOutput()
 	if err != nil {
-		t.Fatalf("building the plugin: %v\n%s", err, out)
+		t.Fatalf(
+			"building the plugin: %v\n%s",
+			err,
+			out,
+		)
 	}
 
-	loading, err := listener.Load(dir, remote.GLOB)
+	loading, err := listener.Load(
+		dir,
+		remote.GLOB,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if len(loading.Loaded) != 1 {
-		t.Fatalf("loaded %v, want one", loading.Loaded)
+		t.Fatalf(
+			"loaded %v, want one",
+			loading.Loaded,
+		)
 	}
 
-	if !_ArgsContain(t, named) {
+	if !_ArgsContain(
+		t,
+		named,
+	) {
 		t.Fatal("the plugin was reported loaded and is not running")
 	}
 
 	err = listener.Close()
 	if err != nil {
-		t.Fatalf("closing: %v", err)
+		t.Fatalf(
+			"closing: %v",
+			err,
+		)
 	}
 
 	// Killed if it did not go on its own, so this is bounded by LEAVING plus
 	// the moment the kill takes.
-	deadline := time.Now().Add(_NOTICED)
+	deadline := time.Now().Add(NOTICED)
 
 	for time.Now().Before(deadline) {
-		if !_ArgsContain(t, named) {
+		if !_ArgsContain(
+			t,
+			named,
+		) {
 			return
 		}
 
@@ -556,10 +850,17 @@ func TestPlugin_NothingOutlivesTheHost(t *testing.T) {
 //   - 2026-09-26 01:15: initial creation, from QA's probes
 func TestPlugin_SeveralThreadsCallOneClock(t *testing.T) {
 	listener, socket := _Host(t)
-	_Attached(t, listener, _Clock(t), socket)
+	_Attached(
+		t,
+		listener,
+		_Clock(t),
+		socket,
+	)
 
 	built, err := runtime.Compile(
-		&runtime.Source{Entry: "many.star", Text: []byte(`
+		&runtime.Source{
+			Entry: "many.star",
+			Text: []byte(`
 def once():
     return clock.add(1, 2)
 
@@ -567,20 +868,30 @@ def main():
     held = [spawn(once) for i in range(8)]
 
     return join(*held)
-`)},
+`),
+		},
 		runtime.WithPlugins(listener.Plugins()...),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := runtime.Start(t.Context(), built).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("eight threads through one plugin: %v", err)
+		t.Fatalf(
+			"eight threads through one plugin: %v",
+			err,
+		)
 	}
 
 	if got.String() != "[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]" {
-		t.Fatalf("got %s", got)
+		t.Fatalf(
+			"got %s",
+			got,
+		)
 	}
 }
 
@@ -595,29 +906,48 @@ def main():
 // Revisions:
 //   - 2026-09-26 01:15: initial creation, from QA's probes
 func TestPlugin_AnExecutableThatIsNotAProgramIsSkipped(t *testing.T) {
-	listener, _ := _Host(t)
-
-	dir := t.TempDir()
-
-	err := os.WriteFile(filepath.Join(dir, "lark-quiet.bin"), []byte("not a program"), 0o755)
+	var (
+		listener, _ = _Host(t)
+		dir         = t.TempDir()
+		err         = os.WriteFile(
+			filepath.Join(
+				dir,
+				"lark-quiet.bin",
+			),
+			[]byte("not a program"),
+			0o755,
+		)
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	loading, err := listener.Load(dir, remote.GLOB)
+	loading, err := listener.Load(
+		dir,
+		remote.GLOB,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if len(loading.Loaded) != 0 {
-		t.Fatalf("loaded %v, want none", loading.Loaded)
+		t.Fatalf(
+			"loaded %v, want none",
+			loading.Loaded,
+		)
 	}
 
 	if len(loading.Skipped) != 1 {
-		t.Fatalf("skipped %v, want one", loading.Skipped)
+		t.Fatalf(
+			"skipped %v, want one",
+			loading.Skipped,
+		)
 	}
 
-	t.Logf("skipped: %v", loading.Skipped[0])
+	t.Logf(
+		"skipped: %v",
+		loading.Skipped[0],
+	)
 }
 
 // TestPlugin_LoadSeesAPluginThatComesBack is a plugin started the way a host
@@ -631,29 +961,54 @@ func TestPlugin_AnExecutableThatIsNotAProgramIsSkipped(t *testing.T) {
 // Revisions:
 //   - 2026-09-30 06:39: initial creation
 func TestPlugin_LoadSeesAPluginThatComesBack(t *testing.T) {
-	listener, _ := _Host(t)
+	var (
+		listener, _ = _Host(t)
+		dir         = t.TempDir()
+		named       = filepath.Join(
+			dir,
+			"lark-clock.bin",
+		)
+		build = exec.Command(
+			"go",
+			"build",
+			"-o",
+			named,
 
-	dir := t.TempDir()
-	named := filepath.Join(dir, "lark-clock.bin")
+			"./cmd/clock",
+		)
+	)
 
-	build := exec.Command("go", "build", "-o", named, "./cmd/clock")
 	build.Dir = _ModuleRoot(t)
 
 	out, err := build.CombinedOutput()
 	if err != nil {
-		t.Fatalf("building the plugin: %v\n%s", err, out)
+		t.Fatalf(
+			"building the plugin: %v\n%s",
+			err,
+			out,
+		)
 	}
 
-	loading, err := listener.Load(dir, remote.GLOB)
+	loading, err := listener.Load(
+		dir,
+		remote.GLOB,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if len(loading.Loaded) != 1 {
-		t.Fatalf("first load loaded %v skipped %v", loading.Loaded, loading.Skipped)
+		t.Fatalf(
+			"first load loaded %v skipped %v",
+			loading.Loaded,
+			loading.Skipped,
+		)
 	}
 
-	pid := _Pid(t, named)
+	var pid = _Pid(
+		t,
+		named,
+	)
 
 	proc, err := os.FindProcess(pid)
 	if err != nil {
@@ -665,24 +1020,34 @@ func TestPlugin_LoadSeesAPluginThatComesBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(_NOTICED)
+	deadline := time.Now().Add(NOTICED)
 
 	for time.Now().Before(deadline) && len(listener.Live()) > 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	if len(listener.Live()) != 0 {
-		t.Fatalf("after the kill, still live: %v", listener.Live())
+		t.Fatalf(
+			"after the kill, still live: %v",
+			listener.Live(),
+		)
 	}
 
-	loading, err = listener.Load(dir, remote.GLOB)
+	loading, err = listener.Load(
+		dir,
+		remote.GLOB,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if len(loading.Loaded) != 1 || len(listener.Live()) != 1 {
-		t.Fatalf("second load loaded %v skipped %v, live %v",
-			loading.Loaded, loading.Skipped, listener.Live())
+		t.Fatalf(
+			"second load loaded %v skipped %v, live %v",
+			loading.Loaded,
+			loading.Skipped,
+			listener.Live(),
+		)
 	}
 
 	built, err := runtime.Compile(
@@ -693,16 +1058,28 @@ func TestPlugin_LoadSeesAPluginThatComesBack(t *testing.T) {
 		runtime.WithPlugins(listener.Plugins()...),
 	)
 	if err != nil {
-		t.Fatalf("compiling after the second load: %v", err)
+		t.Fatalf(
+			"compiling after the second load: %v",
+			err,
+		)
 	}
 
-	got, err := runtime.Start(t.Context(), built).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		built,
+	).Wait()
 	if err != nil {
-		t.Fatalf("calling the plugin Load brought back: %v", err)
+		t.Fatalf(
+			"calling the plugin Load brought back: %v",
+			err,
+		)
 	}
 
 	if got.String() != "5.0" {
-		t.Fatalf("got %s, want 5.0", got)
+		t.Fatalf(
+			"got %s, want 5.0",
+			got,
+		)
 	}
 }
 
@@ -710,7 +1087,10 @@ func TestPlugin_LoadSeesAPluginThatComesBack(t *testing.T) {
 //
 // Revisions:
 //   - 2026-09-30 06:39: initial creation
-func _Pid(t *testing.T, needle string) int {
+func _Pid(
+	t *testing.T,
+	needle string,
+) int {
 	t.Helper()
 
 	held, err := os.ReadDir(PROC)
@@ -723,12 +1103,19 @@ func _Pid(t *testing.T, needle string) int {
 			continue
 		}
 
-		raw, err := os.ReadFile(filepath.Join(PROC, entry.Name(), CMDLINE))
+		raw, err := os.ReadFile(filepath.Join(
+			PROC,
+			entry.Name(),
+			CMDLINE,
+		))
 		if err != nil {
 			continue
 		}
 
-		if !strings.Contains(string(raw), needle) {
+		if !strings.Contains(
+			string(raw),
+			needle,
+		) {
 			continue
 		}
 
@@ -740,7 +1127,10 @@ func _Pid(t *testing.T, needle string) int {
 		return pid
 	}
 
-	t.Fatalf("no process has %s in its arguments", needle)
+	t.Fatalf(
+		"no process has %s in its arguments",
+		needle,
+	)
 
 	return 0
 }
@@ -753,12 +1143,18 @@ func _Pid(t *testing.T, needle string) int {
 //
 // Revisions:
 //   - 2026-09-26 01:15: initial creation, from QA's probes
-func _ArgsContain(t *testing.T, needle string) bool {
+func _ArgsContain(
+	t *testing.T,
+	needle string,
+) bool {
 	t.Helper()
 
 	held, err := os.ReadDir(PROC)
 	if err != nil {
-		t.Skipf("no process table to read on this system: %v", err)
+		t.Skipf(
+			"no process table to read on this system: %v",
+			err,
+		)
 	}
 
 	for _, entry := range held {
@@ -766,13 +1162,20 @@ func _ArgsContain(t *testing.T, needle string) bool {
 			continue
 		}
 
-		raw, err := os.ReadFile(filepath.Join(PROC, entry.Name(), CMDLINE))
+		raw, err := os.ReadFile(filepath.Join(
+			PROC,
+			entry.Name(),
+			CMDLINE,
+		))
 		if err != nil {
 			// A process that ended between the listing and the read.
 			continue
 		}
 
-		if strings.Contains(string(raw), needle) {
+		if strings.Contains(
+			string(raw),
+			needle,
+		) {
 			return true
 		}
 	}

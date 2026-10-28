@@ -11,16 +11,25 @@ import (
 )
 
 // ABSENT is the index slices.IndexFunc answers when nothing matches.
-const ABSENT = -1
+const (
+	ABSENT = -1
+)
 
-// ERR_NO_CALLEE is returned when the hidden call is handed nothing to call. Only
+// ErrNoCallee is returned when the hidden call is handed nothing to call. Only
 // the dialect writes a call of it, and always with a function first, so this
 // is an invariant broken rather than a script's mistake.
-var ERR_NO_CALLEE = errors.New("nothing to call")
+var (
+	ErrNoCallee = errors.New("nothing to call")
+)
 
 // CALL is the hidden function a compiled statement call of a script function
 // goes through, under the name no script can write.
-var CALL = starlark.NewBuiltin(spelling.CALL, _Calling)
+var (
+	CALL = starlark.NewBuiltin(
+		spelling.CALL,
+		_Calling,
+	)
+)
 
 // _Calling calls the function it is handed first with the rest of its
 // arguments, and reports the call as a line of the thread that made it.
@@ -39,7 +48,7 @@ var CALL = starlark.NewBuiltin(spelling.CALL, _Calling)
 // still hold a lambda, which no flow lists. A callee that turns out to be that,
 // or anything else, is called and not reported.
 //
-// Returns whatever the call returns, unwrapped, and ERR_NO_CALLEE when handed
+// Returns whatever the call returns, unwrapped, and ErrNoCallee when handed
 // nothing to call.
 //
 // Revisions:
@@ -53,23 +62,46 @@ func _Calling(
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
 	if len(args) == 0 {
-		return nil, fmt.Errorf("%s: %w", fn.Name(), ERR_NO_CALLEE)
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			ErrNoCallee,
+		)
 	}
 
-	builtin, rest := Hidden(kwargs, spelling.BUILTIN)
-	target := args[0]
+	var (
+		builtin, rest = Hidden(
+			kwargs,
+			spelling.BUILTIN,
+		)
+		target     = args[0]
+		script, ok = target.(*starlark.Function)
+		reported   = ok && script.Name() != LAMBDA
+	)
 
-	script, ok := target.(*starlark.Function)
-
-	reported := ok && script.Name() != LAMBDA
 	if reported {
-		Open(thread, &Line{Name: script.Name(), Builtin: builtin})
+		Open(
+			thread,
+			&Line{
+				Name:    script.Name(),
+				Builtin: builtin,
+			},
+		)
 	}
 
-	value, err := starlark.Call(thread, target, args[1:], rest)
+	value, err := starlark.Call(
+		thread,
+		target,
+		args[1:],
+		rest,
+	)
 
 	if reported {
-		Close(thread, script.Name(), err)
+		Close(
+			thread,
+			script.Name(),
+			err,
+		)
 	}
 
 	return value, err
@@ -100,24 +132,40 @@ func _Calling(
 //     unless the keyword stands between two others
 //   - 2026-10-03 23:37: takes out every pair of the name again, reading the first,
 //     since a script can add one through **
-func Hidden(kwargs []starlark.Tuple, name string) (string, []starlark.Tuple) {
-	named := func(pair starlark.Tuple) bool {
-		key, ok := starlark.AsString(pair[0])
+func Hidden(
+	kwargs []starlark.Tuple,
+	name string,
+) (string, []starlark.Tuple) {
+	var (
+		named = func(pair starlark.Tuple) bool {
+			key, ok := starlark.AsString(pair[0])
 
-		return ok && key == name
-	}
+			return ok && key == name
+		}
+		at = slices.IndexFunc(
+			kwargs,
+			named,
+		)
+	)
 
-	at := slices.IndexFunc(kwargs, named)
 	if at == ABSENT {
 		return "", kwargs
 	}
 
 	// Not a string is no value, as an absent keyword is.
-	found, _ := starlark.AsString(kwargs[at][1])
+	var (
+		found, _ = starlark.AsString(kwargs[at][1])
+		again    = slices.ContainsFunc(
+			kwargs[at+1:],
+			named,
+		)
+	)
 
-	again := slices.ContainsFunc(kwargs[at+1:], named)
 	if again {
-		return found, slices.DeleteFunc(slices.Clone(kwargs), named)
+		return found, slices.DeleteFunc(
+			slices.Clone(kwargs),
+			named,
+		)
 	}
 
 	switch at {
@@ -128,6 +176,9 @@ func Hidden(kwargs []starlark.Tuple, name string) (string, []starlark.Tuple) {
 		return found, kwargs[:at:at]
 
 	default:
-		return found, slices.Concat(kwargs[:at], kwargs[at+1:])
+		return found, slices.Concat(
+			kwargs[:at],
+			kwargs[at+1:],
+		)
 	}
 }

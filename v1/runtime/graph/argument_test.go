@@ -16,7 +16,8 @@ import (
 // DECLARING is a script declaring every shape an argument can take, with the
 // two names disagreeing on purpose: what a caller passes is "host", what the
 // script calls it is "db".
-const DECLARING = `
+const (
+	DECLARING = `
 db = arg("host", "db.internal")
 port = arg("port", 5432)
 ratio = arg("ratio", 0.25)
@@ -31,10 +32,12 @@ limit = 3
 def main():
     print(db)
 `
+)
 
 // SHADOWING is a script defining a function of its own called arg, which is
 // what it then calls.
-const SHADOWING = `
+const (
+	SHADOWING = `
 def arg():
     return "mine"
 
@@ -43,10 +46,13 @@ x = arg()
 def main():
     print(x)
 `
+)
 
 // DECLARED is how many arguments DECLARING declares. The tenth binding is a
 // constant, which is the point of it being there.
-const DECLARED = 9
+const (
+	DECLARED = 9
+)
 
 // TestOf_AnArgumentCarriesBothNames is the answer to the question the shape
 // turned on: a script binds an argument to a name of its own choosing, so the
@@ -56,14 +62,24 @@ const DECLARED = 9
 //   - 2026-09-22 22:48: initial creation
 //   - 2026-10-02 00:16: reads a Flow
 func TestOf_AnArgumentCarriesBothNames(t *testing.T) {
-	args := _Derived(t, DECLARING).GetArgs()
+	args := _Derived(
+		t,
+		DECLARING,
+	).GetArgs()
 
 	if len(args) != DECLARED {
-		t.Fatalf("derived %d arguments, want %d", len(args), DECLARED)
+		t.Fatalf(
+			"derived %d arguments, want %d",
+			len(args),
+			DECLARED,
+		)
 	}
 
 	if args["db"].GetName() != "host" {
-		t.Fatalf("db is supplied as %q, want host", args["db"].GetName())
+		t.Fatalf(
+			"db is supplied as %q, want host",
+			args["db"].GetName(),
+		)
 	}
 }
 
@@ -75,10 +91,16 @@ func TestOf_AnArgumentCarriesBothNames(t *testing.T) {
 //   - 2026-09-22 22:48: initial creation
 //   - 2026-10-02 00:16: reads a Flow
 func TestOf_AnArgumentWithNoDefaultCarriesNone(t *testing.T) {
-	args := _Derived(t, DECLARING).GetArgs()
+	args := _Derived(
+		t,
+		DECLARING,
+	).GetArgs()
 
 	if args["token"].GetDefault() != nil {
-		t.Fatalf("token defaults to %v, want nothing", args["token"].GetDefault())
+		t.Fatalf(
+			"token defaults to %v, want nothing",
+			args["token"].GetDefault(),
+		)
 	}
 
 	if args["spare"].GetDefault() == nil {
@@ -93,7 +115,10 @@ func TestOf_AnArgumentWithNoDefaultCarriesNone(t *testing.T) {
 //   - 2026-09-22 22:48: initial creation
 //   - 2026-10-02 00:16: reads a Flow
 func TestOf_AConstantIsNotAnArgument(t *testing.T) {
-	derived := _Derived(t, DECLARING)
+	derived := _Derived(
+		t,
+		DECLARING,
+	)
 
 	if derived.GetConstants()["limit"].GetValue().GetNumberValue() != 3 {
 		t.Fatalf(
@@ -124,15 +149,24 @@ func TestOf_AMalformedDeclarationIsRefused(t *testing.T) {
 	}
 
 	for name, declaring := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := graph.Of(&script.Source{
-				Entry: "script.star",
-				Text:  []byte(declaring + "\ndef main():\n    pass\n"),
-			})
-			if !errors.Is(err, graph.ERR_NOT_CARRIED) {
-				t.Fatalf("got %v, want ERR_NOT_CARRIED", err)
-			}
-		})
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := graph.Of(&script.Source{
+					Entry: "script.star",
+					Text:  []byte(declaring + "\ndef main():\n    pass\n"),
+				})
+				if !errors.Is(
+					err,
+					graph.ErrNotCarried,
+				) {
+					t.Fatalf(
+						"got %v, want ErrNotCarried",
+						err,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -144,25 +178,48 @@ func TestOf_AMalformedDeclarationIsRefused(t *testing.T) {
 //   - 2026-09-22 22:48: initial creation
 //   - 2026-10-02 00:16: reads a Flow
 func TestEmit_DeclarationsSurviveTheRoundTrip(t *testing.T) {
-	first := _Derived(t, DECLARING)
+	var (
+		first = _Derived(
+			t,
+			DECLARING,
+		)
+		out []byte
+		err error
+	)
 
-	out, err := graph.Emit(first)
+	out, err = graph.Emit(first)
 	if err != nil {
-		t.Fatalf("emit: %v", err)
+		t.Fatalf(
+			"emit: %v",
+			err,
+		)
 	}
 
-	again := _Derived(t, string(out))
+	again := _Derived(
+		t,
+		string(out),
+	)
 
 	for bound, declared := range first.GetArgs() {
-		if !proto.Equal(declared, again.GetArgs()[bound]) {
-			t.Fatalf("%s went out as %v and came back as %v",
-				bound, declared, again.GetArgs()[bound])
+		if !proto.Equal(
+			declared,
+			again.GetArgs()[bound],
+		) {
+			t.Fatalf(
+				"%s went out as %v and came back as %v",
+				bound,
+				declared,
+				again.GetArgs()[bound],
+			)
 		}
 	}
 
 	if len(again.GetArgs()) != len(first.GetArgs()) {
-		t.Fatalf("emitted %d arguments and read back %d",
-			len(first.GetArgs()), len(again.GetArgs()))
+		t.Fatalf(
+			"emitted %d arguments and read back %d",
+			len(first.GetArgs()),
+			len(again.GetArgs()),
+		)
 	}
 }
 
@@ -175,19 +232,36 @@ func TestEmit_DeclarationsSurviveTheRoundTrip(t *testing.T) {
 //   - 2026-10-02 00:16: reads a Flow
 func TestEmit_WritesTheDeclarationAScriptWrote(t *testing.T) {
 	out, err := graph.Emit(&workflowpb.Flow{
-		Spine: &workflowpb.Flow_Text{Text: "print(db)"},
+		Spine: &workflowpb.Flow_Text{
+			Text: "print(db)",
+		},
 		Args: map[string]*workflowpb.Arg{
-			"db":    {Name: "host", Default: structpb.NewStringValue("db.internal")},
-			"token": {Name: "token"},
+			"db": {
+				Name:    "host",
+				Default: structpb.NewStringValue("db.internal"),
+			},
+			"token": {
+				Name: "token",
+			},
 		},
 	})
 	if err != nil {
-		t.Fatalf("emit: %v", err)
+		t.Fatalf(
+			"emit: %v",
+			err,
+		)
 	}
 
 	for _, want := range []string{`db = arg("host", "db.internal")`, `token = arg("token")`} {
-		if !strings.Contains(string(out), want) {
-			t.Fatalf("emitted:\n%s\nwant it to contain %q", string(out), want)
+		if !strings.Contains(
+			string(out),
+			want,
+		) {
+			t.Fatalf(
+				"emitted:\n%s\nwant it to contain %q",
+				string(out),
+				want,
+			)
 		}
 	}
 }
@@ -204,24 +278,42 @@ func TestEmit_WritesTheDeclarationAScriptWrote(t *testing.T) {
 //   - 2026-09-22 23:12: initial creation
 //   - 2026-10-02 00:16: reads a Flow
 func TestOf_AScriptsOwnArgIsNotADeclaration(t *testing.T) {
-	derived := _Derived(t, SHADOWING)
+	derived := _Derived(
+		t,
+		SHADOWING,
+	)
 
 	if len(derived.GetArgs()) != 0 {
-		t.Fatalf("derived %v as arguments, want none", derived.GetArgs())
+		t.Fatalf(
+			"derived %v as arguments, want none",
+			derived.GetArgs(),
+		)
 	}
 
 	called := derived.GetConstants()["x"].GetCall()
 	if called.GetFunction() != "arg" {
-		t.Fatalf("x was carried as %v, want a call of the script's own arg", called)
+		t.Fatalf(
+			"x was carried as %v, want a call of the script's own arg",
+			called,
+		)
 	}
 
 	out, err := graph.Emit(derived)
 	if err != nil {
-		t.Fatalf("emit: %v", err)
+		t.Fatalf(
+			"emit: %v",
+			err,
+		)
 	}
 
-	if !strings.Contains(string(out), "x = arg()") {
-		t.Fatalf("emitted:\n%s\nwant it to contain x = arg()", string(out))
+	if !strings.Contains(
+		string(out),
+		"x = arg()",
+	) {
+		t.Fatalf(
+			"emitted:\n%s\nwant it to contain x = arg()",
+			string(out),
+		)
 	}
 }
 
@@ -238,27 +330,47 @@ func TestOf_AScriptsOwnArgIsNotADeclaration(t *testing.T) {
 //   - 2026-09-22 23:20: initial creation
 //   - 2026-10-02 00:16: reads a Flow
 func TestEmit_AHostileNameStaysAString(t *testing.T) {
-	payload := "x\")\nprint(\"broken out\nevil = arg(\"y"
+	var (
+		payload = "x\")\nprint(\"broken out\nevil = arg(\"y"
+		out     []byte
+		err     error
+	)
 
-	out, err := graph.Emit(&workflowpb.Flow{
-		Spine: &workflowpb.Flow_Text{Text: "print(taken)"},
-		Args:  map[string]*workflowpb.Arg{"taken": {Name: payload}},
+	out, err = graph.Emit(&workflowpb.Flow{
+		Spine: &workflowpb.Flow_Text{
+			Text: "print(taken)",
+		},
+		Args: map[string]*workflowpb.Arg{"taken": {
+			Name: payload,
+		}},
 	})
 	if err != nil {
-		t.Fatalf("emit: %v", err)
+		t.Fatalf(
+			"emit: %v",
+			err,
+		)
 	}
 
 	// The payload tries to close the literal and bind a second argument. What
 	// the generated script actually declares is the test: one argument, named
 	// by the whole payload, and no sign of the one it tried to smuggle in.
-	again := _Derived(t, string(out))
+	again := _Derived(
+		t,
+		string(out),
+	)
 
 	if len(again.GetArgs()) != 1 || again.GetConstants()["evil"] != nil {
-		t.Fatalf("emitted:\n%s\nwhich declared %v", out, again.GetArgs())
+		t.Fatalf(
+			"emitted:\n%s\nwhich declared %v",
+			out,
+			again.GetArgs(),
+		)
 	}
 
 	if again.GetArgs()["taken"].GetName() != payload {
-		t.Fatalf("came back as %q, want the payload unchanged",
-			again.GetArgs()["taken"].GetName())
+		t.Fatalf(
+			"came back as %q, want the payload unchanged",
+			again.GetArgs()["taken"].GetName(),
+		)
 	}
 }

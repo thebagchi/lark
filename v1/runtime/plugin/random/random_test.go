@@ -13,30 +13,57 @@ import (
 )
 
 // FIXTURES is where the scripts these tests run live.
-const FIXTURES = "testdata"
+const (
+	FIXTURES = "testdata"
+)
 
 // _Ran compiles a fixture and returns what it produced.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Ran(t *testing.T, name string) starlark.Value {
+func _Ran(
+	t *testing.T,
+	name string,
+) starlark.Value {
 	t.Helper()
 
-	path := filepath.Join(FIXTURES, name)
-
-	src, err := os.ReadFile(path)
+	var (
+		path = filepath.Join(
+			FIXTURES,
+			name,
+		)
+		src, err = os.ReadFile(path)
+	)
 	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
+		t.Fatalf(
+			"read %s: %v",
+			name,
+			err,
+		)
 	}
 
-	art, err := runtime.Compile(&runtime.Source{Entry: path, Text: src})
+	art, err := runtime.Compile(&runtime.Source{
+		Entry: path,
+		Text:  src,
+	})
 	if err != nil {
-		t.Fatalf("compile %s: %v", name, err)
+		t.Fatalf(
+			"compile %s: %v",
+			name,
+			err,
+		)
 	}
 
-	got, err := runtime.Start(t.Context(), art).Wait()
+	got, err := runtime.Start(
+		t.Context(),
+		art,
+	).Wait()
 	if err != nil {
-		t.Fatalf("run %s: %v", name, err)
+		t.Fatalf(
+			"run %s: %v",
+			name,
+			err,
+		)
 	}
 
 	return got
@@ -47,17 +74,30 @@ func _Ran(t *testing.T, name string) starlark.Value {
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
-func _Expression(t *testing.T, body string) (starlark.Value, error) {
+func _Expression(
+	t *testing.T,
+	body string,
+) (starlark.Value, error) {
 	t.Helper()
 
-	src := "def main():\n    " + body + "\n"
-
-	art, err := runtime.Compile(&runtime.Source{Entry: "random_test.star", Text: []byte(src)})
+	var (
+		src      = "def main():\n    " + body + "\n"
+		art, err = runtime.Compile(&runtime.Source{
+			Entry: "random_test.star",
+			Text:  []byte(src),
+		})
+	)
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
-	return runtime.Start(t.Context(), art).Wait()
+	return runtime.Start(
+		t.Context(),
+		art,
+	).Wait()
 }
 
 // TestSeed_RepeatsOnOneThread is what seeding is for, and the limit of what it
@@ -66,14 +106,29 @@ func _Expression(t *testing.T, body string) (starlark.Value, error) {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func TestSeed_RepeatsOnOneThread(t *testing.T) {
-	first := _Ran(t, "seeded.star")
-	second := _Ran(t, "seeded.star")
+	var (
+		first = _Ran(
+			t,
+			"seeded.star",
+		)
+		second = _Ran(
+			t,
+			"seeded.star",
+		)
+	)
 
 	if first.String() != second.String() {
-		t.Fatalf("one seed gave %s then %s", first.String(), second.String())
+		t.Fatalf(
+			"one seed gave %s then %s",
+			first.String(),
+			second.String(),
+		)
 	}
 
-	t.Logf("seeded: %s", first.String())
+	t.Logf(
+		"seeded: %s",
+		first.String(),
+	)
 }
 
 // TestSource_BelongsToOneRun checks that two runs of one artifact draw
@@ -82,25 +137,43 @@ func TestSeed_RepeatsOnOneThread(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func TestSource_BelongsToOneRun(t *testing.T) {
-	src := []byte("def main():\n    return [random.int(1, 1000000000) for i in range(8)]\n")
-
-	art, err := runtime.Compile(&runtime.Source{Entry: "unseeded.star", Text: src})
+	var (
+		src = []byte("def" +
+			" main():\n    return [random.int(1, 1000000000) for i in " +
+			"range(8)]\n")
+		art, err = runtime.Compile(&runtime.Source{
+			Entry: "unseeded.star",
+			Text:  src,
+		})
+	)
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf(
+			"compile: %v",
+			err,
+		)
 	}
 
-	first, err := runtime.Start(t.Context(), art).Wait()
+	first, err := runtime.Start(
+		t.Context(),
+		art,
+	).Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	second, err := runtime.Start(t.Context(), art).Wait()
+	second, err := runtime.Start(
+		t.Context(),
+		art,
+	).Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if first.String() == second.String() {
-		t.Fatalf("two unseeded runs both gave %s", first.String())
+		t.Fatalf(
+			"two unseeded runs both gave %s",
+			first.String(),
+		)
 	}
 }
 
@@ -110,15 +183,25 @@ func TestSource_BelongsToOneRun(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func TestSource_IsSafeFromEveryThreadAtOnce(t *testing.T) {
-	got := _Ran(t, "threaded.star")
-
-	held, ok := got.(*starlark.List)
+	var (
+		got = _Ran(
+			t,
+			"threaded.star",
+		)
+		held, ok = got.(*starlark.List)
+	)
 	if !ok {
-		t.Fatalf("returned a %T, want a list", got)
+		t.Fatalf(
+			"returned a %T, want a list",
+			got,
+		)
 	}
 
 	if held.Len() != 4 {
-		t.Fatalf("drew from %d threads, want 4", held.Len())
+		t.Fatalf(
+			"drew from %d threads, want 4",
+			held.Len(),
+		)
 	}
 }
 
@@ -128,14 +211,20 @@ func TestSource_IsSafeFromEveryThreadAtOnce(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func TestRandom_StaysInsideWhatItWasAsked(t *testing.T) {
-	got, err := _Expression(t, "return [random.int(3, 5) for i in range(200)]")
+	got, err := _Expression(
+		t,
+		"return [random.int(3, 5) for i in range(200)]",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	held, ok := got.(*starlark.List)
 	if !ok {
-		t.Fatalf("returned a %T, want a list", got)
+		t.Fatalf(
+			"returned a %T, want a list",
+			got,
+		)
 	}
 
 	seen := map[string]bool{}
@@ -146,12 +235,19 @@ func TestRandom_StaysInsideWhatItWasAsked(t *testing.T) {
 
 	for _, want := range []string{"3", "4", "5"} {
 		if !seen[want] {
-			t.Fatalf("200 draws from 3 to 5 never gave %s: %v", want, seen)
+			t.Fatalf(
+				"200 draws from 3 to 5 never gave %s: %v",
+				want,
+				seen,
+			)
 		}
 	}
 
 	if len(seen) != 3 {
-		t.Fatalf("drew %v, want only 3, 4 and 5", seen)
+		t.Fatalf(
+			"drew %v, want only 3, 4 and 5",
+			seen,
+		)
 	}
 }
 
@@ -162,10 +258,13 @@ func TestRandom_StaysInsideWhatItWasAsked(t *testing.T) {
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
 func TestRandom_ShufflesWithoutTouchingWhatItWasGiven(t *testing.T) {
-	got, err := _Expression(t, `
+	got, err := _Expression(
+		t,
+		`
     held = [1, 2, 3, 4, 5, 6, 7, 8]
     mixed = random.shuffle(held)
-    return [held, sorted(mixed)]`)
+    return [held, sorted(mixed)]`,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,18 +287,43 @@ func TestRandom_RefusesWhatItCannotDo(t *testing.T) {
 		body string
 		want error
 	}{
-		{"a backwards range", "return random.int(9, 1)", random.ERR_RANGE},
-		{"a choice from nothing", "return random.choice([])", random.ERR_EMPTY},
-		{"negative bytes", "return random.bytes(-1)", random.ERR_RANGE},
+		{
+			"a backwards range",
+			"return random.int(9, 1)",
+			random.ErrRange,
+		},
+		{
+			"a choice from nothing",
+			"return random.choice([])",
+			random.ErrEmpty,
+		},
+		{
+			"negative bytes",
+			"return random.bytes(-1)",
+			random.ErrRange,
+		},
 	}
 
 	for _, item := range cases {
-		t.Run(item.name, func(t *testing.T) {
-			_, err := _Expression(t, item.body)
-			if !errors.Is(err, item.want) {
-				t.Fatalf("got %v, want %v", err, item.want)
-			}
-		})
+		t.Run(
+			item.name,
+			func(t *testing.T) {
+				_, err := _Expression(
+					t,
+					item.body,
+				)
+				if !errors.Is(
+					err,
+					item.want,
+				) {
+					t.Fatalf(
+						"got %v, want %v",
+						err,
+						item.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -225,16 +349,29 @@ func TestInt_SpansTheWholeRange(t *testing.T) {
 	}
 
 	for name, body := range cases {
-		t.Run(name, func(t *testing.T) {
-			got, err := _Expression(t, "random.seed(1)\n    "+body)
-			if err != nil {
-				t.Fatalf("%s gave %v", body, err)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				got, err := _Expression(
+					t,
+					"random.seed(1)\n    "+body,
+				)
+				if err != nil {
+					t.Fatalf(
+						"%s gave %v",
+						body,
+						err,
+					)
+				}
 
-			if got == starlark.None {
-				t.Fatalf("%s gave None", body)
-			}
-		})
+				if got == starlark.None {
+					t.Fatalf(
+						"%s gave None",
+						body,
+					)
+				}
+			},
+		)
 	}
 }
 
