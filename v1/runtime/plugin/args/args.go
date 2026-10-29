@@ -22,6 +22,7 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/artifact"
 	"github.com/thebagchi/lark/v1/runtime/graph"
 	"github.com/thebagchi/lark/v1/runtime/plugin"
+	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
 var (
@@ -103,8 +104,13 @@ func (a *_Args) Values() starlark.StringDict {
 // somewhere later with None in its hands. Returns ErrNotDeclaring when it is
 // called anywhere but a module's top level.
 //
+// An attempt of a repeat or a retry is a body, though it runs on its caller's
+// thread. At module level that thread is bound, so the attempt is refused by
+// its count rather than by the thread.
+//
 // Revisions:
 //   - 2026-09-22 22:24: initial creation
+//   - 2026-10-29 06:26: refuses a call inside an attempt
 func _Declare(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -129,7 +135,11 @@ func _Declare(
 		return nil, err
 	}
 
-	supplied, declaring := artifact.Supplied(thread)
+	var (
+		supplied, bound = artifact.Supplied(thread)
+		attempt         = scheduler.AttemptOf(thread)
+		declaring       = bound && attempt == scheduler.NO_ATTEMPT
+	)
 	if !declaring {
 		return nil, fmt.Errorf(
 			"%s: %w",

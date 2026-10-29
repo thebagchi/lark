@@ -168,31 +168,6 @@ func WithChanges(watch func(change *workflowpb.Change)) RunOption {
 	}
 }
 
-// Changes is the function opts send a started run's changes to, or nil.
-//
-// Exported for observe, which keeps a started run's graph and is what sends
-// them; a run made here keeps none. A caller that also runs with opts applies
-// them once, with Apply, and asks the Given instead.
-//
-// Revisions:
-//   - 2026-10-02 16:33: initial creation
-func Changes(opts []RunOption) func(change *workflowpb.Change) {
-	return Apply(opts).Changes()
-}
-
-// Logger is the logger opts send a run's prints to, or nil when they name
-// none and the prints go to slog's default.
-//
-// Exported for observe, which keeps each line a run prints as well as logging
-// it, and so must log it where the run would have. A caller that also runs
-// with opts applies them once, with Apply, and asks the Given instead.
-//
-// Revisions:
-//   - 2026-10-28 23:50: initial creation
-func Logger(opts []RunOption) *slog.Logger {
-	return Apply(opts).Logger()
-}
-
 // Apply is what opts tell a run, each applied in order, so of two that set one
 // thing the later wins.
 //
@@ -217,6 +192,9 @@ func Apply(opts []RunOption) *Given {
 
 // Changes is the function a started run's changes go to, or nil.
 //
+// Exported for observe, which keeps a started run's graph and is what sends
+// them; a run made here keeps none.
+//
 // Revisions:
 //   - 2026-10-29 01:24: initial creation
 func (g *Given) Changes() func(change *workflowpb.Change) {
@@ -225,6 +203,9 @@ func (g *Given) Changes() func(change *workflowpb.Change) {
 
 // Logger is the logger a run's prints go to, or nil when the options named
 // none and the prints go to slog's default.
+//
+// Exported for observe, which keeps each line a run prints as well as logging
+// it, and so must log it where the run would have.
 //
 // Revisions:
 //   - 2026-10-29 01:24: initial creation

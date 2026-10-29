@@ -184,6 +184,32 @@ func TestArg_InABodyIsRefused(t *testing.T) {
 	}
 }
 
+// TestRegression_QWithin checks that an attempt of a repeat or a retry
+// refuses a declaration, as any body does.
+//
+// An attempt now runs on its caller's thread. At module level, that thread is
+// the one a run binds its arguments on, so without the check the call reads
+// them.
+//
+// Revisions:
+//   - 2026-10-29 06:26: initial creation
+func TestRegression_QWithin(t *testing.T) {
+	_, err := _Run(
+		t,
+		"inattempt.star",
+		`{"host": "db.internal"}`,
+	)
+	if !errors.Is(
+		err,
+		args.ErrNotDeclaring,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNotDeclaring",
+			err,
+		)
+	}
+}
+
 // TestArg_ALoadedModuleDeclaresItsOwn checks that every unit a run
 // initialises is bound, and not only the entry.
 //
