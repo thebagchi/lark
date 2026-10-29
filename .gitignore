@@ -11,10 +11,14 @@ thirdparty/
 # The working record: how this was planned, proved, reviewed and logged, and
 # the conventions it was written to. Kept on disk, out of the repository.
 .claude/
-.guidelines
+.claude/skills/ste100/
+.claude/hooks/langlint.sh
+.guidelines/
 .poc/
+poc/
 CLAUDE.md
 review.md
+reviewer.md
 
 # The checkers and the gates, copied from the convention kit. The kit is their source.
 .tools/
