@@ -82,16 +82,20 @@ func (b *_Base32) Values() starlark.StringDict {
 
 // _Encode is RFC 4648 base32, padded.
 //
+// The data is a view of the script's value, not a copy: EncodeToString only
+// reads it, into a buffer of its own, which is the contract of unpack.View.
+//
 // Revisions:
 //   - 2026-09-21 15:25: initial creation, as codec's b32encode
 //   - 2026-09-24 00:53: a member of the base32 module
+//   - 2026-10-29 23:58: reads a view of the data rather than a copy
 func _Encode(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(
+	data, err := unpack.DataView(
 		fn,
 		args,
 		kwargs,

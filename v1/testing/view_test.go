@@ -12,6 +12,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/base32"
 	"encoding/base64"
 	"fmt"
 	"hash/crc32"
@@ -103,6 +104,7 @@ func TestView_ReadersGiveWhatTheyGave(t *testing.T) {
 //
 // Revisions:
 //   - 2026-10-29 01:07: initial creation
+//   - 2026-10-29 23:58: with the refusals of base32.encode
 func TestView_RefusesAsBefore(t *testing.T) {
 	cases := []struct {
 		expression string
@@ -131,6 +133,18 @@ func TestView_RefusesAsBefore(t *testing.T) {
 		{
 			`base64.encode()`,
 			"base64.encode: got 0 arguments, want 1",
+		},
+		{
+			`base32.encode(1)`,
+			"base32.encode got int: wants bytes or a string",
+		},
+		{
+			`base32.encode()`,
+			"base32.encode: got 0 arguments, want 1",
+		},
+		{
+			`base32.encode(data = "a")`,
+			"base32.encode: unexpected keyword arguments",
 		},
 		{
 			`hash.sha256(1)`,
@@ -259,6 +273,7 @@ func _CheckReader(
 //
 // Revisions:
 //   - 2026-10-29 01:07: initial creation
+//   - 2026-10-29 23:58: with base32.encode
 func _Readers() []*_Reader {
 	return []*_Reader{
 		{
@@ -280,6 +295,12 @@ func _Readers() []*_Reader {
 			expression: `base64.urlencode(data)`,
 			want: func(data []byte) (string, error) {
 				return base64.RawURLEncoding.EncodeToString(data), nil
+			},
+		},
+		{
+			expression: `base32.encode(data)`,
+			want: func(data []byte) (string, error) {
+				return base32.StdEncoding.EncodeToString(data), nil
 			},
 		},
 		{
