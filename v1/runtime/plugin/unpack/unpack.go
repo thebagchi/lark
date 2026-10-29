@@ -36,19 +36,18 @@ var (
 //   - 2026-09-23 23:40: moved here, where base64 and hash reach it too
 //   - 2026-10-24 16:05: stop prepending fn.Name(), which
 //     UnpackPositionalArgs already includes
+//   - 2026-10-29 23:58: checks the call with Positional, so no local goes to
+//     the heap
 func Data(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) ([]byte, error) {
-	var given starlark.Value
-
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
+	err := Positional(
+		fn,
 		args,
 		kwargs,
 		1,
-		&given,
 	)
 	if err != nil {
 		return nil, err
@@ -56,7 +55,7 @@ func Data(
 
 	return Bytes(
 		fn.Name(),
-		given,
+		args[0],
 	)
 }
 
@@ -94,25 +93,28 @@ func Bytes(
 //   - 2026-09-23 23:40: moved here
 //   - 2026-10-24 16:05: stop prepending fn.Name(), which
 //     UnpackPositionalArgs already includes
+//   - 2026-10-29 23:58: checks the call with Positional, so no local goes to
+//     the heap
 func Text(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (string, error) {
-	var text string
-
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
+	err := Positional(
+		fn,
 		args,
 		kwargs,
 		1,
-		&text,
 	)
 	if err != nil {
 		return "", err
 	}
 
-	return text, nil
+	return StringAt(
+		fn,
+		args,
+		0,
+	)
 }
 
 // Counted reads a builtin's two arguments as a non-negative integer and a
@@ -126,25 +128,38 @@ func Text(
 //   - 2026-10-08 17:47: moved here, where hex and binary reach it too
 //   - 2026-10-24 16:05: stop prepending fn.Name(), which
 //     UnpackPositionalArgs already includes
+//   - 2026-10-29 23:58: checks the call with Positional, so no local goes to
+//     the heap
 func Counted(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (*big.Int, int, error) {
-	var (
-		number starlark.Int
-		width  int
-	)
-
 	const NEEDED = 2
 
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
+	err := Positional(
+		fn,
 		args,
 		kwargs,
 		NEEDED,
-		&number,
-		&width,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	number, err := _IntAt(
+		fn,
+		args,
+		0,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	width, err := _SizeAt(
+		fn,
+		args,
+		1,
 	)
 	if err != nil {
 		return nil, 0, err

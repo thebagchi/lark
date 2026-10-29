@@ -2,6 +2,7 @@ package unpack
 
 import (
 	"fmt"
+	"strconv"
 
 	"go.starlark.net/starlark"
 )
@@ -95,4 +96,68 @@ func CallableAt(
 	}
 
 	return callable, nil
+}
+
+// _IntAt reads the argument at idx as a Starlark int, with the refusal
+// UnpackPositionalArgs gives for a *starlark.Int. idx counts as it does for
+// StringAt.
+//
+// Revisions:
+//   - 2026-10-29 23:58: initial creation
+func _IntAt(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	idx int,
+) (starlark.Int, error) {
+	number, ok := args[idx].(starlark.Int)
+	if !ok {
+		return starlark.Int{}, fmt.Errorf(
+			"%s: for parameter %d: got %s, want int",
+			fn.Name(),
+			idx+1,
+			args[idx].Type(),
+		)
+	}
+
+	return number, nil
+}
+
+// _SizeAt reads the argument at idx as a Go int, with the refusals
+// UnpackPositionalArgs gives for an *int: one for a value that is not an int,
+// and one for an int that does not fit. idx counts as it does for StringAt.
+//
+// Revisions:
+//   - 2026-10-29 23:58: initial creation
+func _SizeAt(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	idx int,
+) (int, error) {
+	number, err := _IntAt(
+		fn,
+		args,
+		idx,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	var (
+		wide, ok = number.Int64()
+		fits     = ok && int64(int(wide)) == wide
+	)
+	if !fits {
+		format := "%s: for parameter %d: %s out of range " +
+			"(want value in signed %d-bit range)"
+
+		return 0, fmt.Errorf(
+			format,
+			fn.Name(),
+			idx+1,
+			number,
+			strconv.IntSize,
+		)
+	}
+
+	return int(wide), nil
 }

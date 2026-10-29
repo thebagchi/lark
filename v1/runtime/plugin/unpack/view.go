@@ -12,19 +12,18 @@ import (
 //
 // Revisions:
 //   - 2026-10-29 01:08: initial creation
+//   - 2026-10-29 23:58: checks the call with Positional, so no local goes to
+//     the heap
 func DataView(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) ([]byte, error) {
-	var given starlark.Value
-
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
+	err := Positional(
+		fn,
 		args,
 		kwargs,
 		1,
-		&given,
 	)
 	if err != nil {
 		return nil, err
@@ -32,7 +31,7 @@ func DataView(
 
 	return View(
 		fn.Name(),
-		given,
+		args[0],
 	)
 }
 
