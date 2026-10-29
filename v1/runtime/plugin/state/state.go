@@ -15,6 +15,7 @@ import (
 
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 	"github.com/thebagchi/lark/v1/runtime/plugin/deep"
+	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
@@ -114,16 +115,18 @@ func (s *_State) Values() starlark.StringDict {
 	}
 }
 
-// _Of returns the store belonging to the run on thread, making it the first
+// _Of returns the store belonging to the run of evaluation, making it the first
 // time this execution asks.
 //
 // Revisions:
 //   - 2026-09-20 00:34: initial creation
 //   - 2026-09-30 21:19: one map of entries rather than a map of values and a
 //     map of charges
-func _Of(thread *starlark.Thread) (*_Store, error) {
-	return scheduler.Shared(
-		thread,
+//   - 2026-10-29 01:05: takes the evaluation the builtin found, rather than
+//     finding it on the thread again
+func _Of(evaluation *scheduler.Evaluation) (*_Store, error) {
+	return scheduler.SharedIn(
+		evaluation,
 		NAME,
 		func() *_Store {
 			return &_Store{
@@ -243,27 +246,26 @@ func _Set(
 
 // _SetArgs reads the name and the value a set was given.
 //
+// Through unpack rather than starlark.UnpackPositionalArgs, which moved the
+// name and the value to the heap: two allocations on every set. The refusals
+// have the same text.
+//
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 01:32: reads the arguments through unpack, so they stay on
+//     the stack
 func _SetArgs(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (string, starlark.Value, error) {
-	var (
-		name  string
-		value starlark.Value
-	)
-
 	const NEEDED = 2
 
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
+	err := unpack.Positional(
+		fn,
 		args,
 		kwargs,
 		NEEDED,
-		&name,
-		&value,
 	)
 	if err != nil {
 		return "", nil, fmt.Errorf(
@@ -273,7 +275,20 @@ func _SetArgs(
 		)
 	}
 
-	return name, value, nil
+	name, err := unpack.StringAt(
+		fn,
+		args,
+		0,
+	)
+	if err != nil {
+		return "", nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	return name, args[1], nil
 }
 
 // _SetData refuses a value the store would not keep, and stops the run.
@@ -312,15 +327,32 @@ func _SetData(
 // every name it is asked for. The other way round, a name the run could not
 // afford would still have left its lock behind.
 //
+// The evaluation is found on the thread once, and the store, the budget and
+// the lock all come from it. Each find is a lookup on the thread, and a set
+// made three. It is found here, after the value is checked, so a set of
+// something that is not data says so on a thread with no run, as it did.
+//
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 00:56: reads the budget once, for the name and for the value
+//   - 2026-10-29 01:05: finds the evaluation once, for the store, the budget
+//     and the lock
 func _SetKeep(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	name string,
 	value starlark.Value,
 ) (starlark.Value, error) {
-	store, err := _Of(thread)
+	evaluation, err := scheduler.EvaluationOf(thread)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	store, err := _Of(evaluation)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%s: %w",
@@ -330,7 +362,7 @@ func _SetKeep(
 	}
 
 	held, err := store._Named(
-		scheduler.Allowance(thread),
+		evaluation.Allowance(),
 		name,
 	)
 	if err != nil {
@@ -343,7 +375,7 @@ func _SetKeep(
 	}
 
 	return _Kept(
-		thread,
+		evaluation,
 		&_Keep{
 			fn:    fn,
 			held:  held,
@@ -361,18 +393,25 @@ type _Keep struct {
 	value starlark.Value
 }
 
-// _Kept holds the name and stores the value.
+// _Kept holds the name and stores the value, locking and charging through
+// evaluation.
+//
+// evaluation is a parameter and not a field of keep. The value in keep goes
+// into the store, so the compiler moves keep's contents to the heap, and it
+// does not tell one field from another. As a field, the evaluation was an
+// allocation on every set.
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 00:56: charges the budget the keep carries, rather than
+//     reading it from the thread again
+//   - 2026-10-29 01:05: locks and charges through the evaluation it is
+//     handed, and takes no thread
 func _Kept(
-	thread *starlark.Thread,
+	evaluation *scheduler.Evaluation,
 	keep *_Keep,
 ) (starlark.Value, error) {
-	release, err := scheduler.Lock(
-		thread,
-		keep.name,
-	)
+	release, err := evaluation.Lock(keep.name)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%s %q: %w",
@@ -387,7 +426,7 @@ func _Kept(
 	keep.value.Freeze()
 
 	err = keep.held._Keep(
-		scheduler.Allowance(thread),
+		evaluation.Allowance(),
 		keep.value,
 	)
 	if err != nil {
@@ -427,21 +466,25 @@ func _Kept(
 // Revisions:
 //   - 2026-09-20 00:26: initial creation
 //   - 2026-09-30 21:19: reads the name's entry, and makes none
+//   - 2026-10-29 01:05: finds the store through the evaluation, as a set does
+//   - 2026-10-29 01:32: reads the name through _GetArgs, so it stays on the
+//     stack
 func _Get(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	var name string
-
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
+	name, err := _GetArgs(
+		fn,
 		args,
 		kwargs,
-		1,
-		&name,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	evaluation, err := scheduler.EvaluationOf(thread)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%s: %w",
@@ -450,7 +493,7 @@ func _Get(
 		)
 	}
 
-	store, err := _Of(thread)
+	store, err := _Of(evaluation)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%s: %w",
@@ -477,6 +520,47 @@ func _Get(
 	}
 
 	return copied, nil
+}
+
+// _GetArgs reads the name a get was given.
+//
+// Through unpack, for the reason _SetArgs gives: one allocation on every get.
+//
+// Revisions:
+//   - 2026-10-29 01:32: initial creation
+func _GetArgs(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (string, error) {
+	err := unpack.Positional(
+		fn,
+		args,
+		kwargs,
+		1,
+	)
+	if err != nil {
+		return "", fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	name, err := unpack.StringAt(
+		fn,
+		args,
+		0,
+	)
+	if err != nil {
+		return "", fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	return name, nil
 }
 
 // _Update applies fn to what is stored under name and stores what it returns.
@@ -509,6 +593,10 @@ func _Get(
 //     refuses nesting wherever it happens
 //   - 2026-09-30 21:19: charges the name the first time it is used, as a set
 //     does
+//   - 2026-10-29 00:56: reads the budget once, for the name and for what fn
+//     returns
+//   - 2026-10-29 01:05: finds the evaluation once, for the store, the budget
+//     and the lock
 func _Update(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -524,7 +612,16 @@ func _Update(
 		return nil, err
 	}
 
-	store, err := _Of(thread)
+	evaluation, err := scheduler.EvaluationOf(thread)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	store, err := _Of(evaluation)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%s: %w",
@@ -536,7 +633,7 @@ func _Update(
 	// Named before the lock, as a set is, so a name the run cannot afford
 	// leaves no lock behind.
 	held, err := store._Named(
-		scheduler.Allowance(thread),
+		evaluation.Allowance(),
 		name,
 	)
 	if err != nil {
@@ -550,6 +647,7 @@ func _Update(
 
 	return _Updated(
 		thread,
+		evaluation,
 		&_Change{
 			fn:     fn,
 			name:   name,
@@ -569,27 +667,51 @@ type _Change struct {
 
 // _UpdateArgs reads the name and the function an update was given.
 //
+// Through unpack, for the reason _SetArgs gives. The name is read before the
+// function, so a call wrong in both is told about the name, as it was.
+//
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 01:32: reads the arguments through unpack, so they stay on
+//     the stack
 func _UpdateArgs(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (string, starlark.Callable, error) {
-	var (
-		name   string
-		change starlark.Callable
-	)
-
 	const NEEDED = 2
 
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
+	err := unpack.Positional(
+		fn,
 		args,
 		kwargs,
 		NEEDED,
-		&name,
-		&change,
+	)
+	if err != nil {
+		return "", nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	name, err := unpack.StringAt(
+		fn,
+		args,
+		0,
+	)
+	if err != nil {
+		return "", nil, fmt.Errorf(
+			"%s: %w",
+			fn.Name(),
+			err,
+		)
+	}
+
+	change, err := unpack.CallableAt(
+		fn,
+		args,
+		1,
 	)
 	if err != nil {
 		return "", nil, fmt.Errorf(
@@ -602,18 +724,27 @@ func _UpdateArgs(
 	return name, change, nil
 }
 
-// _Updated holds the name and applies the change.
+// _Updated holds the name and applies the change, locking and charging
+// through evaluation, which is a parameter and not a field for the reason
+// _Kept gives.
+//
+// evaluation is the one the update was called in. The change runs on the
+// same thread and may start attempts of its own, which put their evaluation
+// on the thread while they run and put this one back when they end. So
+// evaluation is still the update's when the change returns and its result is
+// charged.
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 00:56: hands the change's budget to the entry
+//   - 2026-10-29 01:05: locks and charges through the evaluation it is
+//     handed
 func _Updated(
 	thread *starlark.Thread,
+	evaluation *scheduler.Evaluation,
 	change *_Change,
 ) (starlark.Value, error) {
-	release, err := scheduler.Lock(
-		thread,
-		change.name,
-	)
+	release, err := evaluation.Lock(change.name)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%s %q: %w",
@@ -627,6 +758,7 @@ func _Updated(
 
 	updated, err := change.held._Apply(
 		thread,
+		evaluation.Allowance(),
 		change.name,
 		change.change,
 	)
@@ -654,12 +786,18 @@ func _Updated(
 // throughout, so nothing else publishes between the copy and the store - which
 // is the whole difference between this and a get followed by a set.
 //
+// budget is the one the name was charged to, handed down rather than read from
+// the thread again.
+//
 // Revisions:
 //   - 2026-09-20 00:43: initial creation
 //   - 2026-09-30 21:19: the entry's rather than the store's, so a name nothing
 //     has kept reads as the None its entry was made with
+//   - 2026-10-29 00:56: charges the budget it is handed, rather than reading
+//     it from the thread
 func (e *_Entry) _Apply(
 	thread *starlark.Thread,
+	budget *scheduler.Budget,
 	name string,
 	change starlark.Callable,
 ) (starlark.Value, error) {
@@ -699,7 +837,7 @@ func (e *_Entry) _Apply(
 	updated.Freeze()
 
 	err = e._Keep(
-		scheduler.Allowance(thread),
+		budget,
 		updated,
 	)
 	if err != nil {

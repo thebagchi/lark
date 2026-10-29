@@ -50,10 +50,13 @@ type _At [2]int32
 // module's functions copies the module's globals on every call. The
 // environment must predeclare CALL, as the artifact compiler does.
 //
-// Two parses, because resolving a tree mutates it and go.starlark.net will not
+// Two trees, because resolving a tree mutates it and go.starlark.net will not
 // resolve one twice: the first is resolved to learn what each lambda reads, the
-// second is rewritten and compiled. The first is what is returned, because
-// whatever reads the tree afterwards should read what was written.
+// second is rewritten and compiled. The second is a copy of the first, made
+// before the first is resolved, rather than a second parse: the parse was most
+// of a compile, and the copy is a fraction of it. The first is what is
+// returned, because whatever reads the tree afterwards should read what was
+// written.
 //
 // Returns the interpreter's own parse or resolve error, unwrapped: it opens with
 // the file, line and column already.
@@ -62,6 +65,8 @@ type _At [2]int32
 //   - 2026-09-29 23:30: initial creation
 //   - 2026-10-02 01:17: compiles a statement call of a script function through
 //     CALL, and passes the hidden keywords a branch, a spawn and a wrapper read
+//   - 2026-10-28 22:49: compiles a copy of the parsed tree in place of a second
+//     parse, and refuses a tree with a node it cannot copy
 func Compile(
 	path string,
 	src []byte,
@@ -76,6 +81,11 @@ func Compile(
 		return nil, nil, err
 	}
 
+	compiled, err := _Copied(written)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	err = resolve.File(
 		written,
 		predeclared,
@@ -85,14 +95,10 @@ func Compile(
 		return nil, nil, err
 	}
 
-	compiled, err := _Marked(
-		path,
-		src,
+	_Marked(
+		compiled,
 		written,
 	)
-	if err != nil {
-		return nil, nil, err
-	}
 
 	program, err := starlark.FileProgram(
 		compiled,
@@ -105,27 +111,17 @@ func Compile(
 	return written, program, nil
 }
 
-// _Marked parses the source again and copies the marks off the first parse.
-//
-// The same source parsed once, so it parses again. The error is checked
-// all the same, because nothing here should be believed unread.
+// _Marked copies the marks off the written tree, which is resolved, onto the
+// compiled tree, which is not.
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-28 22:49: marks the copy Compile made rather than parsing the
+//     source a second time
 func _Marked(
-	path string,
-	src []byte,
+	compiled *syntax.File,
 	written *syntax.File,
-) (*syntax.File, error) {
-	compiled, err := OPTIONS.Parse(
-		path,
-		src,
-		0,
-	)
-	if err != nil {
-		return nil, err
-	}
-
+) {
 	_Take(
 		compiled,
 		_Taken(written),
@@ -134,8 +130,6 @@ func _Marked(
 		compiled,
 		_Marks(written),
 	)
-
-	return compiled, nil
 }
 
 // _Taken is every lambda written as spawn's argument, with the variables each

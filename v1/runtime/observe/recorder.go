@@ -18,7 +18,8 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// NONE is the position of no call, among the calls a thread is in.
+// NONE is the position of no call, among the calls a thread is in, and the
+// ordinal of no call.
 const (
 	NONE = -1
 
@@ -52,22 +53,25 @@ const (
 // how a run tells it anything: nothing here can ask, because nothing here holds
 // a run.
 //
-// nodes holds each function the run called, by name, and names those names
-// sorted, which is each node's place in the graph; edges holds the calls,
-// sorted by caller and then callee. running is what each thread is in the
-// middle of: the calls it has started and not ended, newest last, so the newest
-// is the caller of whatever starts next, the function the thread is executing,
-// and the first an end can close. newest is, for each function, the call its
-// node shows, and made counts the calls started, which is what numbers them.
-// cause is the failure to blame, the one whose error Wait returns. status and ending are
-// the run's own, as its graph reports them: running, with no cause, until it
-// ends; then how it ended and, when it failed, why.
+// callees holds each function the run called, by name, with its node, and
+// names holds those names sorted, which is each node's place in the graph;
+// edges holds the calls, sorted by caller and then callee. running holds each
+// thread in the middle of a call, by id, with the calls it is in. made counts
+// the calls started, which is what numbers them. cause is the failure to
+// blame, the one whose error Wait returns. status and ending are the run's
+// own, as its graph reports them: running, with no cause, until it ends; then
+// how it ended and, when it failed, why.
 //
-// arrival counts the times a thread arrived at a node, and arrived is each
-// thread's number at the node it is executing. A node lists its threads in the
-// order they arrived, so their numbers are sorted, and a thread that leaves is
-// found by a binary search rather than by reading the names one by one, which
-// cost the square of the threads in one function.
+// A step looks up the thread and the function it names once, and hands the
+// pointers on: a call is a step of every statement that calls, and each lookup
+// by a string key is a hash of that string under the lock every thread waits
+// for.
+//
+// arrival counts the times a thread arrived at a node, which numbers each
+// arrival. A thread keeps its number, and a function the numbers of the threads
+// its node lists, so a thread that leaves is found by a binary search rather
+// than by reading the names one by one, which cost the square of the threads in
+// one function.
 //
 // watch is told each step's change, and ops collects it while the step is
 // folded; nil when nothing watches, so a run nobody watches builds none. emit
@@ -82,28 +86,19 @@ const (
 type _Recorder struct {
 	guard   sync.Mutex
 	emit    sync.Mutex
-	nodes   map[string]*workflowpb.Node
+	callees map[string]*_Callee
 	names   []string
 	edges   []*workflowpb.Edge
-	running map[string][]*_Call
-	newest  map[string]int
+	running map[string]*_Thread
 	made    int
 	cause   *workflowpb.Cause
 	blamed  error
 	status  workflowpb.Status
 	ending  *workflowpb.Cause
 	arrival int
-	arrived map[string]int
 	watch   func(change *workflowpb.Change)
 	ops     []*patchpb.Operation
 	fault   error
-}
-
-// _Call is one call a thread has started and not ended: the function, and
-// which call of the run it is.
-type _Call struct {
-	name    string
-	ordinal int
 }
 
 // _NewRecorder returns a recorder that has been told nothing.
@@ -117,17 +112,22 @@ type _Call struct {
 //   - 2026-10-02 16:33: holds the names in order, for the changes it makes
 //   - 2026-10-03 21:02: numbers each thread's arrival at a node, so it is found there
 //     by a binary search
+//   - 2026-10-29 00:25: holds a record per function and per thread, each
+//     reached by one lookup
 func _NewRecorder() *_Recorder {
 	return &_Recorder{
-		nodes:   make(map[string]*workflowpb.Node),
-		running: make(map[string][]*_Call),
-		newest:  make(map[string]int),
-		arrived: make(map[string]int),
+		callees: make(map[string]*_Callee),
+		running: make(map[string]*_Thread),
 	}
 }
 
 // Started records a call a thread began, and tells the watcher what it
 // changed.
+//
+// A line that calls nothing - a join, a sleep, a cancel - folds nothing and
+// tells nothing, so it returns before the lock: every thread of a run reports
+// through this one recorder, and a step that changes nothing must not wait for
+// the others.
 //
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
@@ -138,10 +138,18 @@ func _NewRecorder() *_Recorder {
 //   - 2026-10-02 15:34: a call of a function's node, with an edge from its
 //     caller, rather than a line of a thread
 //   - 2026-10-02 16:33: tells the watcher the change it made
+//   - 2026-10-28 22:23: takes no lock for a line that calls nothing, and makes
+//     the call's record before the lock
+//   - 2026-10-29 00:25: makes no record, a call being a value in its thread's
+//     calls
 func (r *_Recorder) Started(
 	thread string,
 	line *scheduler.Line,
 ) {
+	if line.Name == "" {
+		return
+	}
+
 	r._Step(func() {
 		r._Start(
 			thread,
@@ -160,6 +168,10 @@ func (r *_Recorder) Started(
 // that were doing nothing wrong, and calling those failures would report one
 // broken script as several.
 //
+// An empty name is a join, a sleep or a cancel, which call nothing: its end
+// folds nothing and tells nothing, so it returns before the lock that every
+// thread of the run shares.
+//
 // Revisions:
 //   - 2026-09-20 01:39: initial creation
 //   - 2026-09-20 11:34: tells a cancellation from a failure
@@ -172,11 +184,16 @@ func (r *_Recorder) Started(
 //   - 2026-10-02 15:34: closes a call, whose function's node shows it only
 //     while it is that function's newest
 //   - 2026-10-02 16:33: tells the watcher the change it made
+//   - 2026-10-28 22:23: takes no lock for an end that calls nothing
 func (r *_Recorder) Ended(
 	thread string,
 	name string,
 	err error,
 ) {
+	if name == "" {
+		return
+	}
+
 	r._Step(func() {
 		r._End(
 			thread,
@@ -188,16 +205,19 @@ func (r *_Recorder) Ended(
 
 // _Start folds a call a thread began into the graph.
 //
-// A line that calls nothing - a join, a sleep, a cancel - is no call. A later
-// attempt of a repeat or a retry is the call already running, not another, so
-// repeat(3, step) is one call. Anything else is a new call: its function's
-// node runs, shows this call from now on, and gains an edge from the call the
-// thread is in the middle of, when it is in one; and the thread moves to the
-// node it is now executing.
+// The line calls a function; Started filters a line that calls nothing. The
+// call is numbered here, since the number is the run's count of calls.
+//
+// A later attempt of a repeat or a retry is the call already running, not
+// another, so repeat(3, step) is one call. Anything else is a new call: its
+// function's node runs, shows this call from now on, and gains an edge from
+// the call the thread is in the middle of, when it is in one; and the thread
+// moves to the node it is now executing.
 //
 // A spawn's call runs on the thread it started and ends there, so it is that
 // thread's first call - and its caller is whatever the spawning thread is in
-// the middle of.
+// the middle of. That thread is the lane here, and the one that reported the
+// line is the current thread; for any other call the two are one.
 //
 // Callers hold the lock.
 //
@@ -207,53 +227,70 @@ func (r *_Recorder) Ended(
 //   - 2026-10-02 15:34: a call of a function's node, with an edge from the
 //     thread's innermost call
 //   - 2026-10-02 16:33: moves the thread to the node it now executes
+//   - 2026-10-28 22:23: numbers the record Started made, rather than making
+//     one under the lock
+//   - 2026-10-29 00:25: looks up each thread and the function once, and keeps
+//     the call as a value in the lane's calls
 func (r *_Recorder) _Start(
 	thread string,
 	line *scheduler.Line,
 ) {
-	if line.Name == "" {
-		return
+	current := r.running[thread]
+
+	if current != nil && line.Attempt > ONCE {
+		advancing := current._Newest(r.callees[line.Name]) != NONE
+		if advancing {
+			return
+		}
 	}
 
-	advancing := line.Attempt > ONCE && r._Newest(
-		thread,
-		line.Name,
-	) != NONE
-	if advancing {
-		return
+	var caller *_Callee
+
+	if current != nil {
+		caller = current._Innermost()
 	}
 
 	var (
-		caller = r._Innermost(thread)
-		lane   = thread
+		id   = thread
+		lane = current
 	)
 
 	if line.Child != "" {
-		lane = line.Child
+		id = line.Child
+		lane = r.running[id]
 	}
 
-	executing := r._Innermost(lane)
+	if lane == nil {
+		lane = &_Thread{
+			name: id,
+		}
+		r.running[id] = lane
+	}
+
+	var (
+		executing = lane._Innermost()
+		callee    = r._Running(line.Name)
+	)
 
 	r.made++
-	r.running[lane] = append(
-		r.running[lane],
-		&_Call{
-			name:    line.Name,
+	callee.newest = r.made
+	lane.calls = append(
+		lane.calls,
+		_Call{
+			callee:  callee,
 			ordinal: r.made,
 		},
 	)
-	r.newest[line.Name] = r.made
 
-	r._Running(line.Name)
 	r._Moved(
 		lane,
 		executing,
-		line.Name,
+		callee,
 	)
 
-	if caller != "" {
+	if caller != nil {
 		r._Edge(
-			caller,
+			caller.node.GetName(),
 			line.Name,
 		)
 	}
@@ -265,9 +302,12 @@ func (r *_Recorder) _Start(
 // thread start and end in order, so the newest is the one that ended. The
 // thread moves back to whatever it is executing now, and the function's node
 // takes the status only while this is its newest call, since a node shows its
-// newest call. An empty name is a join, a sleep or a cancel, which call
-// nothing, and an end that matches no call is one this recorder was never told
-// began; neither changes anything.
+// newest call. name is never empty, Ended filtering an end that calls
+// nothing; an end that matches no call is one this recorder was never told
+// began, and changes nothing.
+//
+// A thread left in no call is forgotten, so a long run holds only the threads
+// still going.
 //
 // Callers hold the lock.
 //
@@ -277,38 +317,50 @@ func (r *_Recorder) _Start(
 //   - 2026-10-02 15:34: closes the thread's newest call to the function, and
 //     sets its node only while it is the function's newest
 //   - 2026-10-02 16:33: moves the thread back to what it executes now
+//   - 2026-10-28 22:23: leaves an empty name to Ended, which filters it
+//   - 2026-10-29 00:25: looks up the thread and the function once, and forgets
+//     a thread left in no call
 func (r *_Recorder) _End(
 	thread string,
 	name string,
 	err error,
 ) {
-	if name == "" {
+	var (
+		lane   = r.running[thread]
+		callee = r.callees[name]
+	)
+
+	if lane == nil || callee == nil {
 		return
 	}
 
 	var (
-		executing = r._Innermost(thread)
-		ended     = r._Close(
-			thread,
-			name,
-		)
+		executing = lane._Innermost()
+		ordinal   = lane._Close(callee)
 	)
 
-	if ended == nil {
+	if ordinal == NONE {
 		return
 	}
 
 	r._Moved(
-		thread,
+		lane,
 		executing,
-		r._Innermost(thread),
+		lane._Innermost(),
 	)
+
+	if len(lane.calls) == 0 {
+		delete(
+			r.running,
+			thread,
+		)
+	}
 
 	status := _Became(err)
 
-	if r.newest[name] == ended.ordinal {
+	if callee.newest == ordinal {
 		r._Status(
-			name,
+			callee,
 			status,
 		)
 	}
@@ -461,28 +513,33 @@ func (r *_Recorder) _Op(
 }
 
 // _Running makes the node of the function name running, adding it in its
-// place when the run first calls it.
+// place when the run first calls it, and returns the function's record.
 //
 // Callers hold the lock.
 //
 // Revisions:
 //   - 2026-10-02 16:33: initial creation, from _Node
-func (r *_Recorder) _Running(name string) {
-	_, known := r.nodes[name]
+//   - 2026-10-29 00:25: returns the function's record, so its caller needs no
+//     second lookup
+func (r *_Recorder) _Running(name string) *_Callee {
+	callee, known := r.callees[name]
 	if known {
 		r._Status(
-			name,
+			callee,
 			workflowpb.Status_STATUS_RUNNING,
 		)
 
-		return
+		return callee
 	}
 
 	node := &workflowpb.Node{
 		Name:   name,
 		Status: workflowpb.Status_STATUS_RUNNING,
 	}
-	r.nodes[name] = node
+	callee = &_Callee{
+		node: node,
+	}
+	r.callees[name] = callee
 
 	idx, _ := slices.BinarySearch(
 		r.names,
@@ -495,7 +552,7 @@ func (r *_Recorder) _Running(name string) {
 	)
 
 	if r.watch == nil {
-		return
+		return callee
 	}
 
 	if len(r.names) == 1 {
@@ -505,7 +562,7 @@ func (r *_Recorder) _Running(name string) {
 			_Listed(_Valued(node)),
 		)
 
-		return
+		return callee
 	}
 
 	r._Op(
@@ -516,19 +573,22 @@ func (r *_Recorder) _Running(name string) {
 		),
 		_Valued(node),
 	)
+
+	return callee
 }
 
-// _Status sets the status of the function name's node.
+// _Status sets the status of callee's node.
 //
 // Callers hold the lock.
 //
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
+//   - 2026-10-29 00:25: takes the function's record rather than its name
 func (r *_Recorder) _Status(
-	name string,
+	callee *_Callee,
 	status workflowpb.Status,
 ) {
-	r.nodes[name].Status = status
+	callee.node.Status = status
 
 	if r.watch == nil {
 		return
@@ -538,7 +598,7 @@ func (r *_Recorder) _Status(
 		ADD,
 		_Pointer(
 			FUNCTIONS,
-			r._Place(name),
+			r._Place(callee.node.GetName()),
 			STATUS,
 		),
 		_Status(status),
@@ -546,30 +606,32 @@ func (r *_Recorder) _Status(
 }
 
 // _Moved moves thread from the node of the function it was executing to the
-// node of the one it executes now. Either may be empty: a thread starting
+// node of the one it executes now. Either may be nil: a thread starting
 // executes nothing before, and one whose last call ended nothing after.
 //
 // Callers hold the lock.
 //
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
+//   - 2026-10-29 00:25: takes the thread's record and the functions' records,
+//     which its caller already holds
 func (r *_Recorder) _Moved(
-	thread string,
-	from string,
-	to string,
+	thread *_Thread,
+	from *_Callee,
+	to *_Callee,
 ) {
 	if from == to {
 		return
 	}
 
-	if from != "" {
+	if from != nil {
 		r._Left(
 			thread,
 			from,
 		)
 	}
 
-	if to != "" {
+	if to != nil {
 		r._Joined(
 			thread,
 			to,
@@ -577,7 +639,7 @@ func (r *_Recorder) _Moved(
 	}
 }
 
-// _Left takes thread off the threads executing the function name.
+// _Left takes thread off the threads executing callee.
 //
 // A node left with none loses the member, as protojson writes an empty list:
 // not at all.
@@ -588,54 +650,45 @@ func (r *_Recorder) _Moved(
 //   - 2026-10-02 16:33: initial creation
 //   - 2026-10-03 21:02: finds the thread by its arrival number, in a binary search,
 //     rather than by reading every name the node lists
+//   - 2026-10-29 00:25: searches the function's own arrival numbers, with no
+//     lookup of each thread it passes
 func (r *_Recorder) _Left(
-	thread string,
-	name string,
+	thread *_Thread,
+	callee *_Callee,
 ) {
-	var (
-		node       = r.nodes[name]
-		idx, found = slices.BinarySearchFunc(
-			node.Threads,
-			r.arrived[thread],
-			func(
-				lane string,
-				ticket int,
-			) int {
-				return cmp.Compare(
-					r.arrived[lane],
-					ticket,
-				)
-			},
-		)
+	idx, found := slices.BinarySearch(
+		callee.tickets,
+		thread.arrived,
 	)
-
 	if !found {
 		return
 	}
 
-	node.Threads = slices.Delete(
-		node.Threads,
+	callee.node.Threads = slices.Delete(
+		callee.node.Threads,
+		idx,
+		idx+1,
+	)
+	callee.tickets = slices.Delete(
+		callee.tickets,
 		idx,
 		idx+1,
 	)
 
-	delete(
-		r.arrived,
-		thread,
-	)
-
 	r._Removed(
-		name,
+		callee,
 		idx,
 	)
 }
 
-// _Removed reports that thread left name, when a watch is attached.
+// _Removed reports that the thread at idx left callee's node, when a watch is
+// attached.
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 00:25: takes the function's record rather than its name
 func (r *_Recorder) _Removed(
-	name string,
+	callee *_Callee,
 	idx int,
 ) {
 	if r.watch == nil {
@@ -643,8 +696,8 @@ func (r *_Recorder) _Removed(
 	}
 
 	var (
-		place = r._Place(name)
-		node  = r.nodes[name]
+		node  = callee.node
+		place = r._Place(node.GetName())
 	)
 
 	if len(node.Threads) == 0 {
@@ -673,33 +726,39 @@ func (r *_Recorder) _Removed(
 	)
 }
 
-// _Joined adds thread to the threads executing the function name.
+// _Joined adds thread to the threads executing callee.
 //
 // Callers hold the lock.
 //
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
 //   - 2026-10-03 21:02: numbers the arrival, so the thread is found again by it
+//   - 2026-10-29 00:25: keeps the number on the thread and beside the node's
+//     list, rather than in a map by thread
 func (r *_Recorder) _Joined(
-	thread string,
-	name string,
+	thread *_Thread,
+	callee *_Callee,
 ) {
-	node := r.nodes[name]
+	node := callee.node
 	node.Threads = append(
 		node.Threads,
-		thread,
+		thread.name,
 	)
 
 	r.arrival++
-	r.arrived[thread] = r.arrival
+	thread.arrived = r.arrival
+	callee.tickets = append(
+		callee.tickets,
+		r.arrival,
+	)
 
 	if r.watch == nil {
 		return
 	}
 
 	var (
-		place = r._Place(name)
-		lane  = structpb.NewStringValue(thread)
+		place = r._Place(node.GetName())
+		lane  = structpb.NewStringValue(thread.name)
 	)
 
 	if len(node.Threads) == 1 {
@@ -730,31 +789,42 @@ func (r *_Recorder) _Joined(
 
 // _Edge records that caller called callee, once however often it does.
 //
+// The search compares names, and only an edge the graph lacks is allocated:
+// most calls repeat an edge, and this runs under the lock every thread of the
+// run shares.
+//
 // Callers hold the lock.
 //
 // Revisions:
 //   - 2026-10-02 15:34: initial creation
 //   - 2026-10-02 16:33: keeps the edges in order, adding each in its place
+//   - 2026-10-28 22:23: allocates an edge only when the graph lacks it
 func (r *_Recorder) _Edge(
 	caller string,
 	callee string,
 ) {
-	var (
-		edge = &workflowpb.Edge{
-			Caller: caller,
-			Callee: callee,
-		}
-		idx, found = slices.BinarySearchFunc(
-			r.edges,
-			edge,
-			_Order,
-		)
+	idx, found := slices.BinarySearchFunc(
+		r.edges,
+		callee,
+		func(
+			edge *workflowpb.Edge,
+			target string,
+		) int {
+			return _Order(
+				edge,
+				caller,
+				target,
+			)
+		},
 	)
-
 	if found {
 		return
 	}
 
+	edge := &workflowpb.Edge{
+		Caller: caller,
+		Callee: callee,
+	}
 	r.edges = slices.Insert(
 		r.edges,
 		idx,
@@ -798,90 +868,6 @@ func (r *_Recorder) _Place(name string) int {
 	)
 
 	return idx
-}
-
-// _Newest is the position of the newest call to name that thread is in, or
-// NONE.
-//
-// Callers hold the lock.
-//
-// Revisions:
-//   - 2026-10-02 15:34: initial creation
-func (r *_Recorder) _Newest(
-	thread string,
-	name string,
-) int {
-	calls := r.running[thread]
-
-	for idx := len(calls) - 1; idx >= 0; idx-- {
-		if calls[idx].name == name {
-			return idx
-		}
-	}
-
-	return NONE
-}
-
-// _Innermost is the function of the newest call thread is in, or empty when it
-// is in none.
-//
-// Callers hold the lock.
-//
-// Revisions:
-//   - 2026-10-02 15:34: initial creation
-func (r *_Recorder) _Innermost(thread string) string {
-	calls := r.running[thread]
-	if len(calls) == 0 {
-		return ""
-	}
-
-	return calls[len(calls)-1].name
-}
-
-// _Close takes the newest call to name off thread's calls, and returns it, or
-// nil when thread is in none.
-//
-// A thread left in no call is forgotten, so a long run holds only the threads
-// still going.
-//
-// Callers hold the lock.
-//
-// Revisions:
-//   - 2026-10-02 15:34: initial creation
-func (r *_Recorder) _Close(
-	thread string,
-	name string,
-) *_Call {
-	idx := r._Newest(
-		thread,
-		name,
-	)
-	if idx == NONE {
-		return nil
-	}
-
-	var (
-		calls = r.running[thread]
-		ended = calls[idx]
-	)
-
-	left := slices.Delete(
-		calls,
-		idx,
-		idx+1,
-	)
-	if len(left) == 0 {
-		delete(
-			r.running,
-			thread,
-		)
-
-		return ended
-	}
-
-	r.running[thread] = left
-
-	return ended
 }
 
 // _Blame remembers which call to blame for a failure, so Cause names the
@@ -1023,7 +1009,7 @@ func (r *_Recorder) _Drawn() *workflowpb.Graph {
 	for _, name := range r.names {
 		graph.Functions = append(
 			graph.Functions,
-			proto.CloneOf(r.nodes[name]),
+			proto.CloneOf(r.callees[name].node),
 		)
 	}
 
@@ -1037,22 +1023,28 @@ func (r *_Recorder) _Drawn() *workflowpb.Graph {
 	return graph
 }
 
-// _Order orders two edges as a graph lists them: by caller, then callee.
+// _Order orders edge against the edge from caller to callee, as a graph lists
+// them: by caller, then callee.
+//
+// The other edge comes as its two names rather than as an edge, so a search
+// for one the graph may already hold allocates nothing.
 //
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
+//   - 2026-10-28 22:23: takes the other edge as its caller and callee
 func _Order(
-	first *workflowpb.Edge,
-	second *workflowpb.Edge,
+	edge *workflowpb.Edge,
+	caller string,
+	callee string,
 ) int {
 	return cmp.Or(
 		strings.Compare(
-			first.GetCaller(),
-			second.GetCaller(),
+			edge.GetCaller(),
+			caller,
 		),
 		strings.Compare(
-			first.GetCallee(),
-			second.GetCallee(),
+			edge.GetCallee(),
+			callee,
 		),
 	)
 }

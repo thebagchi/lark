@@ -6,7 +6,8 @@
 //
 // A run tells its host two things: its graph, which the run Start returns
 // answers with Status, and what it printed, which goes to the logger
-// WithLogger names. Nothing else is reported, so nothing else is paid for.
+// WithLogger names. Evaluate hands a host both at the end instead, beside the
+// value main returned. Nothing else is reported, so nothing else is paid for.
 //
 // Importing this package is also what gives a script every plugin of the
 // runtime's own - spawn, join, cancel, assert and sleep from core, and args,
@@ -81,6 +82,12 @@ type (
 
 	// Execution is a run a host can watch.
 	Execution = observe.Execution
+
+	// Result is how a run Evaluate performed ended.
+	Result = observe.Result
+
+	// Print is one line a run's script printed.
+	Print = observe.Print
 
 	// Flow is the graph a script declares.
 	Flow = workflowpb.Flow
@@ -252,9 +259,9 @@ func Emit(flow *Flow) ([]byte, error) {
 }
 
 // Start evaluates art's entry point on a goroutine of its own and returns at
-// once with the run itself: something to wait for and to ask about. It is the
-// one way to run an artifact - Wait on what it returns is a run that blocks -
-// so every run option means the same on every run.
+// once with the run itself: something to wait for and to ask about. A host
+// that would only wait calls Evaluate instead, which performs the run the same
+// way, so every run option means the same on every run.
 //
 // Cancelling ctx is the one way to stop the run, and Wait then returns
 // ErrCancelled.
@@ -290,19 +297,51 @@ func Start(
 	)
 }
 
+// Evaluate evaluates art's entry point on the caller's goroutine and returns
+// once the run is over: the value main returned, the run's graph as it ended,
+// and each line its script printed, with the thread and the function that
+// printed it.
+//
+// It starts no goroutine for the run itself, which a host that would only
+// Start and Wait pays for in a goroutine started and a waiter woken. The
+// script's own threads still run on goroutines of their own. Every run option
+// means here what it means to Start, and a print still goes to the logger the
+// options name.
+//
+// Cancelling ctx stops the run, and the error is then ErrCancelled. The result
+// is never nil: for a run that failed its Value is nil, its graph and its
+// prints are the run's up to its end, and the error is the one Wait gives.
+//
+// Revisions:
+//   - 2026-10-28 23:50: initial creation
+func Evaluate(
+	ctx context.Context,
+	art *Artifact,
+	opts ...RunOption,
+) (*Result, error) {
+	return observe.Evaluate(
+		ctx,
+		art,
+		opts...,
+	)
+}
+
 // Run compiles source with the runtime's own plugins, runs its main, and
-// returns what main returned once the run is over: Compile, Start and Wait in
-// one call, for a host that wants the result and nothing more.
+// returns what main returned once the run is over: Compile and Evaluate in one
+// call, for a host that wants the result and nothing more.
 //
-// Every run option means here what it means to Start, which Run calls. A host
-// handing a script plugins of its own compiles it with Compile and runs it with
-// Start, since what a compile is given and what a run is given are not one
-// list; so does a host that reads Status or stops the run itself.
+// Every run option means here what it means to Evaluate, which Run calls. A
+// host handing a script plugins of its own compiles it with Compile and runs it
+// with Evaluate or Start, since what a compile is given and what a run is
+// given are not one list; so does a host that reads the graph or the prints.
 //
-// Returns what Compile refuses a script with, and otherwise what Wait returns.
+// Returns what Compile refuses a script with, and otherwise what Evaluate
+// returns.
 //
 // Revisions:
 //   - 2026-10-03 16:31: initial creation
+//   - 2026-10-28 23:50: runs on the caller's goroutine through Evaluate,
+//     rather than through Start and Wait
 func Run(
 	ctx context.Context,
 	source *Source,
@@ -313,11 +352,13 @@ func Run(
 		return nil, err
 	}
 
-	return Start(
+	result, err := Evaluate(
 		ctx,
 		art,
 		opts...,
-	).Wait()
+	)
+
+	return result.Value, err
 }
 
 // WithArgs supplies a run's script with its arguments, each field of args the

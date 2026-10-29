@@ -21,11 +21,15 @@ import (
 // refused. Cutting it to width instead made 2**32 the same seed as 0, which is
 // a wrong answer given confidently.
 //
+// The data is a view of the script's value, not a copy: crc32.Update only
+// reads it, which is the contract of unpack.View.
+//
 // Revisions:
 //   - 2026-09-21 15:25: initial creation, as codec's crc32
 //   - 2026-09-24 16:08: refuses a seed too wide to be a checksum, rather than
 //     truncating it
 //   - 2026-10-08 17:47: a member of the hash module, refusing with unpack's ErrRange
+//   - 2026-10-29 01:08: reads a view of the data rather than a copy
 func _CRC32(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -53,7 +57,7 @@ func _CRC32(
 		)
 	}
 
-	data, err := unpack.Bytes(
+	data, err := unpack.View(
 		fn.Name(),
 		given,
 	)

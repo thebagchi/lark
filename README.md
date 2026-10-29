@@ -204,7 +204,7 @@ For example, `load("util.star", …)` in `scripts/greet.star` reads
 | `load(path, name)` | Binds a name from another script. |
 | `json` | `json.encode`, `json.decode`, and the other functions of the module that go.starlark.net supplies. |
 | `state` | `state.set`, `state.get`, `state.update`. See below. |
-| `event` | `event.post(name, value)` and `value, err = event.wait(name, ms)`: one thread waits for another. See below. |
+| `event` | `event.post(name, value)` and `value, err = event.wait(name, ms)`: one thread waits for another. A subsequent section tells more. |
 | `time` | The module of go.starlark.net. |
 | `math` | The usual functions, and also `inf`, `nan`, `tau`, `trunc`, `isnan`, `isinf`, `log2`, `log10`, `gcd`. |
 | `regexp` | `search`, `match`, `findall`, `sub`, `split`, `quote`. It uses RE2, so it does not backtrack. |
@@ -215,7 +215,7 @@ For example, `load("util.star", …)` in `scripts/greet.star` reads
 | `hex` | `hex.from_bytes`, `to_bytes`, `from_int`, `to_int`, `from_binary` and `to_binary`. It writes upper case. It reads either case, with or without a `0x` prefix. See below. |
 | `binary` | `binary.from_bytes`, `to_bytes`, `from_int` and `to_int`: text of 0 and 1, with the most significant bit first. It reads text with or without a `0b` prefix. See below. |
 | `integer` | `integer.from_bytes` and `to_bytes`: an integer and its bytes, unsigned unless `signed = True` is given, and big-endian unless `"little"` is given. See below. |
-| `buf` | `buf.new()` makes a buffer to write bytes into, and `buf.reader(data)` makes a reader to take bytes apart. See below. |
+| `buf` | `buf.new()` makes a buffer to write bytes into, and `buf.reader(data)` makes a reader to take bytes apart. A subsequent section tells more. |
 | `base64` | `base64.encode` and `decode`, and `urlencode` and `urldecode` for the alphabet that is safe in a URL. |
 | `base32` | `base32.encode` and `decode`, as RFC 4648 sets them. |
 | `hash` | `hash.md5`, `sha1`, `sha256`, `sha512` and `hash.hmac(algorithm, key, data)`, as upper-case hex. Also `hash.crc32(data, seed)`, as an integer. |
@@ -260,7 +260,7 @@ items.append(1)            # cannot append to frozen list
 ```
 
 You can bind a name to a new value. You cannot change the value that you gave to
-the thread. A thread gives back its results when it returns. Use `state` for all
+the thread. A thread returns its results when it ends. Use `state` for all
 other data that threads share.
 
 **lark refuses, at the spawn, all other ways to carry a local variable into a
@@ -371,7 +371,9 @@ threads share.
 
 **The store works like read-copy-update.** The stored values are frozen. Thus
 threads that read one name at the same time never get a value that another
-thread can change. Thus `state.get` returns a **copy**. The script owns the copy
+thread can change.
+
+Thus `state.get` returns a **copy**. The script owns the copy
 and can change it. Other threads cannot see these changes until the script
 publishes the result.
 
@@ -500,7 +502,7 @@ def main():
 was posted, and `"timed out"` when the time of the wait ended. It gives a pair
 and does not raise an error, because a timeout is an answer that a script acts
 on, not a fault. It does not give only the value, because then `event.post("k",
-None)` and a wait that timed out would give the same answer.
+None)` and a wait that reached its time limit would give the same answer.
 
 **An event is a latch: a script posts it one time, and it stays posted.** A
 waiter that arrives after the post does not wait, and all waiters see the post.
@@ -560,7 +562,7 @@ run ends all waits in it. Nothing else limits the time of a wait. The timeout
 that the script gives is the limit, and it is necessary.
 
 **Both sides use the budget of `-m`.** A post uses what the value holds, because
-nothing deletes an event, and the event keeps its value until the run ends. *A
+nothing removes an event, and the event keeps its value until the run ends. *A
 name* of an event also uses 256 bytes and the length of the name. A waiter can
 name an event that nobody posts, and that is how a waiter can arrive first.
 Without this charge, a script could also make a million channels at no cost.
@@ -569,10 +571,12 @@ An event is not a queue. It has no delete, no second post and no count of the
 waiters. If a script needs these, use the store and a loop.
 
 All of these but one are plugins of the runtime itself, and each script has all
-of them. An import of `runtime` imports each one, and each one registers itself:
-`state`, `event`, `jsonpath`, `time`, `math`, `regexp`, `random`, `hex`,
+of them. An import of `runtime` imports each one, and each one registers itself.
+They are `state`, `event`, `jsonpath`, `time`, `math`, `regexp`, `random`, `hex`,
 `binary`, `integer`, `buf`, `base64`, `base32`, `hash`, `path`, `utils`, `args`,
-`flow` and `core`. **`file` is not one of them, because it can read and write
+`flow` and `core`.
+
+**`file` is not one of them, because it can read and write
 the disk.** A script has it only when a host gives it. See below.
 
 ### Regular expressions
@@ -608,8 +612,8 @@ linear in the length of the text. Thus no pattern that a script can write can
 make a run hang.
 
 Because of this, **lookahead, lookbehind and backreferences are not available**,
-and they will not be available. They need backtracking. In a program that runs
-scripts from other persons, backtracking lets a script stop the service. lark
+and they will not be available. They need a backtracking engine. In a program that runs
+scripts from other persons, a backtracking engine lets a script stop the service. lark
 refuses a pattern that asks for one of them, and does not silently change its
 meaning. Named groups, `(?P<name>...)`, work.
 
@@ -633,7 +637,9 @@ the same stream. If the script sets no seed, lark gets a seed from
 But which thread gets which number depends on the order of the requests, and the
 scheduler sets that order, not the script. Thus a run with one thread and a seed
 repeats exactly. A concurrent run repeats the values, but not the threads that
-get them. If a thread must repeat, give it its own seed, and let only that
+get them.
+
+If a thread must repeat, give it its own seed, and let only that
 thread take values.
 
 `shuffle` returns a new list. It does not change the order of the list that it
@@ -696,7 +702,7 @@ A host that runs scripts from other persons does not give it. `lark` gives it to
 each script that it runs, because those scripts are yours, and they run with
 your permissions.
 
-`remove` deletes one file or one empty directory, and never a tree. Thus an
+`remove` removes one file or one empty directory, and never a tree. Thus an
 incorrect path causes a refusal, not the loss of many hours of work.
 
 **`read` reads files, not devices.** lark refuses all that is not a regular
@@ -706,7 +712,9 @@ source such as `/dev/zero` would grow until the process stopped.
 
 **The memory that a run can hold limits a large file. No size limit does.**
 `read` allocates the bytes and copies them into a string, so it uses two times
-the size of the file. It charges that to the budget of the run *from the stat*,
+the size of the file.
+
+It charges that to the budget of the run *from the stat*,
 before it allocates. Thus a file that the run cannot pay for costs one syscall,
 not the process.
 
@@ -717,7 +725,7 @@ gives the ceiling and tells how to set it.
 **`lines` reads a file one line at a time.** Thus the longest line sets its
 cost, not the file, and you can read a log that is much too large for `read`. In
 a measurement, `lines` read a 27MB file, and the heap stayed below 17MB. The
-maximum length of a line is the budget that the run has left. Thus lark refuses
+maximum length of a line is the remaining budget of the run. Thus lark refuses
 a file of one very long line for the memory that it needs, not because of a
 number that nobody chose.
 
@@ -840,7 +848,7 @@ an index still work.
 
 ### Repeat, retry and limit a call
 
-Each of these calls its function immediately, and gives back the result of the
+Each of these calls its function immediately, and returns the result of the
 call.
 
 ```python
@@ -858,23 +866,25 @@ wait occurs only between calls: not before the first call, and not after the
 last call. A cancel ends the wait early, and the next call does not start.
 
 You cannot put one of these in another. lark refuses `retry(3, timeout(5000,
-fn))`, because a wrapper takes a function and gives back a result, not another
+fn))`, because a wrapper takes a function and returns a result, not another
 function.
 
 **`retry` tries again only after an assertion.** A `fail()`, a cancelled handle
-or a refused builtin goes up immediately. That is the purpose of the two types
+or a refused builtin propagates immediately. That is the purpose of the two types
 of failure. `assert` tells that a check was not true, possibly because of the
 timing. `fail` tells that the operation cannot work.
 
 An assertion usually ends the whole run. In a `retry`, it ends only that
 attempt, because lark marks the thread of the attempt so that it catches
-assertions. When all attempts fail, the last assertion goes up and ends the run,
+assertions. When all attempts fail, the last assertion propagates and ends the run,
 as an assertion outside a `retry` does.
 
 **`n()` is a call, not a variable.** A plain name belongs to the *module*, and
 all threads of a run share the module. A global is an index into one slice of
 values, and a predeclared name is a key in one map. A thread cannot have its own
-value for either. Thus a plain `n` would be one number for all attempts. Also,
+value for either.
+
+Thus a plain `n` would be one number for all attempts. Also,
 two wrappers that run at the same time would read the values of each other.
 
 A builtin gets the thread that calls it, and that thread keeps the attempt. Thus
@@ -913,7 +923,7 @@ In short: **`assert` means that this run is over. `fail` means that this
 operation cannot continue.**
 
 The row for siblings has one more detail. `join` stops at the first failure, and
-it cancels the handles that it has not reached. Thus a `fail` *also* stops
+it cancels the handles that it did not reach. Thus a `fail` *also* stops
 siblings when the failed handle is first in the join. The two differ when the
 failed handle is last:
 
@@ -972,7 +982,7 @@ def main():
 ```
 
 **`join` stops at the first failure.** It waits for handles in argument order.
-The first failure cancels the handles that it has not reached. Then `join` waits
+The first failure cancels the handles that it did not reach. Then `join` waits
 for these handles, so it does not leave an evaluation that still runs.
 
 There are two types of failure, and they differ in only one way:
@@ -1001,7 +1011,7 @@ include `spawn`, `join`, `cancel`, `assert`, `sleep`, `args`, `flow`, `state`,
 `json`, `math` and `time`.
 
 A host adds its own plugins with `WithPlugins`. That is also how a script gets
-the file system: `file` is a plugin that a host gives, and never a plugin of the
+the file system. `file` is a plugin that a host gives, and never a plugin of the
 runtime itself. A plugin is a separate package. A host imports it to give it to
 a script, or to name its errors.
 
@@ -1021,8 +1031,8 @@ log.Printf("main returned %s", value)
 ```
 
 `Run` compiles and runs in one call. `Compile` and `Start` are its two halves.
-Use them when a host gives a script its own plugins, reads the graph of a run,
-or stops a run.
+Use them when a host adds its own plugins, reads the graph of a run, or stops a
+run.
 
 ### How to read the examples
 
@@ -1387,7 +1397,7 @@ host = arg("host", "localhost")
 port = arg("port", 8080)
 ```
 
-Arguments are a map of Go values. A host that has them gives the map:
+Arguments are a map with Go values. A host that has them gives the map:
 
 ```go
 run := runtime.Start(ctx, built, runtime.WithArgs(map[string]any{"host": "build.internal"}))
@@ -1568,7 +1578,7 @@ In order:
 2. `main` starts on `thread_0`.
 3. `fetch` starts, and goes before `main` in the list. `thread_0` moves to it,
    and the call from `main` is added.
-4. `fetch` ends, and `thread_0` moves back.
+4. `fetch` ends, and `thread_0` returns to `main`.
 5. `main` ends.
 6. The run succeeds.
 
@@ -1617,7 +1627,7 @@ or after it. Or it keeps it current with [WithChanges](#withchanges).
 
 A function is one node, however many times the run called it. The node shows the
 status of its newest call. Thus a function that a retry calls until it succeeds
-shows succeeded, and a function whose last call still runs shows running.
+shows success, and a function whose last call still runs shows that it still runs.
 
 A call is one edge from caller to callee, however many times the run made it. A
 spawn is an edge from the function that spawned. A line that calls no function
@@ -1667,7 +1677,7 @@ func _Supervise(run *runtime.Execution, stop context.CancelFunc) {
 }
 ```
 
-| Status | Meaning |
+| Status | What it means |
 | --- | --- |
 | `STATUS_RUNNING` | still runs |
 | `STATUS_SUCCEEDED` | finished |
@@ -1726,7 +1736,7 @@ The failure got to `main` through `join`, so the evaluation of `main` failed.
 A question costs nothing and changes nothing. Each caller that asks gets an
 answer, as often as it asks. Two interfaces that watch one run both get answers.
 
-`Status` does not use up a run, and `Wait` does not either. A host that must
+`Status` does not consume a run, and `Wait` does not either. A host that must
 keep a record of a run after it releases the run keeps the last `Status` and the
 logs of that run.
 
@@ -1799,8 +1809,8 @@ has. The interpreter calls them, not a host: `String`, `Type`, `Freeze`, `Truth`
 and `Hash`.
 
 The entry point is `thread_0`, and it is not a handle. The children of a thread
-get numbers from 1 after its own id, in the order that it made them:
-`thread_1_1` is the first child of `thread_1`. Thus a script numbers its threads
+get numbers from 1 after its own id, in the order that it made them.
+For example, `thread_1_1` is the first child of `thread_1`. Thus a script numbers its threads
 the same on each run.
 
 A script gets a handle from `spawn`. A host gets a handle as an argument to its
@@ -2072,7 +2082,9 @@ plugin that did not start.
 **lark starts the plugins, and the plugins connect back to lark.** This is not
 unnecessary work. The host listens, so nothing must connect to a plugin. Thus a
 plugin needs no port, no address that other processes must know, and no way for
-other processes to get in. Also, lark does not parse a handshake line from the
+other processes to enter.
+
+Also, lark does not parse a handshake line from the
 standard output of a child process. lark decides which code runs, and that is
 why the host must be the parent.
 
@@ -2107,7 +2119,9 @@ import. All other plugins go to a compile through `WithPlugins`, and a plugin in
 another process does too.
 
 **lark uses only Unix sockets.** The names of an attached plugin go into each
-script that is compiled with the plugins of the listener. Such a script can also
+script that is compiled with the plugins of the listener.
+
+Such a script can also
 have `file`, if the host gives it. `file` can get to all files that the host
 process can get to. Thus an open port would give the filesystem to each process
 that can connect to the port. There is no TCP option.
@@ -2117,7 +2131,7 @@ the socket cannot install a name.
 
 **When a plugin stops, its names fail, and they stay.** A call to one of its
 names fails, and does not wait on a stream that nothing reads. The host
-continues to run. The names also stay, because the run has already built its
+continues to run. The names also stay, because the run already built its
 environment. If lark removed the names during the run, one failure would become
 a failure that is more difficult to understand.
 
@@ -2174,7 +2188,7 @@ errors of `core` are in the table above, with their runtime names.
 | `base64.ERR_ENCODED` / `base32.ERR_ENCODED` | Text is not in that encoding |
 | `binary.ERR_BITS` | Text is not only 0 and 1, or its length is not a multiple of eight where whole bytes are necessary |
 | `buf.ERR_FROZEN` | A script writes to a buffer, or reads from a reader, after a `spawn` froze it. A read changes a reader |
-| `buf.ERR_SHORT` | A read asks a reader for more bytes than it has left |
+| `buf.ERR_SHORT` | A read asks a reader for more bytes than remain in it |
 | `event.ERR_NOT_DATA` | A post gets a function, a handle, a buffer, a reader, or a container that holds one |
 | `event.ERR_POSTED` | A script posts one event a second time |
 | `file.ERR_FILE` | A call of the `file` plugin fails. Each refusal of the plugin matches it. The three errors below also match it |
@@ -2185,7 +2199,7 @@ errors of `core` are in the table above, with their runtime names.
 | `flow.ERR_ATTEMPT` | A script calls `n()` outside `repeat` or `retry` |
 | `flow.ERR_TIMEOUT` | The call that `timeout` wraps does not finish in time |
 | `hash.ERR_ALGORITHM` | A keyed digest asks for an algorithm that this plugin does not know |
-| `hex.ERR_HEX` | Text is not hexadecimal, it has no digits where a number is necessary, or it has an odd number of digits where whole bytes are necessary |
+| `hex.ERR_HEX` | Text is not hexadecimal. Or text has no digits where a number is necessary, or an odd number of digits where whole bytes are necessary |
 | `integer.ERR_ORDER` | A byte order is not `"big"` or `"little"` |
 | `jsonpath.ERR_POINTER` | A pointer is not a JSON Pointer, as RFC 6901 sets it |
 | `jsonpath.ERR_MISSING` | A pointer names a value that is not there |
@@ -2194,7 +2208,7 @@ errors of `core` are in the table above, with their runtime names.
 | `jsonpath.ERR_FIELD` | An op of a patch does not have a field that the op needs |
 | `jsonpath.ERR_TEST` | A `test` op of a patch does not match |
 | `jsonpath.ERR_INTO` | A `move` op of a patch moves a value into itself |
-| `math.ERR_NUMBER` / `math.ERR_BASE` | A value is not a number; a logarithm has base one |
+| `math.ERR_NUMBER` / `math.ERR_BASE` | A value is not a number, or a logarithm has base one |
 | `path.ERR_NOT_A_PATH` | `join` gets a value that is not text |
 | `random.ERR_RANGE` | A range has an end less than its start, or a count is negative |
 | `random.ERR_EMPTY` | A choice is from an empty sequence |
@@ -2224,8 +2238,8 @@ schema, for example `Operation`, are in `proto/gen/workflow` and
 This table shows each way to stop a run, or a part of a run. For each way, it
 shows:
 
-- the error that a host or a script gets;
-- the status that the graph gives each function;
+- the error that a host or a script gets
+- the status that the graph gives each function
 - what `lark` prints.
 
 Each row comes from a run of a small script, through `Start` and `Status`, and
@@ -2239,7 +2253,7 @@ through `lark` itself.
 | A script | `cancel(h)` | that thread | a `join` of the thread raises `ERR_CANCELLED`, as `work: cancelled: context canceled`. Its function shows `STATUS_CANCELLED` |
 | A script | `timeout(ms, f)` that runs longer than `ms` | the call that it wraps | it raises `flow.ERR_TIMEOUT`, as `timeout(100, slow): timed out`. The wrapped function shows `STATUS_FAILED` |
 | A script | a `join` that gets a failure | each handle that the join did not get to | the join raises that failure. The functions of those handles show `STATUS_CANCELLED` |
-| A script | a failed `assert`; a `retry` that used all its attempts; a store, update or post of a value that is not data; a second post of one event; a `file.lines` loop that was cut short | the whole run, from each thread, joined or not | the error of the run is that failure, and `ERR_ASSERT` for the first two. The run shows `STATUS_FAILED`, and each function that still runs shows `STATUS_CANCELLED`. In a `retry`, a failed assertion stops only that attempt. The retry raises each other failure at the first attempt, and does not try again |
+| A script | A failed `assert`. A `retry` that used all its attempts. A store, update or post of a value that is not data. A second post of one event. A `file.lines` loop that stopped early | the whole run, from each thread, joined or not | the error of the run is that failure, and `ERR_ASSERT` for the first two. The run shows `STATUS_FAILED`, and each function that still runs shows `STATUS_CANCELLED`. In a `retry`, a failed assertion stops only that attempt. The retry raises each other failure at the first attempt, and does not try again |
 | The runtime | `main` returns, or raises an error | each thread that nothing joined | their functions show `STATUS_CANCELLED`. The run shows the result of `main` |
 
 A `fail()`, a refusal by the memory budget, and each other error that a thread
@@ -2257,7 +2271,7 @@ A cancelled evaluation stops at its next instruction. It does **not** interrupt
 a Go function that already runs. Thus a builtin that blocks must take a context
 of its own.
 
-`Wait` does not return until each thread that the run started has stopped. lark
+`Wait` does not return until each thread that the run started stops. lark
 cancels a handle that nothing joined, and does not wait for it, as the last row
 tells. Thus a `spawn` that a script did not join cannot keep a call open.
 
@@ -2281,18 +2295,19 @@ runtime.Start(ctx, built, runtime.WithMemory(64<<20))
 `file.read` charges the budget *from the stat*, before it allocates. Thus a file
 that the run cannot afford costs one syscall, and not the process. In a
 measurement, a file of 512MB used a peak of 1057MB of memory. The cause is that
-the bytes and the string copied from them are both live. `file.lines` charges
-one line at a time. lark gives back what a value reserves when it gives the
+the bytes and the string copied from them are both live.
+
+`file.lines` charges one line at a time. lark refunds what a value reserves when it gives the
 value to the script. Thus a loop that reads a thousand files needs a budget for
 the largest file, not for the sum of all the files.
 
 **What the budget charges** is each allocation of the library whose size the
 script did not already pay for:
 
-- a file read;
-- a spawned thread;
-- a name and a value that a script puts in the store;
-- an event that a script names or posts;
+- a file read
+- a spawned thread
+- a name and a value that a script puts in the store
+- an event that a script names or posts
 - the text or bytes of an integer that `integer.to_bytes`, `hex.from_int`,
   `binary.from_int` or a write to a buffer makes, because the script names the
   width.
@@ -2301,22 +2316,22 @@ A thread costs 13KB: a goroutine, an interpreter thread, its locals and a
 handle. Measurements gave 11.6KB to 12.1KB. Before lark charged for threads,
 twenty thousand threads used 287MB.
 
-lark charges for the store and for events because nothing deletes from them.
+lark charges for the store and for events because nothing removes anything from them.
 After its first use, lark keeps a name until the run ends. Thus a name costs its
 length and a fixed amount at its first use, whatever it holds. The fixed amount
 is 320 bytes in the store, for its entry and the lock beside it. It is 256 bytes
 for an event, which keeps one map where the store keeps two. Both figures come
-from measurements, rounded up.
+from measurements, rounded upward.
 
 A value costs what it holds. Under a budget of 64KB, lark refuses a thousand
 names that hold `None`, because of the names alone.
 
 A read of a name with `state.get` makes nothing and costs nothing. lark never
-gives back the cost of the value of an event, because a script cannot post the
-event again. lark gives back the other costs at these times:
+refunds the cost of the value of an event, because a script cannot post the
+event again. lark refunds the other costs at these times:
 
-- the cost of a thread, when the thread ends;
-- the cost of a stored value, when a script replaces the value;
+- the cost of a thread, when the thread ends
+- the cost of a stored value, when a script replaces the value
 - the cost of a read value, when lark gives the value to the script.
 
 **The budget does not cover the memory of the script itself**, and the
@@ -2357,7 +2372,9 @@ runtime cannot add that from outside.
 
 **Nothing limits the computation either.** There is no step limit and no
 deadline. A script can loop forever. In a test, a script ran until a person
-stopped it from outside, and nothing in the runtime stopped it. A run ends when
+stopped it from outside, and nothing in the runtime stopped it.
+
+A run ends when
 its context is cancelled. That is why `lark` handles an interrupt, and why a
 host must give a context that it can cancel.
 
@@ -2412,8 +2429,8 @@ same with `Save`, `Load` and `Start`, as [Compile, Load](#compile-load) shows.
 
 A bundle holds no picture of the workflow. The picture is two items, and neither
 item goes in a bundle. A **flow** tells what a script will do: its functions,
-the statements in them, and `main`. lark derives a flow from the source when you
-ask for it:
+the statements in them, and `main`. When you ask for a flow, lark derives it from
+the source:
 
 ```
 lark -s build.star -t > build.json
@@ -2471,7 +2488,9 @@ One rule is not an option of the interpreter. lark compiles a lambda that is
 written in `spawn(...)` with a parameter for each variable that the lambda
 reads. The default of each parameter is that variable, so the lambda gets the
 values at the spawn. See *[Give a thread what it
-needs](#give-a-thread-what-it-needs)*. lark does not freeze a local variable as
+needs](#give-a-thread-what-it-needs)*.
+
+lark does not freeze a local variable as
 it freezes the module scope. Before this rule, a closure could give a local
 variable to another goroutine.
 

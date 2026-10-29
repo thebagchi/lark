@@ -40,10 +40,23 @@ const (
 //
 // Revisions:
 //   - 2026-09-27 01:20: initial creation
+//   - 2026-10-29 01:22: builds the seen map only for a container, so a scalar
+//     costs no allocation
 func Size(value starlark.Value) int64 {
+	// A scalar is counted without the map, so the map is built only for what
+	// can hold something. A store weighs every value it takes, and most are
+	// one number or one word.
+	switch value.(type) {
+	case *starlark.List, *starlark.Dict, starlark.Tuple, *starlark.Set:
+		return _Weigh(
+			value,
+			map[starlark.Value]bool{},
+		)
+	}
+
 	return _Weigh(
 		value,
-		map[starlark.Value]bool{},
+		nil,
 	)
 }
 
@@ -71,14 +84,12 @@ func _Weigh(
 	case *starlark.List:
 		return _Inside(
 			held,
-			held.Len(),
 			seen,
 		)
 
 	case *starlark.Set:
-		return _Inside(
+		return _Members(
 			held,
-			held.Len(),
 			seen,
 		)
 
@@ -125,13 +136,17 @@ func _Slots(
 	return total
 }
 
-// _Inside is a sequence held by pointer, and everything in it.
+// _Inside is a list and everything in it.
+//
+// Read by index rather than through an iterator, which allocates one for
+// each list and gives the same elements in the same order.
 //
 // Revisions:
 //   - 2026-09-27 01:20: initial creation
+//   - 2026-10-29 01:22: a list only, read by index, so the walk allocates no
+//     iterator
 func _Inside(
-	held starlark.Iterable,
-	length int,
+	held *starlark.List,
 	seen map[starlark.Value]bool,
 ) int64 {
 	if seen[held] {
@@ -140,18 +155,40 @@ func _Inside(
 
 	seen[held] = true
 
-	var (
-		total = WORD + int64(length)*ENTRY
-		walk  = held.Iterate()
-	)
+	total := WORD + int64(held.Len())*ENTRY
 
-	defer walk.Done()
-
-	var one starlark.Value
-
-	for walk.Next(&one) {
+	for index := range held.Len() {
 		total += _Weigh(
-			one,
+			held.Index(index),
+			seen,
+		)
+	}
+
+	return total
+}
+
+// _Members is a set and everything in it.
+//
+// Through Elements rather than an iterator, which allocates one for each set.
+// Both give the members in the order they went in.
+//
+// Revisions:
+//   - 2026-10-29 01:22: initial creation, split from _Inside
+func _Members(
+	held *starlark.Set,
+	seen map[starlark.Value]bool,
+) int64 {
+	if seen[held] {
+		return 0
+	}
+
+	seen[held] = true
+
+	total := WORD + int64(held.Len())*ENTRY
+
+	for member := range held.Elements() {
+		total += _Weigh(
+			member,
 			seen,
 		)
 	}

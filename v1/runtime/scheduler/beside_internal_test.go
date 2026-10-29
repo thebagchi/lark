@@ -336,19 +336,20 @@ func TestWait_ReturnsWhenTheWaiterIsCancelled(t *testing.T) {
 // Revisions:
 //   - 2026-09-19 22:09: initial creation
 //   - 2026-09-21 08:09: asserts the thread survives, rather than sleeping
+//   - 2026-10-28 22:36: releases through the watch _CancelOn now returns
 func TestCancelOn_StopsWatchingWhenReleased(t *testing.T) {
 	var (
 		ctx, stop = context.WithCancel(t.Context())
 		thread    = &starlark.Thread{
 			Name: SCRIPT_NAME,
 		}
-		release = _CancelOn(
+		watch = _CancelOn(
 			ctx,
 			thread,
 		)
 	)
 
-	release()
+	watch._Release()
 
 	stop()
 

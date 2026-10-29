@@ -95,11 +95,19 @@ func TestRun_APanickingBuiltinFailsTheRunNotTheProcess(t *testing.T) {
 }
 
 // TestRegression_Panic proves a panic in a spawn that nobody joins still ends
-// the run. The script spawns boom, does not join it, and returns "ok". Without
-// the fix the run returns "ok" with no error, because nothing calls _End.
+// the run. The script spawns boom, does not join it, and sleeps for thirty
+// seconds before it returns "ok". Without the fix the run returns "ok" with no
+// error, because nothing calls _End.
+//
+// The sleep keeps main alive until boom panics. A main that returns at once
+// ends the run, and that cancel can reach boom before its panic, so the test
+// fails about one time in a thousand. The panic cancels the sleep, so the run
+// ends at once.
 //
 // Revisions:
 //   - 2026-10-24 20:00: initial creation
+//   - 2026-10-28 18:45: main sleeps after the spawn, so the end of main cannot
+//     cancel boom before its panic
 func TestRegression_Panic(t *testing.T) {
 	_, err := artifact.Run(
 		t.Context(),

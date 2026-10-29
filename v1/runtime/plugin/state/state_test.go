@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkstruct"
 
 	"github.com/thebagchi/lark/v1/runtime"
+	"github.com/thebagchi/lark/v1/runtime/plugin"
 	"github.com/thebagchi/lark/v1/runtime/plugin/state"
 )
 
@@ -1113,6 +1115,362 @@ def main():
 		t.Fatalf(
 			"the store was blamed for a call it never saw: %v",
 			err,
+		)
+	}
+}
+
+// TestState_ABareThreadIsToldWhatItLacks pins what each builtin answers on a
+// thread no run set up. A builtin finds its evaluation once, so these answers
+// are where a change to that lookup shows: a set of data and a get and an
+// update say there is no run, and a set of a function still says what is
+// wrong with the value, since that is asked before the run is.
+//
+// Revisions:
+//   - 2026-10-29 01:05: initial creation
+func TestState_ABareThreadIsToldWhatItLacks(t *testing.T) {
+	const NOT_DATA = `state.set "k": builtin_function_or_method: not data a store can hold`
+
+	env, err := plugin.Environment(plugin.DEFAULT)
+	if err != nil {
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
+	}
+
+	module, ok := env[state.NAME].(*starlarkstruct.Module)
+	if !ok {
+		t.Fatalf(
+			"environment holds %v under %s, want a module",
+			env[state.NAME],
+			state.NAME,
+		)
+	}
+
+	var (
+		change = starlark.NewBuiltin(
+			"change",
+			func(
+				_ *starlark.Thread,
+				_ *starlark.Builtin,
+				_ starlark.Tuple,
+				_ []starlark.Tuple,
+			) (starlark.Value, error) {
+				return starlark.None, nil
+			},
+		)
+
+		// The four calls, each with the answer the builtin gave before it found
+		// its evaluation once.
+		cases = map[string]struct {
+			member string
+			args   starlark.Tuple
+			want   string
+		}{
+			"a set of data": {
+				member: state.SET,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					starlark.MakeInt(1),
+				},
+				want: "state.set: no run on this thread",
+			},
+			"a set of a function": {
+				member: state.SET,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					change,
+				},
+				want: NOT_DATA,
+			},
+			"a get": {
+				member: state.GET,
+				args: starlark.Tuple{
+					starlark.String("k"),
+				},
+				want: "state.get: no run on this thread",
+			},
+			"an update": {
+				member: state.UPDATE,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					change,
+				},
+				want: "state.update: no run on this thread",
+			},
+		}
+	)
+
+	for name, tc := range cases {
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := starlark.Call(
+					&starlark.Thread{},
+					module.Members[tc.member],
+					tc.args,
+					nil,
+				)
+				if err == nil || err.Error() != tc.want {
+					t.Fatalf(
+						"got %v, want %s",
+						err,
+						tc.want,
+					)
+				}
+			},
+		)
+	}
+}
+
+// _Members returns the builtins of the state module, as the default
+// environment holds them, or ends the test.
+//
+// Revisions:
+//   - 2026-10-29 01:31: initial creation
+func _Members(t *testing.T) starlark.StringDict {
+	t.Helper()
+
+	env, err := plugin.Environment(plugin.DEFAULT)
+	if err != nil {
+		t.Fatalf(
+			"environment: %v",
+			err,
+		)
+	}
+
+	module, ok := env[state.NAME].(*starlarkstruct.Module)
+	if !ok {
+		t.Fatalf(
+			"environment holds %v under %s, want a module",
+			env[state.NAME],
+			state.NAME,
+		)
+	}
+
+	return module.Members
+}
+
+// TestState_AWrongCallIsToldWhatItGot pins the text of each refusal of the
+// arguments to set, get and update. The texts are what
+// starlark.UnpackPositionalArgs wrote when the builtins called it, recorded
+// before they read their arguments without it. A script, a log or a test that
+// matches on one of them sees no change.
+//
+// The thread is bare. Each refusal comes before the builtin looks for its run,
+// so no run is needed, and a call that got past its arguments would say "no
+// run on this thread" and fail the row.
+//
+// Revisions:
+//   - 2026-10-29 01:31: initial creation
+func TestState_AWrongCallIsToldWhatItGot(t *testing.T) {
+	// Each refusal names its builtin twice: once from the unpacking, and once
+	// from the builtin, which prefixes each error it returns.
+	const (
+		FROM_SET    = "state.set: state.set: "
+		FROM_GET    = "state.get: state.get: "
+		FROM_UPDATE = "state.update: state.update: "
+	)
+
+	var (
+		members = _Members(t)
+
+		change = starlark.NewBuiltin(
+			"change",
+			func(
+				_ *starlark.Thread,
+				_ *starlark.Builtin,
+				_ starlark.Tuple,
+				_ []starlark.Tuple,
+			) (starlark.Value, error) {
+				return starlark.None, nil
+			},
+		)
+
+		keyword = []starlark.Tuple{
+			{
+				starlark.String("name"),
+				starlark.String("k"),
+			},
+		}
+
+		cases = map[string]struct {
+			member string
+			args   starlark.Tuple
+			kwargs []starlark.Tuple
+			want   string
+		}{
+			"a set of nothing": {
+				member: state.SET,
+				want:   FROM_SET + "got 0 arguments, want 2",
+			},
+			"a set of a name alone": {
+				member: state.SET,
+				args: starlark.Tuple{
+					starlark.String("k"),
+				},
+				want: FROM_SET + "got 1 arguments, want 2",
+			},
+			"a set of three": {
+				member: state.SET,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					starlark.MakeInt(1),
+					starlark.MakeInt(2),
+				},
+				want: FROM_SET + "got 3 arguments, want 2",
+			},
+			"a set with a keyword": {
+				member: state.SET,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					starlark.MakeInt(1),
+				},
+				kwargs: keyword,
+				want:   FROM_SET + "unexpected keyword arguments",
+			},
+			"a set with a keyword and nothing else": {
+				member: state.SET,
+				kwargs: keyword,
+				want:   FROM_SET + "unexpected keyword arguments",
+			},
+			"a set of a name that is an int": {
+				member: state.SET,
+				args: starlark.Tuple{
+					starlark.MakeInt(1),
+					starlark.MakeInt(1),
+				},
+				want: FROM_SET + "for parameter 1: got int, want string",
+			},
+			"a set of a name that is bytes": {
+				member: state.SET,
+				args: starlark.Tuple{
+					starlark.Bytes("k"),
+					starlark.MakeInt(1),
+				},
+				want: FROM_SET + "for parameter 1: got bytes, want string",
+			},
+			"a set of a name that is None": {
+				member: state.SET,
+				args: starlark.Tuple{
+					starlark.None,
+					starlark.MakeInt(1),
+				},
+				want: FROM_SET + "for parameter 1: got NoneType, want string",
+			},
+			"a get of nothing": {
+				member: state.GET,
+				want:   FROM_GET + "got 0 arguments, want 1",
+			},
+			"a get of two": {
+				member: state.GET,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					starlark.String("j"),
+				},
+				want: FROM_GET + "got 2 arguments, want 1",
+			},
+			"a get with a keyword": {
+				member: state.GET,
+				kwargs: keyword,
+				want:   FROM_GET + "unexpected keyword arguments",
+			},
+			"a get of a name that is an int": {
+				member: state.GET,
+				args: starlark.Tuple{
+					starlark.MakeInt(1),
+				},
+				want: FROM_GET + "for parameter 1: got int, want string",
+			},
+			"a get of a name that is a list": {
+				member: state.GET,
+				args: starlark.Tuple{
+					starlark.NewList(nil),
+				},
+				want: FROM_GET + "for parameter 1: got list, want string",
+			},
+			"an update of nothing": {
+				member: state.UPDATE,
+				want:   FROM_UPDATE + "got 0 arguments, want 2",
+			},
+			"an update of a name alone": {
+				member: state.UPDATE,
+				args: starlark.Tuple{
+					starlark.String("k"),
+				},
+				want: FROM_UPDATE + "got 1 arguments, want 2",
+			},
+			"an update of three": {
+				member: state.UPDATE,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					change,
+					change,
+				},
+				want: FROM_UPDATE + "got 3 arguments, want 2",
+			},
+			"an update with a keyword": {
+				member: state.UPDATE,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					change,
+				},
+				kwargs: keyword,
+				want:   FROM_UPDATE + "unexpected keyword arguments",
+			},
+			"an update of a name that is an int": {
+				member: state.UPDATE,
+				args: starlark.Tuple{
+					starlark.MakeInt(1),
+					change,
+				},
+				want: FROM_UPDATE + "for parameter 1: got int, want string",
+			},
+			"an update of a name that is wrong and a change that is wrong": {
+				member: state.UPDATE,
+				args: starlark.Tuple{
+					starlark.MakeInt(1),
+					starlark.MakeInt(2),
+				},
+				want: FROM_UPDATE + "for parameter 1: got int, want string",
+			},
+			"an update of a change that is an int": {
+				member: state.UPDATE,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					starlark.MakeInt(1),
+				},
+				want: FROM_UPDATE + "for parameter 2: got int, want callable",
+			},
+			"an update of a change that is a string": {
+				member: state.UPDATE,
+				args: starlark.Tuple{
+					starlark.String("k"),
+					starlark.String("f"),
+				},
+				want: FROM_UPDATE + "for parameter 2: got string, want callable",
+			},
+		}
+	)
+
+	for name, tc := range cases {
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := starlark.Call(
+					&starlark.Thread{},
+					members[tc.member],
+					tc.args,
+					tc.kwargs,
+				)
+				if err == nil || err.Error() != tc.want {
+					t.Fatalf(
+						"got %v, want %s",
+						err,
+						tc.want,
+					)
+				}
+			},
 		)
 	}
 }

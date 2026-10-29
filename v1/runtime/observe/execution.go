@@ -2,9 +2,10 @@
 // the graph of what each one is doing while it does it.
 //
 // A host starts a script and is handed the run itself, which it stops, waits
-// for and asks about for as long as it holds it. Nothing here blocks the
-// caller and nothing here keeps a run alive - a run is a goroutine evaluating
-// an artifact.
+// for and asks about for as long as it holds it. Nothing here keeps a run
+// alive - a started run is a goroutine evaluating an artifact. A host that
+// would only wait evaluates instead: the run is then the host's own goroutine,
+// and what it is handed at the end is its value, its graph and its prints.
 //
 // Nothing here keeps a finished run either. What is worth remembering about
 // one, and for how long, is the host's decision and not this runtime's, so
@@ -16,7 +17,6 @@ package observe
 import (
 	"context"
 	"errors"
-	"slices"
 
 	"go.starlark.net/starlark"
 
@@ -78,16 +78,19 @@ type Execution struct {
 //     context
 //   - 2026-10-24 16:10: contain a panic in the change callback at _Began, so
 //     it fails the run instead of the process
+//   - 2026-10-28 23:50: opens and performs the run through _Opened and
+//     _Perform, which Evaluate calls too, so the two cannot drift
+//   - 2026-10-29 01:26: applies opts once, and hands what they told to both
 func Start(
 	ctx context.Context,
 	art *artifact.Artifact,
 	opts ...artifact.RunOption,
 ) *Execution {
-	into := _NewRecorder()
-	into.watch = artifact.Changes(opts)
-	into._Began()
-
-	if fault := into._Fault(); fault != nil {
+	var (
+		given       = artifact.Apply(opts)
+		into, fault = _Opened(given)
+	)
+	if fault != nil {
 		run := &Execution{
 			done: make(chan struct{}),
 			into: into,
@@ -98,27 +101,18 @@ func Start(
 		return run
 	}
 
-	// Last, so nothing in opts replaces the recorder Status reads, and copied,
-	// so the caller's slice is not written into.
-	var (
-		inner, stop = context.WithCancel(ctx)
-		given       = slices.Concat(
-			opts,
-			[]artifact.RunOption{artifact.Reporting(into)},
-		)
-		run = &Execution{
-			done: make(chan struct{}),
-			into: into,
-		}
-	)
+	run := &Execution{
+		done: make(chan struct{}),
+		into: into,
+	}
 
 	go func() {
 		defer close(run.done)
-		defer stop()
 
-		run._Perform(
-			inner,
+		run.value, run.err = _Perform(
+			ctx,
 			art,
+			into,
 			given,
 		)
 	}()
@@ -181,13 +175,38 @@ func (e *Execution) Status() *workflowpb.Graph {
 	return e.into._Drawn()
 }
 
-// _Perform evaluates art with the options opts, and records how it ended, in
-// the run and in its graph.
+// _Opened is the recorder of a run about to start with what given told it, its
+// graph already running, and the fault of a watcher that panicked when told
+// so.
 //
-// Guarded, because this is a goroutine of ours and a panic on it cannot be
+// A fault here ends the run before it starts, which Start and Evaluate each
+// report in their own way.
+//
+// Revisions:
+//   - 2026-10-28 23:50: initial creation, lifted from Start so Evaluate opens a
+//     run the same way
+//   - 2026-10-29 01:26: takes the options applied, rather than applying them
+//     to find the watcher
+func _Opened(given *artifact.Given) (*_Recorder, error) {
+	into := _NewRecorder()
+	into.watch = given.Changes()
+	into._Began()
+
+	return into, into._Fault()
+}
+
+// _Perform evaluates art with what given told it, reporting to into, and
+// returns how it ended, which it has also recorded in into's graph.
+//
+// Guarded, because a panic on the goroutine Start runs it on cannot be
 // recovered from outside - it would take the host down rather than fail the
-// run. The run guards the script's own evaluation; this guards everything
-// before it gets there, which is where an artifact that is not one lands.
+// run - and one on a caller's goroutine is a host's crash too. The run guards
+// the script's own evaluation; this guards everything before it gets there,
+// which is where an artifact that is not one lands.
+//
+// It derives no context of its own. The run derives its context from ctx when
+// it begins and cancels it when it ends, before it returns, so a second
+// context here was one more to make and cancel with nothing that read it.
 //
 // Revisions:
 //   - 2026-09-21 16:42: initial creation, lifting the goroutine's body so the
@@ -199,36 +218,53 @@ func (e *Execution) Status() *workflowpb.Graph {
 //     change
 //   - 2026-10-24 16:10: surface a watcher fault from _Finished as the run's
 //     error, so a panic in the change callback fails the run
-func (e *Execution) _Perform(
+//   - 2026-10-28 23:50: a function of the recorder, returning the value and the
+//     error, so Start and Evaluate perform a run in one way; derives and
+//     cancels the run's context and adds the recorder to opts itself
+//   - 2026-10-29 01:26: takes the options applied, adds the recorder to them in
+//     place, and hands the run ctx itself, the run deriving its own context
+func _Perform(
 	ctx context.Context,
 	art *artifact.Artifact,
-	opts []artifact.RunOption,
-) {
+	into *_Recorder,
+	given *artifact.Given,
+) (starlark.Value, error) {
+	// Last, so nothing in the options replaces the recorder the graph is read
+	// from. given is this run's own, so adding it there changes no other run.
+	artifact.Reporting(into)(given)
+
+	var (
+		value starlark.Value
+		err   error
+	)
+
 	guard.WithRecover(
-		&e.value,
-		&e.err,
+		&value,
+		&err,
 		func() (starlark.Value, error) {
-			return artifact.Run(
+			return artifact.Perform(
 				ctx,
 				art,
-				opts...,
+				given,
 			)
 		},
 	)
 
-	status := _Became(e.err)
+	status := _Became(err)
 
-	e.into._Finished(
+	into._Finished(
 		status,
-		e.into._Because(
+		into._Because(
 			status,
-			_Why(e.err),
+			_Why(err),
 		),
 	)
 
-	if fault := e.into._Fault(); fault != nil && e.err == nil {
-		e.err = fault
+	if fault := into._Fault(); fault != nil && err == nil {
+		err = fault
 	}
+
+	return value, err
 }
 
 // _Became is the status an error ends something with.

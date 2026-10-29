@@ -4,6 +4,7 @@
 package runtime_test
 
 import (
+	"bytes"
 	"testing"
 
 	workflowpb "github.com/thebagchi/lark/proto/gen/workflow"
@@ -101,5 +102,59 @@ func TestFacade_StartIsObservesOwn(t *testing.T) {
 				got,
 			)
 		}
+	}
+}
+
+// TestFacade_EvaluatesThroughOneImport checks a host gets a run's value, its
+// graph and its prints from one call of the facade, with the same value Start
+// and Wait give.
+//
+// Revisions:
+//   - 2026-10-28 23:50: initial creation
+func TestFacade_EvaluatesThroughOneImport(t *testing.T) {
+	result, err := runtime.Evaluate(
+		t.Context(),
+		_Compiled(
+			t,
+			HOST_FIXTURE,
+		),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Value.String() != EXPECTED_TOTAL {
+		t.Fatalf(
+			"want %s, got %s",
+			EXPECTED_TOTAL,
+			result.Value,
+		)
+	}
+
+	if result.Graph.GetStatus() != workflowpb.Status_STATUS_SUCCEEDED {
+		t.Fatalf(
+			"want succeeded, got %v",
+			result.Graph.GetStatus(),
+		)
+	}
+
+	spoken, err := runtime.Evaluate(
+		t.Context(),
+		_Compiled(
+			t,
+			SPEAKING_FIXTURE,
+		),
+		runtime.WithLog(new(bytes.Buffer)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(spoken.Prints) != SPOKEN {
+		t.Fatalf(
+			"want %d prints, got %d",
+			SPOKEN,
+			len(spoken.Prints),
+		)
 	}
 }

@@ -32,14 +32,20 @@ var (
 //
 // An option rather than a parameter of Run, so a run can be told more without
 // every caller changing. What travels on the context is only when to stop.
-type RunOption func(given *_Given)
+type RunOption func(given *Given)
 
-// _Given is what a run's options told it: the arguments its script is supplied
+// Given is what a run's options told it: the arguments its script is supplied
 // with, the logger what it prints goes to, the memory it may hold, the
 // function its graph's changes go to, and what watches it, each zero when
 // nothing was. refused is why the arguments could not be supplied, which an
 // option cannot return and the run does, before anything runs.
-type _Given struct {
+//
+// Exported for observe, which reads the logger and the watcher before a run
+// starts and adds what watches it: it applies the options once, with Apply,
+// and hands the result to Perform, where each of those steps applied them all
+// again into a new one. Its fields stay this package's, so the one way to set
+// one is an option.
+type Given struct {
 	args    *structpb.Struct
 	refused error
 	logger  *slog.Logger
@@ -79,7 +85,7 @@ func WithArgs(args map[string]any) RunOption {
 		)
 	}
 
-	return func(given *_Given) {
+	return func(given *Given) {
 		given.args = held
 		given.refused = err
 	}
@@ -96,7 +102,7 @@ func WithArgs(args map[string]any) RunOption {
 // Revisions:
 //   - 2026-10-02 16:21: initial creation
 func WithLogger(logger *slog.Logger) RunOption {
-	return func(given *_Given) {
+	return func(given *Given) {
 		given.logger = logger
 	}
 }
@@ -127,7 +133,7 @@ func WithLog(w io.Writer) RunOption {
 // Revisions:
 //   - 2026-10-03 08:31: initial creation, replacing the ceiling a context carried
 func WithMemory(bytes int64) RunOption {
-	return func(given *_Given) {
+	return func(given *Given) {
 		given.ceiling = bytes
 	}
 }
@@ -140,7 +146,7 @@ func WithMemory(bytes int64) RunOption {
 // Revisions:
 //   - 2026-10-03 08:31: initial creation, replacing the reporter a context carried
 func Reporting(into scheduler.Reporter) RunOption {
-	return func(given *_Given) {
+	return func(given *Given) {
 		given.into = into
 	}
 }
@@ -157,7 +163,7 @@ func Reporting(into scheduler.Reporter) RunOption {
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
 func WithChanges(watch func(change *workflowpb.Change)) RunOption {
-	return func(given *_Given) {
+	return func(given *Given) {
 		given.watch = watch
 	}
 }
@@ -165,28 +171,65 @@ func WithChanges(watch func(change *workflowpb.Change)) RunOption {
 // Changes is the function opts send a started run's changes to, or nil.
 //
 // Exported for observe, which keeps a started run's graph and is what sends
-// them; a run made here keeps none.
+// them; a run made here keeps none. A caller that also runs with opts applies
+// them once, with Apply, and asks the Given instead.
 //
 // Revisions:
 //   - 2026-10-02 16:33: initial creation
 func Changes(opts []RunOption) func(change *workflowpb.Change) {
-	return _Applied(opts).watch
+	return Apply(opts).Changes()
 }
 
-// _Applied is what opts tell a run.
+// Logger is the logger opts send a run's prints to, or nil when they name
+// none and the prints go to slog's default.
+//
+// Exported for observe, which keeps each line a run prints as well as logging
+// it, and so must log it where the run would have. A caller that also runs
+// with opts applies them once, with Apply, and asks the Given instead.
+//
+// Revisions:
+//   - 2026-10-28 23:50: initial creation
+func Logger(opts []RunOption) *slog.Logger {
+	return Apply(opts).Logger()
+}
+
+// Apply is what opts tell a run, each applied in order, so of two that set one
+// thing the later wins.
+//
+// A new Given each call, which belongs to the one run it is handed to: an
+// option a caller applies to it afterwards changes that run alone.
 //
 // Revisions:
 //   - 2026-10-02 16:08: initial creation, as _Supplied, returning the arguments
 //   - 2026-10-02 16:18: cannot fail, the arguments arriving as a Struct
 //   - 2026-10-02 16:21: everything the options tell, the logger as well
-func _Applied(opts []RunOption) *_Given {
-	given := new(_Given)
+//   - 2026-10-29 01:24: exported, as Apply, so a caller applies a run's options
+//     once and hands the result to Perform
+func Apply(opts []RunOption) *Given {
+	given := new(Given)
 
 	for _, opt := range opts {
 		opt(given)
 	}
 
 	return given
+}
+
+// Changes is the function a started run's changes go to, or nil.
+//
+// Revisions:
+//   - 2026-10-29 01:24: initial creation
+func (g *Given) Changes() func(change *workflowpb.Change) {
+	return g.watch
+}
+
+// Logger is the logger a run's prints go to, or nil when the options named
+// none and the prints go to slog's default.
+//
+// Revisions:
+//   - 2026-10-29 01:24: initial creation
+func (g *Given) Logger() *slog.Logger {
+	return g.logger
 }
 
 // Supplied is what the run this thread initialises for supplied, and whether
@@ -197,12 +240,17 @@ func _Applied(opts []RunOption) *_Given {
 // no value could ever arrive. Every unit a run initialises is bound, with or
 // without values; a thread nobody bound is running a body.
 //
+// The map is nil for a bound run that supplied nothing, which reads as empty.
+// It is the run's own, for reading only.
+//
 // Exported for the plugin that reads it, the way the scheduler exports what a
 // store belongs to. A plugin holding per-run state reaches whoever owns the
 // thread, and the thread a module initialises on is this package's.
 //
 // Revisions:
 //   - 2026-09-22 22:24: initial creation
+//   - 2026-10-29 01:24: answers a nil map, bound, for a run that supplied
+//     nothing, where it answered an empty one
 func Supplied(thread *starlark.Thread) (map[string]*structpb.Value, bool) {
 	held, ok := thread.Local(ARGS_LOCAL).(map[string]*structpb.Value)
 
@@ -211,18 +259,20 @@ func Supplied(thread *starlark.Thread) (map[string]*structpb.Value, bool) {
 
 // _Bind puts a run's arguments on the thread a unit initialises on.
 //
+// A run that supplied nothing binds a nil map, not an empty one: the local
+// still holds the map's type, so Supplied still answers that the thread is
+// bound, and a lookup in a nil map finds nothing, as one in an empty map does.
+//
 // Revisions:
 //   - 2026-09-22 22:24: initial creation
 //   - 2026-10-02 16:08: takes the arguments, which a run is handed rather than
 //     finding on its context
+//   - 2026-10-29 01:24: binds a nil map as it is, rather than making an empty
+//     one for each run that supplied nothing
 func _Bind(
 	thread *starlark.Thread,
 	supplied map[string]*structpb.Value,
 ) {
-	if supplied == nil {
-		supplied = map[string]*structpb.Value{}
-	}
-
 	thread.SetLocal(
 		ARGS_LOCAL,
 		supplied,

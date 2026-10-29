@@ -13,15 +13,16 @@ import (
 // _Attempts is what a repeat or a retry was asked to do: call target up to
 // count times, waiting delay between calls, and report it as one line.
 //
-// name is the function the line reports, builtin the wrapper that reports it,
-// and written the call as the script wrote it, for an error to name.
+// name is the function the line reports, and builtin the wrapper that reports
+// it. catching says an attempt's assertion fails only that attempt, which is
+// what a retry is for; a repeat's ends the run.
 type _Attempts struct {
-	target  *starlark.Function
-	name    string
-	builtin string
-	written string
-	count   int32
-	delay   time.Duration
+	target   *starlark.Function
+	name     string
+	builtin  string
+	count    int32
+	delay    time.Duration
+	catching bool
 }
 
 // _Counted reads a repeat's or a retry's arguments as the attempts it makes:
@@ -44,6 +45,8 @@ type _Attempts struct {
 //   - 2026-09-21 08:09: named for what it reads, since it refuses no lambda
 //   - 2026-10-02 00:59: reads an optional delay and the callee the dialect
 //     passes, and returns the attempts rather than a count and a function
+//   - 2026-10-29 00:23: builds no text for an error, which _Written does only
+//     when one fails
 func _Counted(
 	who string,
 	args starlark.Tuple,
@@ -71,15 +74,26 @@ func _Counted(
 			callee,
 		),
 		builtin: who,
-		written: fmt.Sprintf(
-			"%s(%d, %s)",
-			who,
-			count,
-			target.Name(),
-		),
-		count: count,
-		delay: delay,
+		count:   count,
+		delay:   delay,
 	}, nil
+}
+
+// _Written is the call as the script wrote it, for an error to name.
+//
+// Built here, on a failure, rather than once for every call: a call that
+// succeeds never reads it, and formatting it was three of the allocations a
+// retry made.
+//
+// Revisions:
+//   - 2026-10-29 00:23: initial creation, from the field _Counted filled
+func (a *_Attempts) _Written() string {
+	return fmt.Sprintf(
+		"%s(%d, %s)",
+		a.builtin,
+		a.count,
+		a.target.Name(),
+	)
 }
 
 // _CountArgs reads the count, the function, and the delay a retry was given.
@@ -89,25 +103,28 @@ func _Counted(
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 00:23: unpacks into the fields of one _Given, so the three
+//     places it reads into cost one allocation rather than one each
 func _CountArgs(
 	who string,
 	args starlark.Tuple,
 	rest []starlark.Tuple,
 ) (int32, *starlark.Function, time.Duration, error) {
 	var (
-		count  int32
-		target *starlark.Function
-		given  starlark.Value = starlark.MakeInt(0)
-	)
-
-	err := starlark.UnpackPositionalArgs(
-		who,
-		args,
-		nil,
-		WRAPPED,
-		&count,
-		&target,
-		&given,
+		given = &_Given{
+			args:  args,
+			rest:  rest,
+			delay: starlark.MakeInt(0),
+		}
+		err = starlark.UnpackPositionalArgs(
+			who,
+			args,
+			nil,
+			WRAPPED,
+			&given.count,
+			&given.target,
+			&given.delay,
+		)
 	)
 	if err != nil {
 		return 0, nil, 0, fmt.Errorf(
@@ -119,42 +136,46 @@ func _CountArgs(
 
 	delay, err := _CountDelay(
 		who,
-		count,
 		given,
-		&_Tail{
-			args: args,
-			rest: rest,
-		},
 	)
 	if err != nil {
 		return 0, nil, 0, err
 	}
 
-	return count, target, delay, nil
+	return given.count, given.target, delay, nil
 }
 
-// _Tail is the positional tail and the keywords a count still has to read.
-type _Tail struct {
-	args starlark.Tuple
-	rest []starlark.Tuple
+// _Given is what a repeat or a retry was passed, and what is read out of it:
+// the positional arguments and the keywords, then the count, the function,
+// and the delay as the script gave it.
+//
+// One struct for every place an unpack writes to. An unpack takes pointers
+// through an interface, so the compiler moves whatever they point at to the
+// heap. Fields of one struct move together, as one allocation.
+type _Given struct {
+	args   starlark.Tuple
+	rest   []starlark.Tuple
+	count  int32
+	target *starlark.Function
+	delay  starlark.Value
 }
 
 // _CountDelay reads the optional delay and refuses a count below one.
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 00:23: reads the count and the delay off the _Given its
+//     caller unpacked into, and writes the delay back there
 func _CountDelay(
 	who string,
-	count int32,
-	given starlark.Value,
-	tail *_Tail,
+	given *_Given,
 ) (time.Duration, error) {
 	err := starlark.UnpackArgs(
 		who,
-		tail.args[WRAPPED:],
-		tail.rest,
+		given.args[WRAPPED:],
+		given.rest,
 		DELAY+"?",
-		&given,
+		&given.delay,
 	)
 	if err != nil {
 		return 0, fmt.Errorf(
@@ -164,16 +185,16 @@ func _CountDelay(
 		)
 	}
 
-	if count < ONCE {
+	if given.count < ONCE {
 		return 0, fmt.Errorf(
 			"%s got %d: %w",
 			who,
-			count,
+			given.count,
 			ErrCount,
 		)
 	}
 
-	delay, err := scheduler.Duration(given)
+	delay, err := scheduler.Duration(given.delay)
 	if err != nil {
 		return 0, fmt.Errorf(
 			"%s: %w",
@@ -185,13 +206,13 @@ func _CountDelay(
 	return delay, nil
 }
 
-// _Attempted runs attempt n beside the caller and waits for it, after waiting
-// out the delay that comes before it.
+// _Attempted runs attempt n on the caller's thread, after waiting out the
+// delay that comes before it.
 //
-// The line is reported before the attempt starts. An attempt runs on its
-// caller's lane, so the lines it reports itself would otherwise race ahead of
-// the line they belong to. Attempt 1 opens the line and each later attempt
-// advances it, so repeat(3, step) is one line that reaches 3.
+// The line is reported before the attempt starts, so the lines the attempt
+// reports on its caller's lane come after the line they belong to. Attempt 1
+// opens the line and each later attempt advances it, so repeat(3, step) is
+// one line that reaches 3.
 //
 // The line is closed by the wrapper, once, not by an attempt. A caught failure
 // is not the function failing - the whole point of retry is that attempt 2
@@ -204,10 +225,13 @@ func _CountDelay(
 //     else a caller asks for
 //   - 2026-10-02 00:59: a method of the attempts it is one of, waiting out the
 //     delay first and reporting the line before the attempt starts
+//   - 2026-10-29 00:23: takes no options, since whether an attempt catches is
+//     one of the attempts, and starts it through _Beside
+//   - 2026-10-29 00:39: runs the attempt through _Within, on the caller's
+//     thread, and so returns what the attempt produced without a wait
 func (a *_Attempts) _Attempted(
 	thread *starlark.Thread,
 	attempt int32,
-	opts ...scheduler.Option,
 ) (starlark.Value, error) {
 	err := a._Pause(
 		thread,
@@ -227,29 +251,44 @@ func (a *_Attempts) _Attempted(
 		},
 	)
 
-	counted := append(
-		[]scheduler.Option{scheduler.Attempt(attempt)},
-		opts...,
-	)
-
-	var handle *scheduler.Handle
-
-	handle, err = scheduler.Beside(
+	return a._Within(
 		thread,
-		a.target,
-		counted...,
+		attempt,
 	)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%s: %w",
-			a.target.Name(),
-			err,
+}
+
+// _Within runs attempt on the caller's thread, counted as that attempt, and
+// catching an assertion when the attempts are a retry's.
+//
+// On the caller's thread, because the caller only waits for the attempt. A
+// goroutine and a thread of its own were most of what an attempt cost.
+//
+// Two calls rather than one list of options joined with append. Within keeps
+// none of its options, so options written in its call stay on the stack. An
+// append moves the slice it grows and the attempt's option to the heap, which
+// was two allocations for every attempt.
+//
+// Revisions:
+//   - 2026-10-29 00:23: initial creation, as _Beside, lifted out of _Attempted
+//   - 2026-10-29 00:39: renamed for what it calls, which runs the attempt on
+//     the caller's thread rather than beside it
+func (a *_Attempts) _Within(
+	thread *starlark.Thread,
+	attempt int32,
+) (starlark.Value, error) {
+	if a.catching {
+		return scheduler.Within(
+			thread,
+			a.target,
+			scheduler.Attempt(attempt),
+			scheduler.Catching(),
 		)
 	}
 
-	return scheduler.Wait(
+	return scheduler.Within(
 		thread,
-		handle,
+		a.target,
+		scheduler.Attempt(attempt),
 	)
 }
 

@@ -62,10 +62,16 @@ type _Settings struct {
 // The tree and the compiled program sit outside it, because neither survives a
 // wire format: a tree is not carried at all, and a program is carried as the
 // bytes inside the message.
+//
+// cache is set only on a pure unit: one whose top level calls nothing and
+// loads only pure units. It keeps what the first run built for every later
+// run. A unit read back from a bundle has no tree to read, so it has no cache
+// and every run builds it.
 type _Unit struct {
 	saved *artifactpb.Unit
 	tree  *syntax.File
 	code  *starlark.Program
+	cache *_Cache
 }
 
 // Artifact is a script and every module it loads, compiled together.
@@ -83,7 +89,8 @@ type _Unit struct {
 // resolved against. order is the order that initialises dependencies first.
 //
 // No globals. What initialising produces belongs to one run, since a run's
-// arguments are part of it.
+// arguments are part of it. A pure unit is the exception, and its unit keeps
+// the globals, since a top level that calls nothing cannot read a run.
 type Artifact struct {
 	saved *artifactpb.Artifact
 	units map[string]*_Unit
@@ -127,7 +134,8 @@ func WithPlugins(plugins ...plugin.Plugin) Option {
 // walked to exhaustion and a cycle is found before a single top-level statement
 // executes. What comes back owes the loader nothing. Every run initialises the
 // units itself, with its own arguments, and Run is where a script with no
-// entry point is refused.
+// entry point is refused. A unit whose top level calls nothing, and that loads
+// only units like it, is marked pure here, and only the first run builds it.
 //
 // A call that passes a function the script defines or loads arguments it does
 // not take is refused here, once every unit is compiled, since a loaded
@@ -148,6 +156,7 @@ func WithPlugins(plugins ...plugin.Plugin) Option {
 //     the wrong arguments, and no longer describes what it built
 //   - 2026-10-03 00:10: a function of the source, which names its own modules,
 //     rather than a method on a Compiler holding a loader
+//   - 2026-10-28 23:34: marks a pure unit, which only the first run builds
 func Compile(
 	source *script.Source,
 	opts ...Option,
@@ -230,7 +239,8 @@ func _Loaded(
 // Every run initialises the units itself, with the arguments its options
 // supply, logs what it prints where they say, and numbers its own spine 0 and
 // its spawns from 1, so two runs of one artifact produce two independent
-// numberings and can take different arguments.
+// numberings and can take different arguments. A pure unit is built by the
+// first run alone: its top level calls nothing, so no run could tell.
 //
 // The run begins before the units initialise, and they initialise on its
 // spine. So a module's top level is part of the run: a spawn there has a run
@@ -260,12 +270,34 @@ func _Loaded(
 //     context carrying a logger
 //   - 2026-10-03 16:30: refuses arguments its options could not supply, before
 //     anything runs
+//   - 2026-10-28 23:34: builds a pure unit on the first run alone
+//   - 2026-10-29 01:24: applies opts and hands them to Perform, which holds
+//     the body
 func Run(
 	ctx context.Context,
 	art *Artifact,
 	opts ...RunOption,
 ) (starlark.Value, error) {
-	given := _Applied(opts)
+	return Perform(
+		ctx,
+		art,
+		Apply(opts),
+	)
+}
+
+// Perform is Run, with the run's options already applied into given.
+//
+// For a caller that reads what the options say before the run starts, so it
+// applies them once rather than once for each question and once more for the
+// run. given belongs to this run alone; Run tells the rest.
+//
+// Revisions:
+//   - 2026-10-29 01:24: initial creation, from the body of Run
+func Perform(
+	ctx context.Context,
+	art *Artifact,
+	given *Given,
+) (starlark.Value, error) {
 	if given.refused != nil {
 		return nil, given.refused
 	}

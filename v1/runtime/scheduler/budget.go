@@ -159,11 +159,12 @@ func (b *Budget) Held() int64 {
 // Revisions:
 //   - 2026-09-24 22:52: initial creation
 //   - 2026-09-24 23:04: a thread with no run gets one, rather than an error
+//   - 2026-10-29 01:05: finds the evaluation through EvaluationOf, and asks it
 func Allowance(thread *starlark.Thread) *Budget {
-	locals, err := _Of(thread)
+	evaluation, err := EvaluationOf(thread)
 	if err != nil {
 		return NewBudget(CEILING)
 	}
 
-	return locals.run.budget
+	return evaluation.Allowance()
 }

@@ -38,6 +38,8 @@ var (
 //     giving up fails through Fail rather than ending the run outright
 //   - 2026-10-02 01:03: takes an optional delay, and reports its line through
 //     the scheduler with the attempts it may make
+//   - 2026-10-29 00:23: marks the attempts as catching, rather than handing
+//     each attempt the option
 func _Retry(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -53,6 +55,8 @@ func _Retry(
 		return nil, err
 	}
 
+	attempts.catching = true
+
 	return _Retried(
 		thread,
 		attempts,
@@ -63,6 +67,8 @@ func _Retry(
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 00:23: hands an attempt no option, the attempts saying
+//     themselves that they catch
 func _Retried(
 	thread *starlark.Thread,
 	attempts *_Attempts,
@@ -73,7 +79,6 @@ func _Retried(
 		value, failure := attempts._Attempted(
 			thread,
 			attempt,
-			scheduler.Catching(),
 		)
 		if failure == nil {
 			scheduler.Close(
@@ -111,6 +116,7 @@ func _Retried(
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 00:23: names the call through _Written, built only here
 func _RetryFail(
 	thread *starlark.Thread,
 	attempts *_Attempts,
@@ -119,7 +125,7 @@ func _RetryFail(
 ) (starlark.Value, error) {
 	failed := fmt.Errorf(
 		"%s attempt %d: %w",
-		attempts.written,
+		attempts._Written(),
 		attempt,
 		failure,
 	)
@@ -137,6 +143,7 @@ func _RetryFail(
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 00:23: names the call through _Written, built only here
 func _GaveUp(
 	thread *starlark.Thread,
 	attempts *_Attempts,
@@ -144,7 +151,7 @@ func _GaveUp(
 ) (starlark.Value, error) {
 	exhausted := fmt.Errorf(
 		"%s gave up after %d attempts: %w",
-		attempts.written,
+		attempts._Written(),
 		attempts.count,
 		last,
 	)

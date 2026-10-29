@@ -4,4 +4,5 @@ def boom():
 
 def main():
     spawn(boom)
+    sleep(30000)
     return "ok"

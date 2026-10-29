@@ -13,6 +13,9 @@
 // it made without folding either. Text from outside is often lower case, and a
 // script comparing a digest against it folds that side.
 //
+// The hex is written through the hex package, so importing this one enables
+// hex as well.
+//
 // crc32 is the one sum given as an int rather than hex, because a script
 // continues a checksum by handing the number back as the seed of the next
 // call.
@@ -37,6 +40,7 @@ import (
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/thebagchi/lark/v1/runtime/plugin"
+	"github.com/thebagchi/lark/v1/runtime/plugin/codec/hex"
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
@@ -119,8 +123,13 @@ func (h *_Hash) Values() starlark.StringDict {
 // constructor they call and in nothing else, and five copies of one function
 // is five places for one fix to be forgotten.
 //
+// The data is a view of the script's value, not a copy: a digest copies what
+// it is given into a block of its own and keeps nothing of it, which is the
+// contract of unpack.View.
+//
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
+//   - 2026-10-29 01:08: reads a view of the data rather than a copy
 func _Digest(name string) *starlark.Builtin {
 	return starlark.NewBuiltin(
 		NAME+"."+name,
@@ -130,7 +139,7 @@ func _Digest(name string) *starlark.Builtin {
 			args starlark.Tuple,
 			kwargs []starlark.Tuple,
 		) (starlark.Value, error) {
-			data, err := unpack.Data(
+			data, err := unpack.DataView(
 				fn,
 				args,
 				kwargs,
@@ -245,14 +254,21 @@ func _HMACArgs(
 
 // _HMACBytes reads the key and the message as bytes.
 //
+// Each is a view of the script's value, not a copy. hmac.New copies the key
+// into its pads, or hashes a long key first, and keeps only its length; the
+// message goes to a digest, which keeps nothing of it. That is the contract of
+// unpack.View.
+//
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 01:08: reads a view of the key and the message rather than a
+//     copy
 func _HMACBytes(
 	fn *starlark.Builtin,
 	key starlark.Value,
 	data starlark.Value,
 ) ([]byte, []byte, error) {
-	secret, err := unpack.Bytes(
+	secret, err := unpack.View(
 		fn.Name(),
 		key,
 	)
@@ -260,7 +276,7 @@ func _HMACBytes(
 		return nil, nil, err
 	}
 
-	message, err := unpack.Bytes(
+	message, err := unpack.View(
 		fn.Name(),
 		data,
 	)
@@ -311,6 +327,7 @@ func _Maker(name string) (func() stdhash.Hash, error) {
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
 //   - 2026-10-08 18:06: upper case, as every hex the runtime writes
+//   - 2026-10-29 01:08: writes through hex.Encode rather than fmt's %X
 func _Sum(
 	who string,
 	made stdhash.Hash,
@@ -325,8 +342,5 @@ func _Sum(
 		)
 	}
 
-	return starlark.String(fmt.Sprintf(
-		"%X",
-		made.Sum(nil),
-	)), nil
+	return starlark.String(hex.Encode(made.Sum(nil))), nil
 }

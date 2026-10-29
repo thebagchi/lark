@@ -34,11 +34,11 @@ type Option func(
 // inheriting everything the caller's evaluation carries, and returns the
 // handle that finds its result.
 //
-// This is the one primitive. spawn calls it with no options and gets a lane of
-// its own, numbered as a child of the caller's; a wrapper calls it with
-// Attempt or Inline and gets an evaluation on the caller's own lane. The new
-// thread's context descends from the caller's evaluation, not from the run,
-// so a timeout around the caller reaches it.
+// spawn calls it with no options and gets a lane of its own, numbered as a
+// child of the caller's; a timeout calls it with Inline and gets an evaluation
+// on the caller's own lane. The new thread's context descends from the
+// caller's evaluation, not from the run, so a timeout around the caller
+// reaches it. An attempt of a repeat or a retry runs Within instead.
 //
 // A lane reports itself starting and ending; an evaluation on the caller's
 // lane does not, because its wrapper reports once for however many attempts
@@ -127,6 +127,8 @@ type _Spawn struct {
 //   - 2026-10-24 18:29: initial creation
 //   - 2026-10-24 19:30: a spawn that owns its lane derives from the run's
 //     context, so it survives a wrapper's body returning
+//   - 2026-10-28 22:36: derives the child's context once, from the parent it
+//     keeps, rather than from the caller's and then again from the run's
 func _BesideHandle(
 	thread *starlark.Thread,
 	parent *_Locals,
@@ -134,13 +136,12 @@ func _BesideHandle(
 	opts []Option,
 ) *_Spawn {
 	var (
-		inner, stop = context.WithCancel(parent.ctx)
-		child       = _Inherited(
-			inner,
+		child = _Inherited(
 			parent,
 			opts,
 		)
 		owns = child.thread == ""
+		base = parent.ctx
 	)
 
 	// A spawn that owns its lane lives until the run ends, not until its
@@ -149,12 +150,12 @@ func _BesideHandle(
 	// it. An attempt or an inline still derives from the parent, so a
 	// timeout's context reaches it.
 	if owns {
-		stop()
-
-		inner, stop = context.WithCancel(parent.run.ctx)
-		child.ctx = inner
+		base = parent.run.ctx
 		child.thread = parent.run._Number(parent.thread)
 	}
+
+	inner, stop := context.WithCancel(base)
+	child.ctx = inner
 
 	var (
 		handle, made = _Made(
@@ -262,19 +263,24 @@ func _BesideGo(spawn *_Spawn) {
 	}()
 }
 
-// _Inherited is the locals a child evaluation starts with.
+// _Inherited is the locals a child evaluation starts with, before it has a
+// context.
+//
+// No context here, because which parent the context derives from depends on
+// the lane the options choose. Deriving one before that was known meant
+// deriving a second for every spawn that owns its lane.
 //
 // Revisions:
 //   - 2026-09-27 01:34: initial creation, lifted out of Beside
 //   - 2026-10-24 18:29: takes the context first
+//   - 2026-10-28 22:36: takes no context, the caller setting it once the
+//     options have chosen the lane
 func _Inherited(
-	ctx context.Context,
 	parent *_Locals,
 	opts []Option,
 ) *_Locals {
 	child := &_Locals{
 		run:      parent.run,
-		ctx:      ctx,
 		attempt:  parent.attempt,
 		catching: parent.catching,
 		inside:   parent.inside,
@@ -391,8 +397,44 @@ func Catching() Option {
 	}
 }
 
-// _Work runs the call on its own thread, guarded, and records what it
-// produced.
+// _Work runs the call on its own thread, watching the evaluation's context,
+// and records what it produced.
+//
+// The thread is the evaluation's own, and nothing else watches it. The watch
+// is how a cancel of the evaluation reaches it.
+//
+// Revisions:
+//   - 2026-09-19 20:40: initial creation
+//   - 2026-09-19 23:24: guards the call, so a panicking builtin fails the handle
+//     instead of killing the process
+//   - 2026-09-21 08:09: takes the evaluation it runs as, and keeps the raw
+//     error for the report
+//   - 2026-10-03 23:52: ends with a failure Fail kept on the evaluation, when what it
+//     returned does not already carry it
+//   - 2026-10-24 20:00: ends the run on a recovered panic, so an unjoined panic
+//     does not vanish
+//   - 2026-10-29 00:39: calls through _Evaluate, which Within shares, and keeps
+//     only the watch
+func (h *Handle) _Work(
+	thread *starlark.Thread,
+	locals *_Locals,
+	target starlark.Callable,
+) {
+	watching := _CancelOn(
+		locals.ctx,
+		thread,
+	)
+	defer watching._Release()
+
+	h._Evaluate(
+		thread,
+		locals,
+		target,
+	)
+}
+
+// _Evaluate calls target on thread as the evaluation locals describes,
+// guarded, and records on h what it produced.
 //
 // A failure that arrives with the context already done is reported as a
 // cancellation, because "the interpreter stopped you" and "your code was
@@ -407,26 +449,13 @@ func Catching() Option {
 // called stays false and the run is ended with the recovered error.
 //
 // Revisions:
-//   - 2026-09-19 20:40: initial creation
-//   - 2026-09-19 23:24: guards the call, so a panicking builtin fails the handle
-//     instead of killing the process
-//   - 2026-09-21 08:09: takes the evaluation it runs as, and keeps the raw
-//     error for the report
-//   - 2026-10-03 23:52: ends with a failure Fail kept on the evaluation, when what it
-//     returned does not already carry it
-//   - 2026-10-24 20:00: ends the run on a recovered panic, so an unjoined panic
-//     does not vanish
-func (h *Handle) _Work(
+//   - 2026-10-29 00:39: initial creation, out of _Work, so an evaluation on
+//     its caller's thread ends as one on a thread of its own does
+func (h *Handle) _Evaluate(
 	thread *starlark.Thread,
 	locals *_Locals,
 	target starlark.Callable,
 ) {
-	watching := _CancelOn(
-		locals.ctx,
-		thread,
-	)
-	defer watching()
-
 	var called bool
 
 	guard.WithRecover(

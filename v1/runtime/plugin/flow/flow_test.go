@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -42,6 +43,10 @@ const (
 	// arguments.
 	ZERO    = "zero.star"
 	LAMBDAS = "lambdas.star"
+
+	// SPARE is how many threads' worth a run gets when the budget must not be
+	// what fails it: an attempt, the thread it spawned, and one more.
+	SPARE = 4
 )
 
 // _Disk is a Loader over testdata.
@@ -896,4 +901,571 @@ func TestRegression_Spawn(t *testing.T) {
 			got,
 		)
 	}
+}
+
+// TestWrappers_NameTheCallInAFailure pins the text a failed repeat or retry
+// gives: the call as the script wrote it, then which attempt failed or how
+// many it made. The call is built only when one fails, and this is what keeps
+// that text the same.
+//
+// Revisions:
+//   - 2026-10-29 00:23: initial creation
+func TestWrappers_NameTheCallInAFailure(t *testing.T) {
+	cases := map[string]string{
+		"repeat_stops.star":       "repeat(5, step) attempt 1: ",
+		"retry_ignores_fail.star": "retry(5, broken) attempt 1: ",
+		"retry_gives_up.star":     "retry(3, never) gave up after 3 attempts: ",
+	}
+
+	for name, want := range cases {
+		t.Run(
+			name,
+			func(t *testing.T) {
+				_, err := _Run(
+					t,
+					name,
+				)
+				if err == nil || !strings.Contains(
+					err.Error(),
+					want,
+				) {
+					t.Fatalf(
+						"got %v, want it to say %q",
+						err,
+						want,
+					)
+				}
+			},
+		)
+	}
+}
+
+// TestAttempt_ACancelStaysWithItsCaller pins where a cancel reaches an attempt.
+// A timeout around a retry stops the attempt at once, and an assertion that
+// ends the run stops an attempt that sleeps. Neither reaches a thread outside
+// the timeout, which goes on to return.
+//
+// Each attempt sleeps three seconds, so a cancel that did not reach it would
+// hold the run past PROMPT. The lines are compared without their order, since
+// a cancel ends lines on more than one goroutine.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func TestAttempt_ACancelStaysWithItsCaller(t *testing.T) {
+	cases := map[string]struct {
+		fails bool
+		want  string
+		lines []string
+	}{
+		"timeout_over_retry.star": {
+			fails: true,
+			want:  "timeout(200, waits): timed out",
+			lines: []string{
+				`start "waits" timeout 0/0`,
+				`start "slow" retry 1/3`,
+				`start "" sleep 0/0`,
+				`end "" failed`,
+				`end "slow" failed`,
+				`end "waits" failed`,
+			},
+		},
+		"failure_stops_retry.star": {
+			fails: true,
+			want:  `"a sibling broke": assertion failed`,
+			lines: []string{
+				`start "broken" spawn 0/0`,
+				`start "slow" retry 1/3`,
+				`start "" sleep 0/0`,
+				`start "" sleep 0/0`,
+				`end "" succeeded`,
+				`end "broken" failed`,
+				`end "" failed`,
+				`end "slow" failed`,
+			},
+		},
+		"timeout_beside_main.star": {
+			want: `"main lives"`,
+			lines: []string{
+				`start "bounded" spawn 0/0`,
+				`start "" sleep 0/0`,
+				`start "waits" timeout 0/0`,
+				`start "slow" retry 1/3`,
+				`start "" sleep 0/0`,
+				`end "" failed`,
+				`end "slow" failed`,
+				`end "waits" failed`,
+				`end "bounded" failed`,
+				`end "" succeeded`,
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(
+			name,
+			func(t *testing.T) {
+				var (
+					into    = new(_Lines)
+					started = time.Now()
+					got     = _Outcome(
+						t,
+						name,
+						artifact.Reporting(into),
+					)
+					took = time.Since(started)
+				)
+
+				_Matches(
+					t,
+					got,
+					&_Expected{
+						fails: tc.fails,
+						text:  tc.want,
+					},
+				)
+
+				if took > PROMPT {
+					t.Fatalf(
+						"a cancel took %s to reach the attempt",
+						took,
+					)
+				}
+
+				lines := into._All()
+				slices.Sort(lines)
+				slices.Sort(tc.lines)
+
+				if !slices.Equal(
+					lines,
+					tc.lines,
+				) {
+					t.Fatalf(
+						"got %q, want %q",
+						lines,
+						tc.lines,
+					)
+				}
+			},
+		)
+	}
+}
+
+// TestAttempt_APanicFailsTheRunOnce pins what a panic inside an attempt does:
+// the run fails with the panic, the attempt is not made again, and the line
+// opens once and ends failed.
+//
+// A panic is not an assertion, so a retry does not catch it.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func TestAttempt_APanicFailsTheRunOnce(t *testing.T) {
+	cases := map[string][]string{
+		"explodes_inside_retry.star": {
+			`start "boom" retry 1/3`,
+			`end "boom" failed`,
+		},
+		"explodes_inside_repeat.star": {
+			`start "boom" repeat 1/2`,
+			`end "boom" failed`,
+		},
+	}
+
+	for name, want := range cases {
+		t.Run(
+			name,
+			func(t *testing.T) {
+				var (
+					into = new(_Lines)
+					got  = _Outcome(
+						t,
+						name,
+						artifact.Reporting(into),
+					)
+				)
+
+				_Matches(
+					t,
+					got,
+					&_Expected{
+						fails: true,
+						text:  PANIC_TEXT,
+					},
+				)
+
+				lines := into._All()
+				if !slices.Equal(
+					lines,
+					want,
+				) {
+					t.Fatalf(
+						"got %q, want %q",
+						lines,
+						want,
+					)
+				}
+			},
+		)
+	}
+}
+
+// TestAttempt_KeepsTheIdsOfASpawnInside pins every line a retry and a repeat
+// report when each attempt spawns and joins, with the thread that reports it.
+//
+// An attempt reports on its caller's lane, and a spawn inside it is a child of
+// that lane, numbered in turn across attempts.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func TestAttempt_KeepsTheIdsOfASpawnInside(t *testing.T) {
+	want := []string{
+		`thread_0 start "main"  0/0  []`,
+		`thread_0 start "attempt" retry 1/3  []`,
+		`thread_0 start "checks" spawn 0/0 thread_1 []`,
+		`thread_0 start "" join 0/0  [thread_1]`,
+		`thread_1 end "checks" failed`,
+		`thread_0 end "" failed`,
+		`thread_0 start "attempt" retry 2/3  []`,
+		`thread_0 start "checks" spawn 0/0 thread_2 []`,
+		`thread_0 start "" join 0/0  [thread_2]`,
+		`thread_2 end "checks" succeeded`,
+		`thread_0 end "" succeeded`,
+		`thread_0 end "attempt" succeeded`,
+		`thread_0 start "twice" repeat 1/2  []`,
+		`thread_0 start "worker" spawn 0/0 thread_3 []`,
+		`thread_0 start "" join 0/0  [thread_3]`,
+		`thread_3 end "worker" succeeded`,
+		`thread_0 end "" succeeded`,
+		`thread_0 start "twice" repeat 2/2  []`,
+		`thread_0 start "worker" spawn 0/0 thread_4 []`,
+		`thread_0 start "" join 0/0  [thread_4]`,
+		`thread_4 end "worker" succeeded`,
+		`thread_0 end "" succeeded`,
+		`thread_0 end "twice" succeeded`,
+		`thread_0 end "main" succeeded`,
+	}
+
+	var (
+		into = new(_Lanes)
+		got  = _Outcome(
+			t,
+			"spawn_ids_retry.star",
+			artifact.Reporting(into),
+		)
+	)
+
+	_Matches(
+		t,
+		got,
+		&_Expected{
+			fails: false,
+			text:  "[2, 2]",
+		},
+	)
+
+	lines := into._All()
+	if !slices.Equal(
+		lines,
+		want,
+	) {
+		t.Fatalf(
+			"got %q, want %q",
+			lines,
+			want,
+		)
+	}
+}
+
+// TestAttempt_IsChargedAsAThread pins what an attempt costs the run's budget:
+// one thread, held while the attempt runs and given back when it ends.
+//
+// One thread's worth is then enough for any number of attempts in turn, less
+// than that refuses the first attempt, and a spawn inside an attempt needs
+// more. A spawned thread gives its charge back after its join returns, so the
+// run that succeeds has room for a thread the last attempt spawned as well.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func TestAttempt_IsChargedAsAThread(t *testing.T) {
+	cases := map[string]struct {
+		name   string
+		memory int64
+		fails  bool
+		want   string
+	}{
+		"a retry under one thread": {
+			name:   "retry.star",
+			memory: scheduler.THREAD_COST - 1,
+			fails:  true,
+			want:   "retry(5, flaky) attempt 1: ",
+		},
+		"a repeat under one thread": {
+			name:   "repeat.star",
+			memory: scheduler.THREAD_COST - 1,
+			fails:  true,
+			want:   "repeat(3, step) attempt 1: ",
+		},
+		"a retry in one thread": {
+			name:   "retry.star",
+			memory: scheduler.THREAD_COST,
+			want:   "3",
+		},
+		"a spawn inside in one thread": {
+			name:   "spawn_ids_retry.star",
+			memory: scheduler.THREAD_COST,
+			fails:  true,
+			want:   "retry(3, attempt) attempt 1: checks: ",
+		},
+		"a spawn inside with room to spare": {
+			name:   "spawn_ids_retry.star",
+			memory: SPARE * scheduler.THREAD_COST,
+			want:   "[2, 2]",
+		},
+	}
+
+	for label, tc := range cases {
+		t.Run(
+			label,
+			func(t *testing.T) {
+				got := _Outcome(
+					t,
+					tc.name,
+					artifact.WithMemory(tc.memory),
+				)
+
+				_Matches(
+					t,
+					got,
+					&_Expected{
+						fails: tc.fails,
+						text:  tc.want,
+					},
+				)
+
+				refused := errors.Is(
+					got.err,
+					scheduler.ErrMemory,
+				)
+				if refused != tc.fails {
+					t.Fatalf(
+						"got %v, want ErrMemory only when it fails",
+						got.err,
+					)
+				}
+			},
+		)
+	}
+}
+
+// TestAttempt_SeesTheUpdateItIsInside pins what an attempt inside an update
+// may do. It may not update or wait, since the update it is inside holds a
+// name. An attempt outside one updates, and leaves its caller free to update
+// after it.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func TestAttempt_SeesTheUpdateItIsInside(t *testing.T) {
+	cases := map[string]struct {
+		fails bool
+		want  string
+	}{
+		"update_inside_attempt.star": {
+			fails: true,
+			want:  `state.update "y": started inside an update of "x"`,
+		},
+		"wait_inside_attempt.star": {
+			fails: true,
+			want:  `event.wait inside an update of "x"`,
+		},
+		"update_after_attempt.star": {
+			want: "12",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(
+			name,
+			func(t *testing.T) {
+				got := _Outcome(
+					t,
+					name,
+				)
+
+				_Matches(
+					t,
+					got,
+					&_Expected{
+						fails: tc.fails,
+						text:  tc.want,
+					},
+				)
+
+				nested := errors.Is(
+					got.err,
+					scheduler.ErrNested,
+				)
+				if nested != tc.fails {
+					t.Fatalf(
+						"got %v, want ErrNested only when it fails",
+						got.err,
+					)
+				}
+			},
+		)
+	}
+}
+
+// _Ran is what one run of a fixture gave: its value, or its error.
+type _Ran struct {
+	value starlark.Value
+	err   error
+}
+
+// _Outcome runs the named fixture with opts and keeps what it gave.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func _Outcome(
+	t *testing.T,
+	name string,
+	opts ...artifact.RunOption,
+) *_Ran {
+	t.Helper()
+
+	value, err := artifact.Run(
+		t.Context(),
+		_Built(
+			t,
+			name,
+		),
+		opts...,
+	)
+
+	return &_Ran{
+		value: value,
+		err:   err,
+	}
+}
+
+// _Expected is what a run of a fixture should give: whether it fails, and
+// text its error or its value holds.
+type _Expected struct {
+	fails bool
+	text  string
+}
+
+// _Matches fails the test unless got failed when want says so, with an error
+// or a value whose text holds want's.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func _Matches(
+	t *testing.T,
+	got *_Ran,
+	want *_Expected,
+) {
+	t.Helper()
+
+	if (got.err != nil) != want.fails {
+		t.Fatalf(
+			"got %v and %v, want a failure: %t",
+			got.value,
+			got.err,
+			want.fails,
+		)
+	}
+
+	text := fmt.Sprint(got.err)
+	if !want.fails {
+		text = got.value.String()
+	}
+
+	if !strings.Contains(
+		text,
+		want.text,
+	) {
+		t.Fatalf(
+			"got %s, want it to say %s",
+			text,
+			want.text,
+		)
+	}
+}
+
+// _Lanes is a reporter that keeps every start and every end, one line of
+// text each, with the thread that reported it and the facts that tie lines to
+// threads.
+type _Lanes struct {
+	guard sync.Mutex
+	lines []string
+}
+
+// Started keeps a start, with its attempt, its child and what it waits on.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func (l *_Lanes) Started(
+	thread string,
+	line *scheduler.Line,
+) {
+	kept := fmt.Sprintf(
+		"%s start %q %s %d/%d %s %v",
+		thread,
+		line.Name,
+		line.Builtin,
+		line.Attempt,
+		line.Count,
+		line.Child,
+		line.Waits,
+	)
+
+	l._Keep(kept)
+}
+
+// Ended keeps an end, with whether it failed.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func (l *_Lanes) Ended(
+	thread string,
+	name string,
+	err error,
+) {
+	outcome := "succeeded"
+	if err != nil {
+		outcome = "failed"
+	}
+
+	kept := fmt.Sprintf(
+		"%s end %q %s",
+		thread,
+		name,
+		outcome,
+	)
+
+	l._Keep(kept)
+}
+
+// _All is everything kept so far.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func (l *_Lanes) _All() []string {
+	l.guard.Lock()
+	defer l.guard.Unlock()
+
+	return slices.Clone(l.lines)
+}
+
+// _Keep adds one line, under the lock, since lines arrive from every thread.
+//
+// Revisions:
+//   - 2026-10-29 00:38: initial creation
+func (l *_Lanes) _Keep(kept string) {
+	l.guard.Lock()
+	defer l.guard.Unlock()
+
+	l.lines = append(
+		l.lines,
+		kept,
+	)
 }

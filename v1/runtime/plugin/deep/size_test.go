@@ -15,6 +15,9 @@ const (
 
 	// WIDE is how many elements the list fixtures hold.
 	WIDE = 100
+
+	// RUNS is how many calls an allocation count averages over.
+	RUNS = 100
 )
 
 // TestSize_CountsWhatItCanCount is the shape of the estimate rather than exact
@@ -194,5 +197,34 @@ func TestSize_SaysSomethingAboutWhatItDoesNotKnow(t *testing.T) {
 		nil,
 	)) <= 0 {
 		t.Fatal("a value this does not know costs nothing")
+	}
+}
+
+// TestSize_AScalarAllocatesNothing keeps the walk from building its seen map
+// for a value that cannot hold anything. A store weighs every value it takes,
+// and most are one number or one word.
+//
+// Revisions:
+//   - 2026-10-29 01:22: initial creation
+func TestSize_AScalarAllocatesNothing(t *testing.T) {
+	for name, value := range _Scalars() {
+		t.Run(
+			name,
+			func(t *testing.T) {
+				made := testing.AllocsPerRun(
+					RUNS,
+					func() {
+						deep.Size(value)
+					},
+				)
+				if made != 0 {
+					t.Fatalf(
+						"%v allocations to weigh %s",
+						made,
+						name,
+					)
+				}
+			},
+		)
 	}
 }

@@ -87,10 +87,16 @@ func (g *_Graph) _Add(
 	)
 }
 
-// _Stored keeps the unit and the modules it loads.
+// _Stored keeps the unit and the modules it loads, and gives the unit a cache
+// when it is pure.
+//
+// Pure is read here, after the loads, because a unit is pure only when every
+// unit it loads is pure, and each of those is stored by then.
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-28 23:34: gives a pure unit a cache, so its top level runs once
+//     for every run of the artifact
 func (g *_Graph) _Stored(
 	path string,
 	tree *syntax.File,
@@ -114,12 +120,39 @@ func (g *_Graph) _Stored(
 		return nil, err
 	}
 
+	if g._Pure(unit) {
+		unit.cache = _NewCache()
+	}
+
 	g.order = append(
 		g.order,
 		path,
 	)
 
 	return unit, nil
+}
+
+// _Pure reports whether unit's top level calls nothing, and every unit it
+// loads is pure.
+//
+// A load is a call of a kind: it hands over what another top level produced.
+// So a unit that loads an impure unit sees what that run built, and must be
+// built by that run too.
+//
+// Revisions:
+//   - 2026-10-28 23:34: initial creation
+func (g *_Graph) _Pure(unit *_Unit) bool {
+	if _Calls(unit.tree) {
+		return false
+	}
+
+	for _, name := range unit.saved.GetLoads() {
+		if g.units[name].cache == nil {
+			return false
+		}
+	}
+
+	return true
 }
 
 // _Encoded writes the compiled program into the unit the artifact keeps.
@@ -314,10 +347,11 @@ func (g *_Graph) _Fetch(
 // _Link assembles the units into one artifact, in the order that initialises
 // dependencies first.
 //
-// Nothing runs here. A script's module-level statements execute once per run,
-// not once per compile, because what they produce includes the arguments the
+// Nothing runs here. A script's module-level statements execute at a run,
+// not at a compile, because what they produce includes the arguments the
 // run supplies - and a value bound at compile time would be one compile's
-// value shared by every run of that artifact.
+// value shared by every run of that artifact. A pure unit runs once, at the
+// first run that needs it, and a failure there is still that run's.
 //
 // env is the one the source was compiled against, kept rather than rebuilt at
 // each run. A script resolved against one environment and initialised against
@@ -367,6 +401,11 @@ func _Link(
 // initialises, and none afterwards, since only a top level can load. The
 // arguments are bound for as long, since only a top level can declare one.
 //
+// A pure unit is the exception: its top level runs once, on the first run that
+// needs it, and every later run gets the same frozen globals. Nothing in those
+// globals belongs to a run, since a top level with no call never reads the
+// thread, the arguments or the run.
+//
 // Unguarded here because the run is: a module's top level runs arbitrary
 // script, and the evaluation this runs inside already recovers a panic as the
 // run's failure.
@@ -382,6 +421,8 @@ func _Link(
 //     initialised, so the entry point is a body
 //   - 2026-10-02 16:08: takes the arguments, rather than a context carrying
 //     them
+//   - 2026-10-28 23:34: gets the globals of a pure unit from its cache, built
+//     by the first run
 func (a *Artifact) _Initialise(
 	supplied map[string]*structpb.Value,
 	thread *starlark.Thread,
@@ -416,11 +457,50 @@ func (a *Artifact) _Initialise(
 	return built[a.saved.GetEntry()], nil
 }
 
-// _InitUnit runs one unit, loading the units it names from built.
+// _InitUnit is the globals of one unit for this run: those its cache keeps
+// when the unit is pure, and otherwise those its top level produces now.
+//
+// A pure unit loads only pure units, which come before it in the order, so
+// built already holds what it loads when its cache builds it on this thread.
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-28 23:34: reads a pure unit from its cache, which runs the top
+//     level only on the first run
 func (a *Artifact) _InitUnit(
+	thread *starlark.Thread,
+	path string,
+	unit *_Unit,
+	built map[string]starlark.StringDict,
+) (starlark.StringDict, error) {
+	if unit.cache == nil {
+		return a._Execute(
+			thread,
+			path,
+			unit,
+			built,
+		)
+	}
+
+	return unit.cache._Globals(
+		thread,
+		func() (starlark.StringDict, error) {
+			return a._Execute(
+				thread,
+				path,
+				unit,
+				built,
+			)
+		},
+	)
+}
+
+// _Execute runs one unit's top level on thread, loading the units it names
+// from built, and freezes what it produced.
+//
+// Revisions:
+//   - 2026-10-28 23:34: initial creation, from _InitUnit
+func (a *Artifact) _Execute(
 	thread *starlark.Thread,
 	path string,
 	unit *_Unit,

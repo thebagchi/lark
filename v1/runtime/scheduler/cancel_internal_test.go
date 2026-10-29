@@ -13,12 +13,13 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// TestCancelOn_ReleasesAgain checks the release _CancelOn returns can be
-// called a second time and returns at once, whether the context was cancelled
-// before the first or never was.
+// TestCancelOn_ReleasesAgain checks the release of the watch _CancelOn returns
+// can be called a second time and returns at once, whether the context was
+// cancelled before the first or never was.
 //
 // Revisions:
 //   - 2026-10-03 23:37: initial creation
+//   - 2026-10-28 22:36: releases through the watch _CancelOn now returns
 func TestCancelOn_ReleasesAgain(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -41,7 +42,7 @@ func TestCancelOn_ReleasesAgain(t *testing.T) {
 				ctx, stop := context.WithCancel(t.Context())
 				defer stop()
 
-				release := _CancelOn(
+				watch := _CancelOn(
 					ctx,
 					&starlark.Thread{},
 				)
@@ -53,8 +54,8 @@ func TestCancelOn_ReleasesAgain(t *testing.T) {
 				released := make(chan struct{})
 
 				go func() {
-					release()
-					release()
+					watch._Release()
+					watch._Release()
 					close(released)
 				}()
 

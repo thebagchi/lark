@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -45,53 +46,20 @@ var (
 //   - 2026-09-21 08:09: initial creation
 //   - 2026-09-21 09:46: the name held is one string, since there is never a
 //     second
+//   - 2026-10-28 22:06: takes a free slot without a wait on the context, and
+//     hands back the release the evaluation keeps rather than a new closure
+//   - 2026-10-29 01:05: finds the evaluation through EvaluationOf, and keeps
+//     its body in the Lock of Evaluation
 func Lock(
 	thread *starlark.Thread,
 	name string,
 ) (func(), error) {
-	locals, err := _Of(thread)
+	evaluation, err := EvaluationOf(thread)
 	if err != nil {
 		return nil, err
 	}
 
-	if locals.holding {
-		return nil, fmt.Errorf(
-			"already updating %q: %w",
-			locals.inside,
-			ErrNested,
-		)
-	}
-
-	if locals.inside != "" {
-		return nil, fmt.Errorf(
-			"started inside an update of %q: %w",
-			locals.inside,
-			ErrNested,
-		)
-	}
-
-	slot := locals.run._Slot(name)
-
-	select {
-	case slot <- struct{}{}:
-	case <-locals.ctx.Done():
-		return nil, fmt.Errorf(
-			"waiting for %q: %w: %w",
-			name,
-			ErrCancelled,
-			locals.ctx.Err(),
-		)
-	}
-
-	locals.inside = name
-	locals.holding = true
-
-	return func() {
-		locals.inside = ""
-		locals.holding = false
-
-		<-slot
-	}, nil
+	return evaluation.Lock(name)
 }
 
 // _Slot returns the one-place channel that is the lock for name, making it the
@@ -99,9 +67,14 @@ func Lock(
 //
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
+//   - 2026-10-29 01:24: makes the lock map on the run's first lock
 func (r *_Run) _Slot(name string) chan struct{} {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
+
+	if r.locks == nil {
+		r.locks = make(map[string]chan struct{})
+	}
 
 	slot, found := r.locks[name]
 	if !found {
@@ -135,4 +108,60 @@ func Updating(thread *starlark.Thread) (string, error) {
 	}
 
 	return locals.inside, nil
+}
+
+// _Take puts the one token in slot, and waits for room only when the slot is
+// full.
+//
+// A free slot is the common case, and a select with a default costs much less
+// than a select that also watches the context. So a free slot is taken even
+// when the context is already done: the evaluation then stops at its next
+// instruction, and its deferred release gives the slot back.
+//
+// Returns ErrCancelled wrapping the context's error when the wait is
+// cancelled.
+//
+// Revisions:
+//   - 2026-10-28 22:06: initial creation
+func _Take(
+	ctx context.Context,
+	slot chan struct{},
+	name string,
+) error {
+	select {
+	case slot <- struct{}{}:
+		return nil
+	default:
+	}
+
+	select {
+	case slot <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf(
+			"waiting for %q: %w: %w",
+			name,
+			ErrCancelled,
+			ctx.Err(),
+		)
+	}
+}
+
+// _Release gives back the slot the evaluation holds, and clears the mark.
+//
+// It reads the slot from the evaluation rather than from a closure, so one
+// function value serves every lock the evaluation takes. That is safe because
+// an evaluation holds at most one name: a second lock is refused while it
+// holds one.
+//
+// Revisions:
+//   - 2026-10-28 22:06: initial creation
+func (l *_Locals) _Release() {
+	slot := l.slot
+
+	l.inside = ""
+	l.holding = false
+	l.slot = nil
+
+	<-slot
 }

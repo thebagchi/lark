@@ -146,6 +146,8 @@ func _Attempt(
 //   - 2026-09-21 08:09: each attempt is Beside on the caller's lane
 //   - 2026-10-02 01:01: takes an optional delay, and reports its line through
 //     the scheduler with the count it makes
+//   - 2026-10-29 00:23: names the call through _Written, built only on a
+//     failure
 func _Repeat(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -171,7 +173,7 @@ func _Repeat(
 		if err != nil {
 			failed := fmt.Errorf(
 				"%s attempt %d: %w",
-				attempts.written,
+				attempts._Written(),
 				attempt,
 				err,
 			)

@@ -55,13 +55,17 @@ const (
 	PROMPT = time.Second
 )
 
-// _Compile builds an artifact from a script on disk.
+// _Compile builds an artifact from a script on disk, with the compile options
+// opts.
 //
 // Revisions:
 //   - 2026-09-20 01:37: initial creation
+//   - 2026-10-28 23:50: takes compile options, so a test can give its script
+//     a plugin of its own
 func _Compile(
 	t *testing.T,
 	path string,
+	opts ...artifact.Option,
 ) *artifact.Artifact {
 	t.Helper()
 
@@ -70,10 +74,13 @@ func _Compile(
 		t.Fatal(err)
 	}
 
-	built, err := artifact.Compile(&script.Source{
-		Entry: path,
-		Text:  src,
-	})
+	built, err := artifact.Compile(
+		&script.Source{
+			Entry: path,
+			Text:  src,
+		},
+		opts...,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

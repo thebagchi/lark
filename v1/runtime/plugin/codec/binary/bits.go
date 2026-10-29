@@ -3,7 +3,7 @@ package binary
 import (
 	"encoding/binary"
 	"fmt"
-	"strings"
+	"unsafe"
 )
 
 // The masks below read a uint64 as eight bytes side by side, which is how eight
@@ -46,32 +46,43 @@ const (
 // Encode is data as bits, eight characters 0 and 1 to a byte, the most
 // significant bit first.
 //
-// Each byte's eight digits are made at once in a word, by _Digits, and written
-// together. A table of the sixteen nibbles, which this replaced, ran at 214
-// MB/s, and this at 450.
+// Each byte's eight digits are made at once in a word, by _Digits, and stored
+// in place in text made once at its full length. A table of the sixteen
+// nibbles, which this replaced, ran at 214 MB/s, and this at 450.
+//
+// The text is returned as a string over the same bytes, not a copy of them:
+// nothing writes text after the loop, and nothing else holds it, which is the
+// one condition unsafe.String asks. A copy would be a second allocation of the
+// whole output; strings.Builder avoids that the same way.
 //
 // Revisions:
 //   - 2026-10-03 17:00: initial creation, as codec's _BitsOfBytes
 //   - 2026-10-03 19:02: makes each byte's eight digits at once in a word, rather than
 //     looking them up a nibble at a time
 //   - 2026-10-08 17:47: moved to binary and exported, so hex writes bits through it too
+//   - 2026-10-28 23:03: stores each word in place in text made once, rather than
+//     writing it through a strings.Builder
 func Encode(data []byte) string {
 	var (
-		out    strings.Builder
-		digits [BITS_PER_BYTE]byte
+		text = make(
+			[]byte,
+			len(data)*BITS_PER_BYTE,
+		)
+		rest = text
 	)
-
-	out.Grow(len(data) * BITS_PER_BYTE)
 
 	for _, octet := range data {
 		binary.LittleEndian.PutUint64(
-			digits[:],
+			rest,
 			_Digits(octet),
 		)
-		out.Write(digits[:])
+		rest = rest[BITS_PER_BYTE:]
 	}
 
-	return out.String()
+	return unsafe.String(
+		unsafe.SliceData(text),
+		len(text),
+	)
 }
 
 // Decode is bits as bytes, left-padded with zeros to whole bytes first.
@@ -80,37 +91,60 @@ func Encode(data []byte) string {
 // to_bytes refuses a count that is not whole bytes itself. The bits carry no
 // prefix: a reader takes 0b off first, since it counts the bits as well.
 //
+// One pass: each group of eight is checked and read as the same word, into
+// bytes made once at their full length. The short group at the front, when the
+// count is not whole bytes, is read through _Head, so the padding is never
+// built as text.
+//
 // Returns ErrBits, naming who, for text that is not made only of 0 and 1.
 //
 // Revisions:
 //   - 2026-10-08 17:47: initial creation, from the packing codec's bits2bytes and
 //     bits2hex each did
+//   - 2026-10-28 23:03: checks and reads each group in one pass, and pads the short
+//     group in a word rather than in a copy of the text
 func Decode(
 	who string,
 	bits string,
 ) ([]byte, error) {
-	err := _Check(
-		who,
-		bits,
+	var (
+		short = len(bits) % BITS_PER_BYTE
+		data  = make(
+			[]byte,
+			(len(bits)+BITS_PER_BYTE-1)/BITS_PER_BYTE,
+		)
+		whole = data
 	)
-	if err != nil {
-		return nil, err
+
+	if short > 0 {
+		head := _Head(bits[:short])
+		if !_AreBits(head) {
+			return nil, _Refusal(
+				who,
+				bits,
+			)
+		}
+
+		data[0] = _ByteOfBits(head)
+		whole = data[1:]
 	}
 
-	var (
-		padded = _Padded(bits)
-		data   = make(
-			[]byte,
-			0,
-			len(padded)/BITS_PER_BYTE,
-		)
-	)
+	rest := bits[short:]
 
-	for at := 0; at < len(padded); at += BITS_PER_BYTE {
-		data = append(
-			data,
-			_ByteOfBits(padded[at:at+BITS_PER_BYTE]),
+	for idx := range whole {
+		var (
+			at   = idx * BITS_PER_BYTE
+			word = _Word(rest[at : at+BITS_PER_BYTE])
 		)
+
+		if !_AreBits(word) {
+			return nil, _Refusal(
+				who,
+				bits,
+			)
+		}
+
+		whole[idx] = _ByteOfBits(word)
 	}
 
 	return data, nil
@@ -118,14 +152,15 @@ func Decode(
 
 // _Check refuses text that is not made only of 0 and 1.
 //
-// Eight characters at a time while eight remain: the digits 0 and 1 differ only
-// in their lowest bit, so eight characters are all digits exactly when every
-// other bit matches ZEROS. The few left over are checked one at a time.
+// Eight characters at a time while eight remain, through _AreBits. The few
+// left over are checked one at a time.
 //
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, as codec's _Bits
 //   - 2026-10-03 19:02: eight characters at a time in a word
 //   - 2026-10-08 17:47: moved to binary, as _Check
+//   - 2026-10-28 23:03: checks a word through _AreBits and refuses through
+//     _Refusal, which Decode shares
 func _Check(
 	who string,
 	text string,
@@ -133,24 +168,19 @@ func _Check(
 	whole := len(text) - len(text)%BITS_PER_BYTE
 
 	for at := 0; at < whole; at += BITS_PER_BYTE {
-		digits := _Word(text[at:at+BITS_PER_BYTE])&SHARED == ZEROS
-		if !digits {
-			return fmt.Errorf(
-				"%s got %q: %w",
+		if !_AreBits(_Word(text[at : at+BITS_PER_BYTE])) {
+			return _Refusal(
 				who,
 				text,
-				ErrBits,
 			)
 		}
 	}
 
 	for _, char := range text[whole:] {
 		if char != '0' && char != '1' {
-			return fmt.Errorf(
-				"%s got %q: %w",
+			return _Refusal(
 				who,
 				text,
-				ErrBits,
 			)
 		}
 	}
@@ -158,40 +188,73 @@ func _Check(
 	return nil
 }
 
-// _Padded is bits left-padded with zeros to whole bytes.
+// _Refusal is the error for text that is not bits. It names the whole text,
+// not the group that failed, so Decode and _Check refuse the same input with
+// the same words.
 //
 // Revisions:
-//   - 2026-09-21 10:35: initial creation, as codec's _Padded, to any width
-//   - 2026-10-08 17:47: to whole bytes, the one width left that bits are padded to
-func _Padded(bits string) string {
-	short := len(bits) % BITS_PER_BYTE
-	if short == 0 {
-		return bits
-	}
-
-	return strings.Repeat(
-		PAD,
-		BITS_PER_BYTE-short,
-	) + bits
+//   - 2026-10-28 23:03: initial creation, from the two refusals _Check spelled out
+func _Refusal(
+	who string,
+	text string,
+) error {
+	return fmt.Errorf(
+		"%s got %q: %w",
+		who,
+		text,
+		ErrBits,
+	)
 }
 
-// _ByteOfBits is the byte eight 0/1 characters spell, the first most
+// _AreBits reports whether the eight characters in word are all 0 or 1.
+//
+// The digits 0 and 1 differ only in their lowest bit, so eight characters are
+// all digits exactly when every other bit matches ZEROS.
+//
+// Revisions:
+//   - 2026-10-28 23:03: initial creation, from the word check in _Check
+func _AreBits(word uint64) bool {
+	return word&SHARED == ZEROS
+}
+
+// _Head is the short group at the front of bits as a word, as if it were
+// padded on the left with zeros to eight: the zeros in the low bytes, read
+// first, and the characters of head after them in order.
+//
+// Each character comes in at the top byte and pushes one zero out at the
+// bottom, so no padded text is ever made. head is fewer than eight
+// characters.
+//
+// Revisions:
+//   - 2026-10-28 23:03: initial creation, in place of _Padded
+func _Head(head string) uint64 {
+	word := uint64(ZEROS)
+
+	for idx := range len(head) {
+		word = word>>BITS_PER_BYTE | uint64(head[idx])<<TOP_BYTE
+	}
+
+	return word
+}
+
+// _ByteOfBits is the byte eight 0/1 characters in word spell, the first most
 // significant.
 //
-// The eight are read as one word, taking ZEROS away leaves each byte 0 or 1,
-// and one multiply by GATHER moves all eight into the word's top byte.
+// Taking ZEROS away leaves each byte 0 or 1, and one multiply by GATHER moves
+// all eight into the word's top byte.
 //
 // Each character must already be 0 or 1: anything else gives a wrong number,
-// not an error. A check here could only name the byte it failed in, where a
-// check of the whole string names all of it.
+// not an error. Decode checks the same word through _AreBits first, so the
+// refusal names the whole text, not the byte it failed in.
 //
 // Revisions:
 //   - 2026-10-03 17:00: initial creation
 //   - 2026-10-03 19:02: folds the eight at once in a word, rather than one at a time,
 //     and so takes exactly eight
 //   - 2026-10-08 17:47: moved to binary
-func _ByteOfBits(bits string) byte {
-	gathered := (_Word(bits) - ZEROS) * GATHER
+//   - 2026-10-28 23:03: takes the word, which Decode has already read to check it
+func _ByteOfBits(word uint64) byte {
+	gathered := (word - ZEROS) * GATHER
 
 	return byte(gathered >> TOP_BYTE)
 }

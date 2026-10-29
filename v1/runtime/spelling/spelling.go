@@ -15,7 +15,7 @@ package spelling
 
 import (
 	"errors"
-	"fmt"
+	"strconv"
 )
 
 var (
@@ -41,6 +41,13 @@ var (
 // follows before it refuses the script.
 const (
 	MAX_DEPTH = 256
+)
+
+// DIGITS is the room Child keeps on the stack for an ordinal: the 19 digits
+// of the widest int and its sign. DECIMAL is the base an ordinal is written in.
+const (
+	DIGITS  = 20
+	DECIMAL = 10
 )
 
 // ENTRY is the function a run starts at, and the one a graph's spine
@@ -111,21 +118,24 @@ const (
 //
 // Revisions:
 //   - 2026-09-27 00:10: initial creation, from the copies in scheduler and graph
+//   - 2026-10-29 01:37: writes the ordinal into a buffer on the stack and joins
+//     it to the parent in one allocation, rather than through fmt, which every
+//     spawn paid for and which boxed a parent in a second one
 func Child(
 	parent string,
 	ordinal int,
 ) string {
+	var room [DIGITS]byte
+
+	digits := strconv.AppendInt(
+		room[:0],
+		int64(ordinal),
+		DECIMAL,
+	)
+
 	if parent == SPINE {
-		return fmt.Sprintf(
-			"%s%d",
-			THREAD,
-			ordinal,
-		)
+		return THREAD + string(digits)
 	}
 
-	return fmt.Sprintf(
-		"%s_%d",
-		parent,
-		ordinal,
-	)
+	return parent + "_" + string(digits)
 }

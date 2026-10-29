@@ -98,16 +98,20 @@ func (b *_Base64) Values() starlark.StringDict {
 // No trailing newline. Python's b2a_base64 appends one, and a script that did
 // not want it would have to strip it before comparing anything.
 //
+// The data is a view of the script's value, not a copy: EncodeToString only
+// reads it, into a buffer of its own, which is the contract of unpack.View.
+//
 // Revisions:
 //   - 2026-09-21 15:25: initial creation, as codec's b64encode
 //   - 2026-09-23 23:20: a member of the base64 module
+//   - 2026-10-29 01:08: reads a view of the data rather than a copy
 func _Encode(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(
+	data, err := unpack.DataView(
 		fn,
 		args,
 		kwargs,
@@ -152,16 +156,19 @@ func _Decode(
 // Unpadded because what reaches for this alphabet is a JSON Web Token, whose
 // segments carry no padding. A caller wanting padding has the standard form.
 //
+// The data is a view of the script's value, not a copy, as for _Encode.
+//
 // Revisions:
 //   - 2026-09-21 15:25: initial creation, as codec's b64urlencode
 //   - 2026-09-23 23:20: a member of the base64 module
+//   - 2026-10-29 01:08: reads a view of the data rather than a copy
 func _URLEncode(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(
+	data, err := unpack.DataView(
 		fn,
 		args,
 		kwargs,

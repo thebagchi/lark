@@ -16,6 +16,60 @@ func _Held(values ...starlark.Value) *starlark.List {
 	return starlark.NewList(values)
 }
 
+// _Scalars is one of each value that holds nothing, so a walk into it has
+// nothing to remember.
+//
+// Revisions:
+//   - 2026-10-29 01:22: initial creation
+func _Scalars() map[string]starlark.Value {
+	return map[string]starlark.Value{
+		"none":    starlark.None,
+		"a bool":  starlark.True,
+		"an int":  starlark.MakeInt(7),
+		"a float": starlark.Float(1.5),
+		"a word":  starlark.String("x"),
+		"bytes":   starlark.Bytes("x"),
+	}
+}
+
+// TestCopy_AScalarAllocatesNothing keeps Copy from building its seen map for
+// a value that it returns as it is. A store copies every value a script
+// reads, and most are one number or one word.
+//
+// RUNS is in size_test.go.
+//
+// Revisions:
+//   - 2026-10-29 01:22: initial creation
+func TestCopy_AScalarAllocatesNothing(t *testing.T) {
+	for name, value := range _Scalars() {
+		t.Run(
+			name,
+			func(t *testing.T) {
+				var err error
+
+				made := testing.AllocsPerRun(
+					RUNS,
+					func() {
+						_, err = deep.Copy(value)
+					},
+				)
+
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if made != 0 {
+					t.Fatalf(
+						"%v allocations to copy %s",
+						made,
+						name,
+					)
+				}
+			},
+		)
+	}
+}
+
 // TestIsData_AcceptsWhatAStoreCanHold is every shape a script builds out of
 // data, including the containers nested in each other.
 //

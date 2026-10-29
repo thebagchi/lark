@@ -440,6 +440,8 @@ func TestEnded_AnOlderCallLeavesTheNewestsStatus(t *testing.T) {
 // Revisions:
 //   - 2026-10-02 01:34: initial creation, as TestStarted_ARepeatAdvancesOneLine
 //   - 2026-10-02 15:34: one call, rather than one line advancing
+//   - 2026-10-29 00:25: counts the calls of the thread's record, which holds
+//     them now
 func TestStarted_ARepeatIsOneCall(t *testing.T) {
 	into := _Begun()
 
@@ -475,10 +477,10 @@ func TestStarted_ARepeatIsOneCall(t *testing.T) {
 
 	// Only main is left: every attempt after the first was the call already
 	// running, so the one end closed it.
-	if len(into.running[SPINE]) != 1 {
+	if len(into.running[SPINE].calls) != 1 {
 		t.Fatalf(
 			"want only main still running, got %d calls",
-			len(into.running[SPINE]),
+			len(into.running[SPINE].calls),
 		)
 	}
 

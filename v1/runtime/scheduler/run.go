@@ -63,6 +63,10 @@ const (
 // ctx, so cancelling ctx is what cancels everything, and a list of what to
 // cancel would be a second copy of that fact - one that a spawn made during
 // teardown was measured not to be on.
+//
+// ordinal, shared and locks are nil until the first spawn, the first shared
+// value and the first lock, each made under mutex by what first writes it: a
+// run that does none of the three, which is most of them, makes no map.
 type _Run struct {
 	mutex   sync.Mutex
 	ctx     context.Context
@@ -100,6 +104,11 @@ type _Run struct {
 // failed is the first failure Fail was handed on this evaluation, which the
 // evaluation ends with however it returns. Never inherited: it belongs to the
 // evaluation whose work failed.
+//
+// slot is the lock this evaluation holds, and nil when it holds none. release
+// is the function Lock hands back, made on the first lock and kept, so a lock
+// after the first allocates nothing. Neither is inherited, for the reason
+// holding is not.
 type _Locals struct {
 	run      *_Run
 	thread   string
@@ -108,6 +117,8 @@ type _Locals struct {
 	catching int
 	inside   string
 	holding  bool
+	slot     chan struct{}
+	release  func()
 	label    string
 	binding  string
 	failed   error
@@ -210,22 +221,23 @@ func Begin(
 
 // _Begun is the run a thread is about to carry.
 //
+// It makes none of the run's maps, which _Run tells why.
+//
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-10-29 01:24: leaves the ordinal, shared and lock maps nil, for
+//     whatever first writes each to make
 func _Begun(
 	inner context.Context,
 	stop context.CancelFunc,
 	settings *Settings,
 ) *_Run {
 	return &_Run{
-		ctx:     inner,
-		stop:    stop,
-		into:    settings.Reporter,
-		logger:  settings._Logging(),
-		budget:  NewBudget(settings._Chosen()),
-		ordinal: make(map[string]int32),
-		shared:  make(map[string]any),
-		locks:   make(map[string]chan struct{}),
+		ctx:    inner,
+		stop:   stop,
+		into:   settings.Reporter,
+		logger: settings._Logging(),
+		budget: NewBudget(settings._Chosen()),
 	}
 }
 
@@ -233,7 +245,7 @@ func _Begun(
 type _Done struct {
 	stop     context.CancelFunc
 	run      *_Run
-	watching func()
+	watching *_Watch
 	name     string
 }
 
@@ -246,7 +258,7 @@ func _Ended(
 	done *_Done,
 ) func(err error) error {
 	return func(err error) error {
-		done.watching()
+		done.watching._Release()
 		done.stop()
 		done.run.group.Wait()
 
@@ -390,9 +402,14 @@ func (r *_Run) _Outcome() error {
 //     rather than per run
 //   - 2026-09-21 08:09: numbers only; nothing records the handle, since the
 //     run's context is what cancels it
+//   - 2026-10-29 01:24: makes the ordinal map on the run's first spawn
 func (r *_Run) _Number(parent string) string {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
+
+	if r.ordinal == nil {
+		r.ordinal = make(map[string]int32)
+	}
 
 	r.ordinal[parent]++
 
@@ -563,40 +580,23 @@ func AttemptOf(thread *starlark.Thread) int32 {
 //   - 2026-09-20 00:31: initial creation, as Local
 //   - 2026-09-21 09:46: renamed: what a run shares is not what an evaluation
 //     carries, and both were called locals
+//   - 2026-10-29 01:05: finds the evaluation through EvaluationOf, and keeps
+//     its body in SharedIn
 func Shared[T any](
 	thread *starlark.Thread,
 	key string,
 	build func() T,
 ) (T, error) {
-	var empty T
-
-	locals, err := _Of(thread)
+	evaluation, err := EvaluationOf(thread)
 	if err != nil {
+		var empty T
+
 		return empty, err
 	}
 
-	run := locals.run
-
-	run.mutex.Lock()
-	defer run.mutex.Unlock()
-
-	held, found := run.shared[key]
-	if !found {
-		made := build()
-		run.shared[key] = made
-
-		return made, nil
-	}
-
-	value, ok := held.(T)
-	if !ok {
-		return empty, fmt.Errorf(
-			"%s holds a %T: %w",
-			key,
-			held,
-			ErrNotLocal,
-		)
-	}
-
-	return value, nil
+	return SharedIn(
+		evaluation,
+		key,
+		build,
+	)
 }

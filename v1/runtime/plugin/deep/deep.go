@@ -39,10 +39,23 @@ import (
 // Revisions:
 //   - 2026-09-20 00:42: initial creation, as state's own _Copy
 //   - 2026-09-24 16:08: moved here, where jsonpath reaches it too
+//   - 2026-10-29 01:22: builds the seen map only for a container, so a scalar
+//     costs no allocation
 func Copy(value starlark.Value) (starlark.Value, error) {
+	// A scalar comes back as it is and never reaches the map, so the map is
+	// built only for what can hold something. A store copies every value a
+	// script reads, and most are one number or one word.
+	switch value.(type) {
+	case *starlark.List, *starlark.Dict, starlark.Tuple, *starlark.Set:
+		return _Into(
+			value,
+			map[starlark.Value]starlark.Value{},
+		)
+	}
+
 	return _Into(
 		value,
-		map[starlark.Value]starlark.Value{},
+		nil,
 	)
 }
 

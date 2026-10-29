@@ -48,6 +48,11 @@ const (
 	DIGITS_PER_BYTE = 2
 	BASE            = 16
 
+	// UPPER is the digits in the order of their values, in the one case the
+	// runtime writes, and LOW_DIGIT the mask of the low digit of a byte.
+	UPPER     = "0123456789ABCDEF"
+	LOW_DIGIT = 0x0f
+
 	// PREFIX is what every reader here takes off before reading, in either
 	// case, and PAD the digit an odd count of digits is padded with.
 	PREFIX = "0x"
@@ -116,16 +121,22 @@ func (h *_Hex) Values() starlark.StringDict {
 
 // _FromBytes is data as hex, two digits a byte, with no separators.
 //
+// The data is a view of the script's value, not a copy: Encode only reads it,
+// and keeps nothing of it once it returns, which is the contract of
+// unpack.View.
+//
 // Revisions:
 //   - 2026-09-21 10:35: initial creation, as codec's bytes2hex
 //   - 2026-10-08 17:47: a member of the hex module, as from_bytes, writing upper case
+//   - 2026-10-29 01:08: reads a view of the data rather than a copy, and writes
+//     through Encode rather than fmt's %X
 func _FromBytes(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	data, err := unpack.Data(
+	data, err := unpack.DataView(
 		fn,
 		args,
 		kwargs,
@@ -134,10 +145,7 @@ func _FromBytes(
 		return nil, err
 	}
 
-	return starlark.String(fmt.Sprintf(
-		"%X",
-		data,
-	)), nil
+	return starlark.String(Encode(data)), nil
 }
 
 // _ToBytes is the inverse, an optional 0x taken off first; an odd number of
