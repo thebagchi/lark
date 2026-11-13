@@ -28,6 +28,7 @@ import (
 //   - 2026-11-10 16:00: ErrSelfJoin (C116, B237, Q327)
 //   - 2026-11-10 17:15: uses ErrMain and ErrSource and ErrSelf, formerly ErrNoMain and ErrNoSource
 //     and ErrSelfJoin (C121, Q348)
+//   - 2026-11-13 23:55: uses ErrArgs, formerly ErrArity (C136, Q475)
 func TestForwards_AreTheSourceValues(t *testing.T) {
 	cases := []struct {
 		name string
@@ -35,9 +36,9 @@ func TestForwards_AreTheSourceValues(t *testing.T) {
 		want error
 	}{
 		{
-			"ErrArity",
-			runtime.ErrArity,
-			spelling.ErrArity,
+			"ErrArgs",
+			runtime.ErrArgs,
+			spelling.ErrArgs,
 		},
 		{
 			"ErrCycle",

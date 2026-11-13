@@ -37,7 +37,7 @@ import (
 	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
-// The errors this package raises itself. A cycle, a depth, an arity, a missing
+// The errors this package raises itself. A cycle, a depth, a refused call, a missing
 // entry and a missing source are spelling's and script's, returned as they are.
 //
 // Revisions:
@@ -45,6 +45,7 @@ import (
 //   - 2026-11-06 22:37: revision history added (C90)
 //   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
 //   - 2026-11-10 17:15: one-word names for the 4 sentinels it names (C121, Q348)
+//   - 2026-11-13 23:55: the doc says a refused call, formerly an arity (C136, Q475)
 var (
 	ErrUnit = errors.New("no such unit")
 
@@ -237,7 +238,7 @@ func _PluginsTwice() error {
 // not take is refused here, once every unit is compiled, since a loaded
 // function's parameters are in another unit.
 //
-// Returns spelling.ErrCycle carrying the ring, spelling.ErrArity at the call that passes the
+// Returns spelling.ErrCycle carrying the ring, spelling.ErrArgs at the call that passes the
 // wrong arguments, and a wrapped error if any source fails to parse or
 // resolve, or if the loader could not reach a module. Never panics.
 //
@@ -270,6 +271,7 @@ func _PluginsTwice() error {
 //   - 2026-11-10 17:15: uses ErrSource, formerly ErrNoSource; uses _Args, formerly _Arity
 //     (C121, Q348, Q354)
 //   - 2026-11-13 17:40: uses package merge, formerly amalgam (C134, Q446)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func Compile(
 	source *common.Source,
 	opts ...common.CompileOption,
@@ -461,7 +463,7 @@ func _Loaded(
 // rules and are applied by Eval. A host runs an artifact by starting it;
 // this is the run a start performs.
 //
-// Returns ErrJSON for arguments holding a value JSON cannot, spelling.ErrArity for
+// Returns ErrJSON for arguments holding a value JSON cannot, spelling.ErrArgs for
 // an argument no arg() of the script declares, spelling.ErrMain
 // when the entry unit defines no entry point a run could call, and otherwise
 // whatever Eval returns.
@@ -484,6 +486,7 @@ func _Loaded(
 //   - 2026-11-08 13:25: names the package of each sentinel (C98 round 2)
 //   - 2026-11-10 17:15: uses ErrMain and ErrJSON, formerly ErrNoMain and ErrNotJSON; uses
 //     Eval, formerly Evaluate (C121, Q348, Q350)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func Run(
 	ctx context.Context,
 	art common.Artifact,

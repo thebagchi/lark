@@ -37,7 +37,7 @@ type _Signature struct {
 // unpacks *args or **kwargs is not, since what it passes is known only when
 // it runs.
 //
-// Returns spelling.ErrArity, opening with the call's file, line and column, as a parse
+// Returns spelling.ErrArgs, opening with the call's file, line and column, as a parse
 // or resolve error does.
 //
 // Revisions:
@@ -45,6 +45,7 @@ type _Signature struct {
 //   - 2026-11-02 00:31: the walk of one unit moved to _Refusal
 //   - 2026-11-08 13:25: names the package of each sentinel (C98 round 2)
 //   - 2026-11-10 23:04: renamed from _Arity (C121, Q354)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func _Args(
 	units map[string]*_Unit,
 	order []string,
@@ -105,6 +106,7 @@ func _Refusal(
 //   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
 //   - 2026-11-10 16:05: cuts the file name in the position to common.QUOTE_LIMIT bytes (C117,
 //     B239, Q4)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func _Fits(
 	call *syntax.CallExpr,
 	signed map[*syntax.Ident]*_Signature,
@@ -132,7 +134,7 @@ func _Fits(
 		"%s: call of %s: %w",
 		_Where(name.NamePos),
 		name.Name,
-		spelling.ErrArity,
+		spelling.ErrArgs,
 	)
 }
 

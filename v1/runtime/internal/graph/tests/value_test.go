@@ -1366,13 +1366,14 @@ func TestOf_CarriesADictWithAKeyThatIsNoStringAsText(t *testing.T) {
 // a declaration of the builtin with a name and a default, and a malformed one is
 // refused as it is for a default that is a string (Q406, Q434). A script that defines
 // an arg of its own is read as it defines it: the call is a call constant, and its
-// arity is the function's.
+// argument count is the function's.
 //
 // The check: go test -count=1 -run TestOf_JudgesAnArgWithAKeyThatIsNoString
 // ./v1/runtime/internal/graph/tests
 //
 // Revisions:
 //   - 2026-11-13 12:52: initial creation (C132, Q406, Q434)
+//   - 2026-11-13 23:55: says argument count, formerly arity (C136, Q475)
 func TestOf_JudgesAnArgWithAKeyThatIsNoString(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

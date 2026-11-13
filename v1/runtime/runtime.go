@@ -149,7 +149,7 @@
 //
 //	// A ring of loads, or a call with the wrong arguments, is the script's to fix,
 //	// and the error says where.
-//	wrong := errors.Is(err, runtime.ErrCycle) || errors.Is(err, runtime.ErrArity)
+//	wrong := errors.Is(err, runtime.ErrCycle) || errors.Is(err, runtime.ErrArgs)
 //	if wrong {
 //		return fmt.Errorf("fix %s: %w", SCRIPT, err)
 //	}
@@ -163,7 +163,7 @@
 //   - steps.star loads build.star again: "cycle in the load graph: build.star ->
 //     steps.star -> build.star", which matches ErrCycle.
 //   - fetch("lark", "now"): "build.star:4:5: call of fetch: a call passes
-//     arguments the function does not take", which matches ErrArity.
+//     arguments the function does not take", which matches ErrArgs.
 //   - a steps.star that the loader cannot find: "cannot load "steps.star" from
 //     build.star: module steps.star: file does not exist".
 //
@@ -476,7 +476,7 @@
 //
 //	build.star:4:5: call of fetch: a call passes arguments the function does not take
 //
-// Both errors match ErrArity. One mistake has one value, in a flow or in a
+// Both errors match ErrArgs. One mistake has one value, in a flow or in a
 // script.
 //
 // # Start
@@ -560,7 +560,7 @@
 // when it starts. The error is "an argument holds a value JSON cannot: proto:
 // invalid type: func()", which matches ErrJSON, as does an int outside int64 and a
 // string that is not valid UTF-8. A key that no arg()
-// declares fails the run before main, with ErrArity naming the key and the
+// declares fails the run before main, with ErrArgs naming the key and the
 // nearest declared name. A second WithArgs is refused, and a nil map is no call.
 //
 // Each run initialises the script again, so each run of one artifact can get
@@ -1183,7 +1183,7 @@
 //
 // Compile, Load and Merge:
 //
-//   - ErrArity: a run gets an argument that no arg() declares. Also: a call
+//   - ErrArgs: a run gets an argument that no arg() declares. Also: a call
 //     gives a function arguments that it does not take, too many, too few, one
 //     that has no parameter, or one two times. This applies to a script and to
 //     a flow.
@@ -1298,6 +1298,8 @@
 //   - 2026-11-13 17:48: Read; the guide reads a flow with Read, and says protojson gives no null
 //     refusal and no Check; a text or a body that does not parse, and what states nothing, is
 //     ErrForm (C133, B295, B296, Q441, Q444, Q445, Q449, Q453)
+//   - 2026-11-13 23:55: ErrArgs, formerly ErrArity, in the example and the lists of errors
+//     (C136, Q475)
 package runtime
 
 import (
@@ -1348,7 +1350,7 @@ import (
 // the one that raised it.
 //
 // The rule for what is here: every sentinel a call through this package can
-// return. A flow's ErrArity and ErrMain are the compiler's own values, so
+// return. A flow's ErrArgs and ErrMain are the compiler's own values, so
 // each is here once. A plugin a host chooses to import - flow, state, jsonpath
 // - keeps its own, because the host already names that package.
 //
@@ -1362,8 +1364,9 @@ import (
 //   - 2026-11-10 17:15: one-word names for the 15 sentinels it names (C121, Q348)
 //   - 2026-11-11 22:50: ErrInit (C127, B274, Q383)
 //   - 2026-11-13 17:40: uses package merge, formerly amalgam (C134, Q446)
+//   - 2026-11-13 23:55: ErrArgs, formerly ErrArity (C136, Q475)
 var (
-	ErrArity      = spelling.ErrArity
+	ErrArgs       = spelling.ErrArgs
 	ErrCycle      = spelling.ErrCycle
 	ErrMain       = spelling.ErrMain
 	ErrUnit       = artifact.ErrUnit

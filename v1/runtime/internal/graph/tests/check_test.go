@@ -47,6 +47,7 @@ func TestCheck_Fixtures(t *testing.T) {
 //   - 2026-11-10 17:15: uses ErrCarry and ErrFork, formerly ErrNotCarried and ErrNotForked (C121,
 //     Q348)
 //   - 2026-11-13 10:16: the values of its flows are tagged (C132, Q422)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func TestCheck_Refuses(t *testing.T) {
 	t.Parallel()
 
@@ -102,14 +103,14 @@ func TestCheck_Refuses(t *testing.T) {
 				`"body": "pass"}],
 				"main": {"statement": [{"call": {
 					"function": "sign", "args": [{"string": "a"}]}}]}}`,
-			err: spelling.ErrArity,
+			err: spelling.ErrArgs,
 		},
 		{
 			name: "too many arguments",
 			flow: `{"functions": [{"name": "work", "body": "pass"}],
 				"main": {"statement": [{"spawn": {"call": {
 					"function": "work", "args": [{"int": "1"}]}}}]}}`,
-			err: spelling.ErrArity,
+			err: spelling.ErrArgs,
 		},
 		{
 			name: "both lists",

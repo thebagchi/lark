@@ -82,6 +82,7 @@ const (
 //     that is not finite, and a value nested too deep (C132, Q2, Q407, Q421)
 //   - 2026-11-13 19:29: refuses a text or a body that is no Starlark, and a constant, an
 //     argument, an operand or a statement that states nothing (C133, B295, B296, Q449, Q453)
+//   - 2026-11-13 23:55: calls _Args, formerly _Arity (C136, Q475)
 func Check(flow *workflowpb.Flow) error {
 	err := _Identifiers(flow)
 	if err != nil {
@@ -113,7 +114,7 @@ func Check(flow *workflowpb.Flow) error {
 		return err
 	}
 
-	err = _Arity(flow)
+	err = _Args(flow)
 	if err != nil {
 		return err
 	}
@@ -755,7 +756,7 @@ func _InitBodies(flow *workflowpb.Flow) error {
 	return nil
 }
 
-// _Arity checks every call the flow makes against the function it names: in
+// _Args checks every call the flow makes against the function it names: in
 // a statement, a condition, a match, and a constant.
 //
 // Revisions:
@@ -764,7 +765,8 @@ func _InitBodies(flow *workflowpb.Flow) error {
 //   - 2026-10-02 00:13: every call in a Flow, refusing too few as well as too
 //     many, a function the flow does not declare, and a call carrying both
 //     lists
-func _Arity(flow *workflowpb.Flow) error {
+//   - 2026-11-13 23:55: renamed from _Arity (C136, Q475)
+func _Args(flow *workflowpb.Flow) error {
 	takes := make(map[string]int)
 
 	for _, fn := range flow.GetFunctions() {
@@ -795,6 +797,7 @@ func _Arity(flow *workflowpb.Flow) error {
 //   - 2026-11-05 23:52: quotes or bounds a name a script chose (C63, B128, Q4)
 //   - 2026-11-06 00:16: quotes a name a flow can hold (C63, B128, Q208)
 //   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func _Fits(
 	takes map[string]int,
 	call *workflowpb.Call,
@@ -844,7 +847,7 @@ func _Fits(
 		unpack.QuotePrefix(call.GetFunction()),
 		params,
 		passed,
-		spelling.ErrArity,
+		spelling.ErrArgs,
 	)
 }
 

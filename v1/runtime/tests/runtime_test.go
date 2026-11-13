@@ -806,25 +806,27 @@ func TestHost_TurnsAFlowIntoAScript(t *testing.T) {
 	}
 }
 
-// TestHost_MatchesOneArityInAFlowAndAScript proves a call passing the wrong
-// number of arguments is refused with the one ErrArity, whether a check finds
+// TestHost_MatchesOneArgumentCountInAFlowAndAScript proves a call passing the wrong
+// number of arguments is refused with the one ErrArgs, whether a check finds
 // it in a flow or a compile finds it in a script.
 //
 // Revisions:
 //   - 2026-10-02 23:31: initial creation
 //   - 2026-11-07 23:42: types come from common and workflowpb (C91w9, Q103)
 //   - 2026-11-10 01:37: moved to tests/ (C120b, Q311)
-func TestHost_MatchesOneArityInAFlowAndAScript(t *testing.T) {
+//   - 2026-11-13 23:55: renamed from TestHost_MatchesOneArityInAFlowAndAScript; uses ErrArgs,
+//     formerly ErrArity (C136, Q475)
+func TestHost_MatchesOneArgumentCountInAFlowAndAScript(t *testing.T) {
 	err := runtime.Check(_Flow(
 		t,
 		MISCALLED,
 	))
 	if !errors.Is(
 		err,
-		runtime.ErrArity,
+		runtime.ErrArgs,
 	) {
 		t.Fatalf(
-			"checking a flow got %v, want ErrArity",
+			"checking a flow got %v, want ErrArgs",
 			err,
 		)
 	}
@@ -837,10 +839,10 @@ func TestHost_MatchesOneArityInAFlowAndAScript(t *testing.T) {
 	})
 	if !errors.Is(
 		err,
-		runtime.ErrArity,
+		runtime.ErrArgs,
 	) {
 		t.Fatalf(
-			"compiling a script got %v, want ErrArity",
+			"compiling a script got %v, want ErrArgs",
 			err,
 		)
 	}
@@ -886,6 +888,7 @@ func TestHost_RunsAScriptInOneCall(t *testing.T) {
 // Revisions:
 //   - 2026-10-03 16:32: initial creation
 //   - 2026-11-10 01:37: moved to tests/ (C120b, Q311)
+//   - 2026-11-13 23:55: uses ErrArgs, formerly ErrArity (C136, Q475)
 func TestHost_EmitRefusesWhatCheckRefuses(t *testing.T) {
 	_, err := runtime.Emit(_Flow(
 		t,
@@ -893,10 +896,10 @@ func TestHost_EmitRefusesWhatCheckRefuses(t *testing.T) {
 	))
 	if !errors.Is(
 		err,
-		runtime.ErrArity,
+		runtime.ErrArgs,
 	) {
 		t.Fatalf(
-			"got %v, want ErrArity",
+			"got %v, want ErrArgs",
 			err,
 		)
 	}

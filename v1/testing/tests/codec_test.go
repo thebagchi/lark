@@ -1,10 +1,11 @@
-// Probes for the codec modules, buf, and the arity check, as the developer
+// Probes for the codec modules, buf, and the argument-count check, as the developer
 // asked in testing.md on 2026-10-08.
 //
 // Revisions:
 //   - 2026-10-08 22:45: initial creation
 //   - 2026-11-06 22:37: revision history added (C90)
 //   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+//   - 2026-11-13 23:55: says the argument-count check, formerly the arity check (C136, Q475)
 package tests
 
 import (
@@ -113,14 +114,16 @@ func _Loaded(
 	return run.Wait()
 }
 
-// TestArity_AnOperationIsOneArgument checks the operations the arity note
+// TestArgs_AnOperationIsOneArgument checks the operations the argument-count note
 // names. Each is one positional argument. A keyword-only parameter, **kwargs
 // and a loaded function are in the same table.
 //
 // Revisions:
 //   - 2026-10-08 21:55: initial creation
 //   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
-func TestArity_AnOperationIsOneArgument(t *testing.T) {
+//   - 2026-11-13 23:55: renamed from TestArity_AnOperationIsOneArgument; uses runtime.ErrArgs,
+//     formerly ErrArity (C136, Q475)
+func TestArgs_AnOperationIsOneArgument(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -180,7 +183,7 @@ func TestArity_AnOperationIsOneArgument(t *testing.T) {
 		{
 			name: "keyword only, by position",
 			src:  "def only(*, x):\n  return x\ndef main():\n  return only(1 + 2)\n",
-			fail: runtime.ErrArity,
+			fail: runtime.ErrArgs,
 		},
 		{
 			name: "kwargs takes a named operation",
@@ -191,7 +194,7 @@ func TestArity_AnOperationIsOneArgument(t *testing.T) {
 		{
 			name: "kwargs does not take a second position",
 			src:  "def k(x, **more):\n  pass\ndef main():\n  n = 1\n  k(1, n + 1)\n",
-			fail: runtime.ErrArity,
+			fail: runtime.ErrArgs,
 		},
 	}
 
@@ -239,13 +242,15 @@ func TestArity_AnOperationIsOneArgument(t *testing.T) {
 	}
 }
 
-// TestArity_ALoadedFunctionTakesAnOperation checks a function defined in
+// TestArgs_ALoadedFunctionTakesAnOperation checks a function defined in
 // another file. An operation is one argument. A call with nothing is refused.
 //
 // Revisions:
 //   - 2026-10-08 21:55: initial creation
 //   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
-func TestArity_ALoadedFunctionTakesAnOperation(t *testing.T) {
+//   - 2026-11-13 23:55: renamed from TestArity_ALoadedFunctionTakesAnOperation; uses
+//     runtime.ErrArgs, formerly ErrArity (C136, Q475)
+func TestArgs_ALoadedFunctionTakesAnOperation(t *testing.T) {
 	t.Parallel()
 
 	const LIB = "def g(x):\n  return x\n"
@@ -269,7 +274,7 @@ func TestArity_ALoadedFunctionTakesAnOperation(t *testing.T) {
 		{
 			name: "nothing",
 			main: "load(\"lib.star\", \"g\")\ndef main():\n  g()\n",
-			fail: runtime.ErrArity,
+			fail: runtime.ErrArgs,
 		},
 	}
 

@@ -534,7 +534,7 @@ the line is
 `lark: argument "hosts" is not declared by the script (did you mean "host"?)`.
 Suppose it is given a bundle. Then lark has no source to read the names from, so
 the library refuses the key before main starts. The exit is 1, and the error
-matches `ErrArity`. Check: `lark run -args '{"hosts": "db"}' samples/args.star`
+matches `ErrArgs`. Check: `lark run -args '{"hosts": "db"}' samples/args.star`
 prints the line above and then runs with the defaults.
 
 The name that a caller supplies and the name that the script binds are

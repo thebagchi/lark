@@ -94,13 +94,14 @@ func (a *Artifact) _Text() ([]byte, bool) {
 // nearest to it when one is close (Q158). A run handed no arguments is not
 // checked, and nor is one whose script could not be read for its names.
 //
-// Returns an error wrapping spelling.ErrArity.
+// Returns an error wrapping spelling.ErrArgs.
 //
 // Revisions:
 //   - 2026-11-05 18:55: initial creation (C71, Q170, Q185)
 //   - 2026-11-05 19:10: takes the arguments, checked after the units initialise
 //   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
 //   - 2026-11-13 13:04: the arguments are workflow.Value (C132, Q437)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func (a *Artifact) _Unknown(fields map[string]*workflowpb.Value) error {
 	if len(fields) == 0 {
 		return nil
@@ -147,7 +148,7 @@ func (a *Artifact) _Unknown(fields map[string]*workflowpb.Value) error {
 	return fmt.Errorf(
 		"argument %s: %w: the script declares no such argument%s",
 		unpack.QuotePrefix(unknown[0]),
-		spelling.ErrArity,
+		spelling.ErrArgs,
 		hint,
 	)
 }

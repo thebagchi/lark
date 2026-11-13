@@ -36,6 +36,7 @@ type _FlowSite struct {
 //   - 2026-11-06 00:18: initial creation (C63, B128, Q208)
 //   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
 //   - 2026-11-13 10:16: the values of its flows are tagged (C132, Q422)
+//   - 2026-11-13 23:55: the case is named for the argument count, formerly arity (C136, Q475)
 func TestRefusal_FlowNamesAreQuoted(t *testing.T) {
 	var (
 		first = "\"\\nN" + strings.Repeat(
@@ -74,7 +75,7 @@ func TestRefusal_FlowNamesAreQuoted(t *testing.T) {
 				`{"main": {"statement": [{"call": {"function": @N}}]}}`,
 			},
 			{
-				"check _Fits: arity",
+				"check _Fits: argument count",
 				false,
 				`{"functions": [{"name": @N, "params": ["a", "b"], ` +
 					`"body": "pass"}], ` +

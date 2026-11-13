@@ -25,7 +25,7 @@ import (
 // shows a function" would be two sets of cases to keep in step.
 //
 // Only a call of exactly two arguments. Any other count is refused when it
-// runs, for its arity, and that says more than naming the second of them would.
+// runs, for its argument count, and that says more than naming the second of them would.
 //
 // Revisions:
 //   - 2026-09-24 20:10: initial creation, as state's Check
@@ -34,6 +34,7 @@ import (
 //   - 2026-11-04 19:30: a nil tree shows no code (C87)
 //   - 2026-11-04 19:30: returns an error for a tree that panics the walk; the
 //     error wraps the recovered panic (C87 fix round 1)
+//   - 2026-11-13 23:55: says argument count, formerly arity (C136, Q475)
 func ShowsCode(
 	tree *syntax.File,
 	module string,

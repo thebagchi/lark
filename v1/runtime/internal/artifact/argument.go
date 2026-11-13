@@ -58,7 +58,7 @@ var (
 // to say so.
 //
 // A key that no arg() of the script declares fails the run, once the modules
-// have initialised and before main is called, with spelling.ErrArity, naming the key and the
+// have initialised and before main is called, with spelling.ErrArgs, naming the key and the
 // declared name nearest to it when one is close. A typo is then an error, not a default taken
 // in silence. The names are those of the merged script, so an artifact loaded
 // from a bundle is checked too.
@@ -88,6 +88,7 @@ var (
 //   - 2026-11-10 17:15: uses ErrJSON, formerly ErrNotJSON (C121, Q348)
 //   - 2026-11-13 12:49: the arguments are lark Values read by the strict rules of protobuf
 //     JSON, not a google.protobuf.Struct (C132, Q437, Q438)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func WithArgs(args map[string]any) common.RunOption {
 	held, err := _Map(args)
 	if err != nil {

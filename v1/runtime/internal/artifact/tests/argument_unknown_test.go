@@ -73,7 +73,7 @@ func _Starting(t *testing.T) map[string]common.Artifact {
 }
 
 // TestWithArgs_RefusesAKeyNoArgDeclares proves a run handed a key no arg()
-// declares is refused with spelling.ErrArity, naming the key (Q170, Q185), and a run
+// declares is refused with spelling.ErrArgs, naming the key (Q170, Q185), and a run
 // handed the declared keys is not (Q4: the key is quoted).
 //
 // Revisions:
@@ -81,6 +81,7 @@ func _Starting(t *testing.T) map[string]common.Artifact {
 //   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
 //   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
 //   - 2026-11-10 17:15: uses runtime.Eval, formerly Evaluate (C121, Q338)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func TestWithArgs_RefusesAKeyNoArgDeclares(t *testing.T) {
 	var tests = []struct {
 		name string
@@ -164,10 +165,10 @@ func TestWithArgs_RefusesAKeyNoArgDeclares(t *testing.T) {
 
 					if !errors.Is(
 						err,
-						spelling.ErrArity,
+						spelling.ErrArgs,
 					) {
 						t.Fatalf(
-							"got %v, want ErrArity",
+							"got %v, want ErrArgs",
 							err,
 						)
 					}
@@ -217,6 +218,7 @@ func TestWithArgs_RefusesAKeyNoArgDeclares(t *testing.T) {
 //   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
 //   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
 //   - 2026-11-10 17:15: uses runtime.Eval, formerly Evaluate (C121, Q338)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func TestWithArgs_BoundsAnUnknownKey(t *testing.T) {
 	var long = strings.Repeat(
 		"k",
@@ -234,10 +236,10 @@ func TestWithArgs_BoundsAnUnknownKey(t *testing.T) {
 				)
 				if !errors.Is(
 					err,
-					spelling.ErrArity,
+					spelling.ErrArgs,
 				) {
 					t.Fatalf(
-						"got %v, want ErrArity",
+						"got %v, want ErrArgs",
 						err,
 					)
 				}
@@ -304,6 +306,7 @@ def main():
 //   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
 //   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
 //   - 2026-11-10 11:46: a parenthesised callee declares (C118, B251, Q301)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func TestWithArgs_CountsEveryTopLevelArgCall(t *testing.T) {
 	var tests = []struct {
 		name   string
@@ -381,10 +384,10 @@ func TestWithArgs_CountsEveryTopLevelArgCall(t *testing.T) {
 
 				if !errors.Is(
 					err,
-					spelling.ErrArity,
+					spelling.ErrArgs,
 				) {
 					t.Fatalf(
-						"got %v, want ErrArity",
+						"got %v, want ErrArgs",
 						err,
 					)
 				}

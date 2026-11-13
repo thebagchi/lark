@@ -31,14 +31,15 @@ import (
 )
 
 var (
-	// ErrArity is returned for a call passing a function arguments it does not
+	// ErrArgs is returned for a call passing a function arguments it does not
 	// take, whether a compile finds it in a script or a check finds it in a
 	// flow.
 	//
 	// Revisions:
 	//   - 2026-10-04 01:25: initial creation
 	//   - 2026-11-06 22:37: revision history added (C90)
-	ErrArity = errors.New("a call passes arguments the function does not take")
+	//   - 2026-11-13 23:55: renamed from ErrArity (C136, Q475)
+	ErrArgs = errors.New("a call passes arguments the function does not take")
 
 	// ErrMain is returned for a script that defines no entry point, whether
 	// it was to be run or read into a flow.

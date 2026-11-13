@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	// MAIN is what each arity script is compiled as, and LOADABLE the module
+	// MAIN is what each argument-count script is compiled as, and LOADABLE the module
 	// it may load.
 	//
 	// Revisions:
 	//   - 2026-10-04 01:25: initial creation
 	//   - 2026-11-06 22:37: revision history added (C90)
 	//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+	//   - 2026-11-13 23:55: says argument-count script, formerly arity script (C136, Q475)
 	MAIN     = "main.star"
 	LOADABLE = "lib.star"
 
@@ -137,6 +138,7 @@ def main():
 //   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
 //   - 2026-11-10 23:04: renamed from TestArity_RefusesACallItsFunctionDoesNotTake; uses _Args,
 //     formerly _Arity (C121, Q354)
+//   - 2026-11-13 23:55: uses spelling.ErrArgs, formerly ErrArity (C136, Q475)
 func TestArgs_RefusesACallItsFunctionDoesNotTake(t *testing.T) {
 	refused := []string{
 		"f()",
@@ -157,10 +159,10 @@ func TestArgs_RefusesACallItsFunctionDoesNotTake(t *testing.T) {
 				err := _Args(call)
 				if !errors.Is(
 					err,
-					spelling.ErrArity,
+					spelling.ErrArgs,
 				) {
 					t.Fatalf(
-						"got %v, want ErrArity",
+						"got %v, want ErrArgs",
 						err,
 					)
 				}
