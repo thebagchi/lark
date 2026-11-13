@@ -1,25 +1,23 @@
 package scheduler
 
 import (
-	"errors"
-	"fmt"
-	"math"
 	"time"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/v1/runtime/scheduler/internal/run"
 )
 
 // ErrDuration is returned for a duration that is not one: not a number,
 // negative, not a whole number of milliseconds, or more than the schema's
 // int32 can hold.
+//
+// Revisions:
+//   - 2026-09-20 00:48: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 20:10: an alias of run.ErrDuration (C91w5)
 var (
-	ErrDuration = errors.New("not a duration")
-)
-
-// MAX_MILLIS is the longest duration a script may ask for, in milliseconds:
-// what the schema's int32 can hold, about 24.8 days.
-const (
-	MAX_MILLIS = math.MaxInt32
+	ErrDuration = run.ErrDuration
 )
 
 // Duration reads a script's number of milliseconds as a duration a timer can
@@ -42,24 +40,9 @@ const (
 //     old guard compared against a float that had rounded up to meet it
 //   - 2026-10-02 00:38: reads milliseconds rather than seconds, and refuses a
 //     fraction of one or more than an int32 holds
+//   - 2026-11-04 00:30: a nil value is "got nil", not a panic (C54, B087)
+//   - 2026-11-07 19:16: uses the names moved to common or unexported (C91w4)
+//   - 2026-11-07 20:10: forwards to run.Duration (C91w5)
 func Duration(value starlark.Value) (time.Duration, error) {
-	millis, ok := starlark.AsFloat(value)
-	if !ok {
-		return 0, fmt.Errorf(
-			"got %s: %w",
-			value.Type(),
-			ErrDuration,
-		)
-	}
-
-	whole := millis >= 0 && millis <= MAX_MILLIS && millis == math.Trunc(millis)
-	if !whole {
-		return 0, fmt.Errorf(
-			"%g milliseconds: %w",
-			millis,
-			ErrDuration,
-		)
-	}
-
-	return time.Duration(millis) * time.Millisecond, nil
+	return run.Duration(value)
 }

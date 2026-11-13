@@ -17,38 +17,35 @@
 // sorts above every number, where Python has the first false and the second
 // undefined. A script testing for nan by comparing it to itself gets the
 // wrong answer silently, which is what isnan exists to prevent.
+//
+// Revisions:
+//   - 2026-09-20 00:24: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 package math
 
 import (
-	"errors"
-	"fmt"
 	"math"
-	"math/big"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/thebagchi/lark/v1/runtime/plugin"
+	"github.com/thebagchi/lark/v1/runtime/plugin/math/internal/number"
+	"github.com/thebagchi/lark/v1/runtime/plugin/math/internal/spec"
 )
 
 var (
-	// ErrNumber is returned for an argument that is neither a float nor an
-	// int.
-	ErrNumber = errors.New("wants a float or an int")
+	// ErrNumber is number.ErrNumber.
+	//
+	// Revisions:
+	//   - 2026-11-10 01:37: initial creation (C120b, Q319)
+	ErrNumber = number.ErrNumber
 
-	// ErrBase is returned for a logarithm in base one, which names no power.
-	ErrBase = errors.New("no logarithm has base one")
-)
-
-const (
-	// NAME is the module.
-	NAME = "math"
-
-	// DEGREES is how many a turn has, which the two conversions share.
-	DEGREES = 360
-
-	// TURN is a full circle in radians, which is what tau names for a script.
-	TURN = 2 * math.Pi
+	// ErrBase is number.ErrBase.
+	//
+	// Revisions:
+	//   - 2026-11-10 01:37: initial creation (C120b, Q319)
+	ErrBase = number.ErrBase
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -61,14 +58,19 @@ func init() {
 }
 
 // _Math is the plugin. Empty: every function works on what it is given.
+//
+// Revisions:
+//   - 2026-09-20 00:24: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 type _Math struct{}
 
 // Name is what this plugin is called when a conflict has to name it.
 //
 // Revisions:
 //   - 2026-09-20 00:28: initial creation
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
 func (m *_Math) Name() string {
-	return NAME
+	return spec.NAME
 }
 
 // Values returns the math module.
@@ -77,6 +79,7 @@ func (m *_Math) Name() string {
 //   - 2026-09-20 00:28: initial creation
 //   - 2026-09-24 00:53: built here rather than taken from the library, so that
 //     the names the library lacks can be among them
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
 func (m *_Math) Values() starlark.StringDict {
 	members := _MathConstants()
 
@@ -95,8 +98,8 @@ func (m *_Math) Values() starlark.StringDict {
 	}
 
 	return starlark.StringDict{
-		NAME: &starlarkstruct.Module{
-			Name:    NAME,
+		spec.NAME: &starlarkstruct.Module{
+			Name:    spec.NAME,
 			Members: members,
 		},
 	}
@@ -106,32 +109,35 @@ func (m *_Math) Values() starlark.StringDict {
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
+//   - 2026-11-10 11:32: uses number.Ceil, number.Floor, number.Trunc, number.Log and
+//     number.GCD, which moved to internal/number (C120b, Q315)
 func _MathConstants() starlark.StringDict {
 	return starlark.StringDict{
 		"e":   starlark.Float(math.E),
 		"pi":  starlark.Float(math.Pi),
-		"tau": starlark.Float(TURN),
+		"tau": starlark.Float(spec.TURN),
 		"inf": starlark.Float(math.Inf(1)),
 		"nan": starlark.Float(math.NaN()),
 		"ceil": starlark.NewBuiltin(
 			"ceil",
-			_Ceil,
+			number.Ceil,
 		),
 		"floor": starlark.NewBuiltin(
 			"floor",
-			_Floor,
+			number.Floor,
 		),
 		"trunc": starlark.NewBuiltin(
 			"trunc",
-			_Trunc,
+			number.Trunc,
 		),
 		"log": starlark.NewBuiltin(
 			"log",
-			_Log,
+			number.Log,
 		),
 		"gcd": starlark.NewBuiltin(
 			"gcd",
-			_GCD,
+			number.GCD,
 		),
 		"isnan": _Asks(
 			"isnan",
@@ -211,28 +217,15 @@ func _BinaryFns() map[string]func(
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
+//   - 2026-11-02 00:52: leaves the reading of the argument to _Reading
 func _Unary(
 	name string,
 	fn func(float64) float64,
 ) *starlark.Builtin {
-	return starlark.NewBuiltin(
+	return _Reading(
 		name,
-		func(
-			thread *starlark.Thread,
-			held *starlark.Builtin,
-			args starlark.Tuple,
-			kwargs []starlark.Tuple,
-		) (starlark.Value, error) {
-			x, err := _One(
-				name,
-				args,
-				kwargs,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			return starlark.Float(fn(x)), nil
+		func(x float64) starlark.Value {
+			return starlark.Float(fn(x))
 		},
 	)
 }
@@ -270,6 +263,7 @@ func _Binary(
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-11-10 11:32: uses number.Float, which moved to internal/number (C120b, Q315)
 func _Pair(
 	name string,
 	fn func(
@@ -295,7 +289,7 @@ func _Pair(
 		return nil, err
 	}
 
-	x, err := _Float(
+	x, err := number.Float(
 		name,
 		first,
 	)
@@ -303,7 +297,7 @@ func _Pair(
 		return nil, err
 	}
 
-	y, err := _Float(
+	y, err := number.Float(
 		name,
 		second,
 	)
@@ -321,9 +315,29 @@ func _Pair(
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
+//   - 2026-11-02 00:52: leaves the reading of the argument to _Reading
 func _Asks(
 	name string,
 	fn func(float64) bool,
+) *starlark.Builtin {
+	return _Reading(
+		name,
+		func(x float64) starlark.Value {
+			return starlark.Bool(fn(x))
+		},
+	)
+}
+
+// _Reading wraps a function of one number as a builtin. It reads the argument
+// with _One, so every such builtin refuses a bad call in the same words, and
+// lets answer say what the number gives. A plain function with a closure is
+// enough: a generic over the result type would still need a wrapping step.
+//
+// Revisions:
+//   - 2026-11-02 00:52: initial creation, the builtin that _Unary and _Asks shared
+func _Reading(
+	name string,
+	answer func(float64) starlark.Value,
 ) *starlark.Builtin {
 	return starlark.NewBuiltin(
 		name,
@@ -342,230 +356,16 @@ func _Asks(
 				return nil, err
 			}
 
-			return starlark.Bool(fn(x)), nil
+			return answer(x), nil
 		},
 	)
-}
-
-// _Ceil is the smallest integer at or above x.
-//
-// An integer, as the library's own is, and as Python's is. An int given back
-// unchanged rather than sent through a float, because a large one would not
-// survive the trip.
-//
-// Revisions:
-//   - 2026-09-24 00:53: initial creation
-func _Ceil(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	return _Whole(
-		fn.Name(),
-		args,
-		kwargs,
-		math.Ceil,
-	)
-}
-
-// _Floor is the largest integer at or below x.
-//
-// Revisions:
-//   - 2026-09-24 00:53: initial creation
-func _Floor(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	return _Whole(
-		fn.Name(),
-		args,
-		kwargs,
-		math.Floor,
-	)
-}
-
-// _Trunc is x with its fraction dropped, which rounds towards zero.
-//
-// An integer, like ceil and floor, because it belongs to that family: the
-// three differ in which way they go and in nothing else.
-//
-// Revisions:
-//   - 2026-09-24 00:53: initial creation
-func _Trunc(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	return _Whole(
-		fn.Name(),
-		args,
-		kwargs,
-		math.Trunc,
-	)
-}
-
-// _Whole answers in integers, which is what the three rounding directions do.
-//
-// Revisions:
-//   - 2026-09-24 00:53: initial creation
-func _Whole(
-	who string,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-	fn func(float64) float64,
-) (starlark.Value, error) {
-	var given starlark.Value
-
-	err := starlark.UnpackPositionalArgs(
-		who,
-		args,
-		kwargs,
-		1,
-		&given,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	switch held := given.(type) {
-	case starlark.Int:
-		return held, nil
-
-	case starlark.Float:
-		return starlark.NumberToInt(starlark.Float(fn(float64(held))))
-	}
-
-	return nil, fmt.Errorf(
-		"%s got %s: %w",
-		who,
-		given.Type(),
-		ErrNumber,
-	)
-}
-
-// _Log is the logarithm of x, in base e unless a second argument says
-// otherwise.
-//
-// Returns ErrBase for base one, which names no power of anything.
-//
-// Revisions:
-//   - 2026-09-24 00:53: initial creation
-func _Log(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	var (
-		given starlark.Value
-		named starlark.Value
-	)
-
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
-		args,
-		kwargs,
-		1,
-		&given,
-		&named,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	x, err := _Float(
-		fn.Name(),
-		given,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	base, err := _Base(
-		fn.Name(),
-		named,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if base == 1 {
-		return nil, fmt.Errorf(
-			"%s: %w",
-			fn.Name(),
-			ErrBase,
-		)
-	}
-
-	return starlark.Float(math.Log(x) / math.Log(base)), nil
-}
-
-// _Base is the logarithm base a call named, or e when it named none.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _Base(
-	who string,
-	named starlark.Value,
-) (float64, error) {
-	if named == nil {
-		return math.E, nil
-	}
-
-	return _Float(
-		who,
-		named,
-	)
-}
-
-// _GCD is the greatest common divisor of two integers.
-//
-// Integers only, and an integer back. A divisor of two floats is a question
-// with no answer, and taking floats here would make one up.
-//
-// Revisions:
-//   - 2026-09-24 00:53: initial creation
-func _GCD(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	var first, second starlark.Int
-
-	const NEEDED = 2
-
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
-		args,
-		kwargs,
-		NEEDED,
-		&first,
-		&second,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	held := new(
-		big.Int).GCD(
-		nil,
-		nil,
-		new(big.Int).Abs(first.BigInt()),
-		new(big.Int).Abs(second.BigInt()),
-	)
-
-	return starlark.MakeBigInt(held), nil
 }
 
 // _One reads a builtin's single numeric argument.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
+//   - 2026-11-10 11:32: uses number.Float, which moved to internal/number (C120b, Q315)
 func _One(
 	who string,
 	args starlark.Tuple,
@@ -584,33 +384,9 @@ func _One(
 		return 0, err
 	}
 
-	return _Float(
+	return number.Float(
 		who,
 		given,
-	)
-}
-
-// _Float is one value as a float, accepting an int as every one of these does.
-//
-// Revisions:
-//   - 2026-09-24 00:53: initial creation
-func _Float(
-	who string,
-	given starlark.Value,
-) (float64, error) {
-	switch held := given.(type) {
-	case starlark.Float:
-		return float64(held), nil
-
-	case starlark.Int:
-		return float64(held.Float()), nil
-	}
-
-	return 0, fmt.Errorf(
-		"%s got %s: %w",
-		who,
-		given.Type(),
-		ErrNumber,
 	)
 }
 
@@ -618,14 +394,16 @@ func _Float(
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
 func _Degrees(x float64) float64 {
-	return DEGREES * x / TURN
+	return spec.DEGREES * x / spec.TURN
 }
 
 // _Radians is a turn in degrees as one in radians.
 //
 // Revisions:
 //   - 2026-09-24 00:53: initial creation
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
 func _Radians(x float64) float64 {
-	return TURN * x / DEGREES
+	return spec.TURN * x / spec.DEGREES
 }

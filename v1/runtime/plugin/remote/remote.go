@@ -3,7 +3,7 @@
 //
 // A plugin elsewhere dials this host, says what it is called and what it
 // supplies, and answers calls of those names down the same stream. What the
-// runtime sees is an ordinary plugin.Plugin: Name and Values, neither of which
+// runtime sees is an ordinary common.Plugin: Name and Values, neither of which
 // mentions a socket. That is the whole of the idea - the wire is how an
 // implementation is filled, not a second kind of plugin.
 //
@@ -22,623 +22,163 @@
 // the race detector cannot see inside one while the test gate is -race, and
 // HashiCorp declined it for the same memory-isolation reason after starting from
 // it.
+//
+// The behavior lives in remote/internal/host; this package forwards to it. A host
+// holds the listener as common.Listener and the result of a Load as common.Loading.
+//
+// Revisions:
+//   - 2026-09-25 06:49: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:54: thin forwards to remote/internal/host (C91w8c)
+//   - 2026-11-08 02:10: ListenTemp (C84, Q240)
 package remote
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"strings"
-	"sync"
-	"sync/atomic"
-
-	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
-	"google.golang.org/protobuf/types/known/structpb"
-
-	pluginpb "github.com/thebagchi/lark/proto/gen/plugin"
-	"github.com/thebagchi/lark/v1/runtime/plugin/deep"
-	"github.com/thebagchi/lark/v1/runtime/scheduler"
+	"github.com/thebagchi/lark/v1/runtime/common"
+	"github.com/thebagchi/lark/v1/runtime/plugin/remote/internal/host"
 )
 
-const (
-	// SEPARATOR is what divides a module from a name in what a plugin
-	// announces: "clock.now".
-	SEPARATOR = "."
-)
-
+// ErrGone is returned when the plugin that supplied a name has left.
+//
+// Revisions:
+//   - 2026-09-25 06:49: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:54: the same error as host.ErrGone (C91w8c)
 var (
-	// ErrGone is returned when the plugin that supplied a name has left.
-	ErrGone = errors.New("the plugin that supplied this name has gone")
-
-	// ErrAttached is returned to a plugin claiming a name another process is
-	// already answering for.
-	ErrAttached = errors.New("a plugin of this name is already attached")
-
-	// ErrRenamed is returned to a returning plugin announcing different names
-	// from the ones it announced before.
-	ErrRenamed = errors.New("a plugin may not change what it supplies by restarting")
-
-	// ErrRemote is returned for a failure the plugin itself reported.
-	ErrRemote = errors.New("the plugin refused")
-
-	// ErrArgument is returned for an argument that cannot cross a socket.
-	ErrArgument = errors.New("not data a plugin can be given")
+	ErrGone = host.ErrGone
 )
 
-// _Remote is one plugin as the host sees it, across however many times its
-// process has attached.
-//
-// This is what makes the wire look like the registry: Name and Values are all
-// the runtime ever asks for, and neither says anything about gRPC.
-//
-// One of these per plugin name, not per connection, and that is the whole of
-// how a plugin can be restarted. The registry only ever appends - it has no
-// removal, deliberately, because a name that could be taken back is a name a
-// script cannot rely on - so a second adapter for a returning plugin would
-// clash with the first forever. Instead the adapter outlives the process and
-// takes a new stream when one arrives.
-type _Remote struct {
-	guard   sync.Mutex
-	name    string
-	names   []string
-	asks    chan *pluginpb.Ask
-	gone    chan struct{}
-	live    bool
-	waiting map[uint64]chan *pluginpb.Answer
-	ticket  atomic.Uint64
-}
-
-// _Same reports whether two announcements name the same set.
-//
-// Order is not a difference: what a plugin supplies is a set, and a plugin that
-// listed its names differently on restart has not changed what it supplies.
+// ErrAttached is returned to a plugin claiming a name another process is
+// already answering for.
 //
 // Revisions:
-//   - 2026-09-26 01:48: initial creation
-func _Same(
-	held []string,
-	given []string,
-) bool {
-	if len(held) != len(given) {
-		return false
-	}
+//   - 2026-09-26 09:07: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:54: the same error as host.ErrAttached (C91w8c)
+var (
+	ErrAttached = host.ErrAttached
+)
 
-	seen := map[string]int{}
-
-	for _, name := range held {
-		seen[name]++
-	}
-
-	for _, name := range given {
-		seen[name]--
-	}
-
-	for _, count := range seen {
-		if count != 0 {
-			return false
-		}
-	}
-
-	return true
-}
-
-// Name is what a conflict report points at.
+// ErrRenamed is returned to a returning plugin announcing different names
+// from the ones it announced before.
 //
 // Revisions:
-//   - 2026-09-25 00:20: initial creation
-func (r *_Remote) Name() string {
-	return r.name
-}
+//   - 2026-09-26 09:07: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:54: the same error as host.ErrRenamed (C91w8c)
+var (
+	ErrRenamed = host.ErrRenamed
+)
 
-// Values is one builtin per announced name, with dotted names gathered into
-// the module they name.
-//
-// A plugin announcing "clock.now" supplies a module, because every in-process
-// plugin here supplies one and a remote plugin that could not would be the odd
-// one out.
+// ErrRemote is returned for a failure the plugin itself reported.
 //
 // Revisions:
-//   - 2026-09-25 00:20: initial creation
-func (r *_Remote) Values() starlark.StringDict {
-	r.guard.Lock()
-	names := r.names
-	r.guard.Unlock()
+//   - 2026-09-25 06:49: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:54: the same error as host.ErrRemote (C91w8c)
+//   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
+var (
+	ErrRemote = host.ErrRemote
+)
 
-	var (
-		held    = starlark.StringDict{}
-		modules = map[string]starlark.StringDict{}
-	)
-
-	for _, named := range names {
-		module, member, dotted := strings.Cut(
-			named,
-			SEPARATOR,
-		)
-
-		if !dotted {
-			held[named] = r._Builtin(
-				named,
-				named,
-			)
-
-			continue
-		}
-
-		if modules[module] == nil {
-			modules[module] = starlark.StringDict{}
-		}
-
-		modules[module][member] = r._Builtin(
-			named,
-			module+SEPARATOR+member,
-		)
-	}
-
-	for module, members := range modules {
-		held[module] = &starlarkstruct.Module{
-			Name:    module,
-			Members: members,
-		}
-	}
-
-	return held
-}
-
-// _Stream is the channels a call should use, read together so they belong to
-// the same attach.
+// ErrToken is returned for a stream that did not present the token.
 //
 // Revisions:
-//   - 2026-09-26 01:48: initial creation
-func (r *_Remote) _Stream() (chan *pluginpb.Ask, chan struct{}) {
-	r.guard.Lock()
-	defer r.guard.Unlock()
+//   - 2026-09-25 06:49: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:54: the same error as host.ErrToken (C91w8c)
+var (
+	ErrToken = host.ErrToken
+)
 
-	return r.asks, r.gone
-}
-
-// _Attach gives this plugin a new stream to answer on.
-//
-// Refuses a second stream while one is live, so two processes cannot both claim
-// one name and answer half its calls each. Refuses a returning plugin that
-// announces different names, because the names are already in environments that
-// were built from them.
-//
-// Returns the channels this stream is to use. They are handed back rather than
-// read from the struct, so a later attach cannot make an earlier stream's
-// goroutines write to the wrong place.
+// ErrFirst is returned for a stream whose first message was not a Register.
 //
 // Revisions:
-//   - 2026-09-26 01:48: initial creation
-func (r *_Remote) _Attach(
-	names []string,
-) (chan *pluginpb.Ask, chan struct{}, error) {
-	r.guard.Lock()
-	defer r.guard.Unlock()
+//   - 2026-09-25 06:49: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:54: the same error as host.ErrFirst (C91w8c)
+var (
+	ErrFirst = host.ErrFirst
+)
 
-	if r.live {
-		return nil, nil, fmt.Errorf(
-			"%s: %w",
-			r.name,
-			ErrAttached,
-		)
-	}
+// ErrQuiet is returned for a plugin that started but never announced itself.
+//
+// Revisions:
+//   - 2026-09-26 00:31: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:54: the same error as host.ErrQuiet (C91w8c)
+//   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
+var (
+	ErrQuiet = host.ErrQuiet
+)
 
-	if r.names != nil && !_Same(
-		r.names,
-		names,
-	) {
-		return nil, nil, fmt.Errorf(
-			"%s: was %v, now %v: %w",
-			r.name,
-			r.names,
-			names,
-			ErrRenamed,
-		)
-	}
-
-	r.names = names
-	r.asks = make(
-		chan *pluginpb.Ask,
-		PENDING,
-	)
-	r.gone = make(chan struct{})
-	r.live = true
-
-	return r.asks, r.gone, nil
-}
-
-// _Builtin is one announced name, as a script calls it.
+// Listen serves on socket, keeping whatever attaches for Plugins to hand a
+// compiler.
+//
+// The socket is a path, not an address. It is removed first if something stale
+// is there, and created for this user alone.
+//
+// Returns the listener, which the caller closes. Never panics.
 //
 // Revisions:
 //   - 2026-09-25 00:20: initial creation
-func (r *_Remote) _Builtin(
-	named string,
-	shown string,
-) *starlark.Builtin {
-	return starlark.NewBuiltin(
-		shown,
-		func(
-			thread *starlark.Thread,
-			fn *starlark.Builtin,
-			args starlark.Tuple,
-			kwargs []starlark.Tuple,
-		) (starlark.Value, error) {
-			if len(kwargs) > 0 {
-				return nil, fmt.Errorf(
-					"%s: keyword arguments do not cross: %w",
-					fn.Name(),
-					ErrArgument,
-				)
-			}
-
-			sent, err := _Sendable(
-				fn.Name(),
-				args,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			return r._Ask(
-				thread,
-				fn.Name(),
-				named,
-				sent,
-			)
-		},
-	)
-}
-
-// _Sendable is the arguments as the wire can carry them, or the reason they
-// cannot be.
-//
-// This is the whole type check, and it is here rather than on the plugin: a
-// value that cannot become a protobuf Value has no business leaving, and the
-// question "is this data" is one deep.IsData already answers for the store.
-// The plugin never sees a lambda, so it never has to have an opinion about
-// one.
-//
-// Revisions:
-//   - 2026-09-25 00:20: initial creation
-func _Sendable(
-	who string,
-	args starlark.Tuple,
-) ([]*structpb.Value, error) {
-	sent := make(
-		[]*structpb.Value,
-		0,
-		len(args),
-	)
-
-	for index, given := range args {
-		bad, ok := deep.IsData(given)
-		if !ok {
-			return nil, fmt.Errorf(
-				"%s: argument %d holds %s: %w",
-				who,
-				index,
-				bad.Type(),
-				ErrArgument,
-			)
-		}
-
-		held, err := _Value(given)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"%s: argument %d: %w",
-				who,
-				index,
-				err,
-			)
-		}
-
-		sent = append(
-			sent,
-			held,
-		)
-	}
-
-	return sent, nil
-}
-
-// _Ask sends one call and waits for its answer.
-//
-// The ticket is what lets several threads of one run call the same plugin at
-// once: answers come back down one stream in whatever order the plugin
-// finishes them, so each is claimed by the caller that asked.
-//
-// Waits on the caller's context as well, which every blocking builtin owes -
-// the same debt scheduler.Wait names. Without it a timeout around a plugin call
-// waited the plugin out: measured with the process stopped mid-call, timeout(2)
-// had not returned after twenty-five seconds, and an interrupt could not reach
-// it either. A plugin that never answers would have held the run for as long as
-// it liked.
-//
-// Returns ErrCancelled wrapping the context's error when the caller is
-// cancelled first. The plugin is not told: the answer it eventually sends is
-// dropped by _Answered, because nobody is waiting for it any more.
-//
-// Revisions:
-//   - 2026-09-25 00:20: initial creation
-//   - 2026-09-26 01:34: waits on the caller's context
-func (r *_Remote) _Ask(
-	thread *starlark.Thread,
-	who string,
-	named string,
-	args []*structpb.Value,
-) (starlark.Value, error) {
-	// A thread with no run cannot be cancelled, so it waits on a context that
-	// never closes rather than being told about runs by a call to a plugin.
-	ctx, err := scheduler.Context(thread)
-	if err != nil {
-		ctx = context.Background()
-	}
-
-	id, answers := r._Park()
-
-	defer r._Leave(id)
-
-	return r._Queried(
-		ctx,
-		&_Query{
-			who:     who,
-			named:   named,
-			args:    args,
-			id:      id,
-			answers: answers,
-		},
-	)
-}
-
-// _Park reserves an answer channel for one call.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func (r *_Remote) _Park() (uint64, chan *pluginpb.Answer) {
-	var (
-		id      = r.ticket.Add(1)
-		answers = make(
-			chan *pluginpb.Answer,
-			1,
-		)
-	)
-
-	r.guard.Lock()
-	r.waiting[id] = answers
-	r.guard.Unlock()
-
-	return id, answers
-}
-
-// _Leave drops the answer channel a call reserved.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func (r *_Remote) _Leave(id uint64) {
-	r.guard.Lock()
-	delete(
-		r.waiting,
-		id,
-	)
-	r.guard.Unlock()
-}
-
-// _Query is one call waiting on a plugin.
-type _Query struct {
-	who     string
-	named   string
-	args    []*structpb.Value
-	id      uint64
-	answers chan *pluginpb.Answer
-}
-
-// _Queried sends the call and reads the answer.
-//
-// The stream is read once, so a restart cannot put the send on one attach
-// and the answer on another.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func (r *_Remote) _Queried(
-	ctx context.Context,
-	query *_Query,
-) (starlark.Value, error) {
-	var (
-		ask = &pluginpb.Ask{
-			Id:   query.id,
-			Name: query.named,
-			Args: query.args,
-		}
-		asks, gone = r._Stream()
-	)
-	if asks == nil {
-		return nil, fmt.Errorf(
-			"%s: %w",
-			query.who,
-			ErrGone,
-		)
-	}
-
-	err := _Offered(
-		ctx,
-		&_Offer{
-			who:  query.who,
-			asks: asks,
-			gone: gone,
-			ask:  ask,
-		},
+//   - 2026-10-02 17:12: keeps what attaches itself, a host handing a compiler
+//     its plugins with WithPlugins and nothing else
+//   - 2026-11-07 19:54: returns common.Listener; the work is host.Listen (C91w8c)
+func Listen(
+	socket string,
+	token string,
+) (common.Listener, error) {
+	held, err := host.Listen(
+		socket,
+		token,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return _Replied(
-		ctx,
-		query,
-		gone,
+	return held, nil
+}
+
+// Discovered is every plugin binary in dir matching glob, in a fixed order.
+//
+// An empty glob means this platform's binary extension. Matching a name rather
+// than testing the execute bit is what go-plugin does, and it is enough here:
+// a match that will not start is skipped and reported, which is the same path
+// a broken binary takes anyway.
+//
+// Only glob is a pattern: dir is the directory as it is written, whatever
+// characters its name holds.
+//
+// Revisions:
+//   - 2026-09-25 23:55: initial creation
+//   - 2026-11-07 19:54: forwards to host.Discovered (C91w8c)
+//   - 2026-11-11 00:34: says dir is no pattern (C122, B265)
+func Discovered(
+	dir string,
+	glob string,
+) ([]string, error) {
+	return host.Discovered(
+		dir,
+		glob,
 	)
 }
 
-// _Offer is one ask waiting for room on its stream.
-type _Offer struct {
-	who  string
-	asks chan *pluginpb.Ask
-	gone chan struct{}
-	ask  *pluginpb.Ask
-}
-
-// _Offered sends the ask, or reports that the plugin or the caller left.
+// ListenTemp serves on a socket in a new private directory, with a new random
+// token, for a host that has no wish to choose either.
+//
+// The directory is for this user alone. Close on the returned listener removes
+// the directory and the socket, and a second Close is safe.
+//
+// Returns the listener, which the caller closes. Never panics.
 //
 // Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _Offered(
-	ctx context.Context,
-	offer *_Offer,
-) error {
-	select {
-	case offer.asks <- offer.ask:
-		return nil
-
-	case <-offer.gone:
-		return fmt.Errorf(
-			"%s: %w",
-			offer.who,
-			ErrGone,
-		)
-
-	case <-ctx.Done():
-		return _Cancelled(
-			ctx,
-			offer.who,
-		)
-	}
-}
-
-// _Replied reads the answer, or reports that the plugin or the caller left.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _Replied(
-	ctx context.Context,
-	query *_Query,
-	gone chan struct{},
-) (starlark.Value, error) {
-	select {
-	case answer := <-query.answers:
-		if answer.GetFailed() != "" {
-			return nil, fmt.Errorf(
-				"%s: %s: %w",
-				query.who,
-				answer.GetFailed(),
-				ErrRemote,
-			)
-		}
-
-		return _Starlark(answer.GetResult())
-
-	case <-gone:
-		return nil, fmt.Errorf(
-			"%s: %w",
-			query.who,
-			ErrGone,
-		)
-
-	case <-ctx.Done():
-		return nil, _Cancelled(
-			ctx,
-			query.who,
-		)
-	}
-}
-
-// _Cancelled is what a call answers with when its caller was cancelled first.
-//
-// Revisions:
-//   - 2026-09-26 01:34: initial creation
-//   - 2026-10-24 18:29: takes the context first
-func _Cancelled(
-	ctx context.Context,
-	who string,
-) error {
-	return fmt.Errorf(
-		"%s: %w: %w",
-		who,
-		scheduler.ErrCancelled,
-		ctx.Err(),
-	)
-}
-
-// _Answered hands an answer to whoever is waiting for it.
-//
-// An answer nobody waits for is dropped rather than raised: the caller has
-// already given up, which a cancelled run does, and there is nothing left to
-// tell.
-//
-// Revisions:
-//   - 2026-09-25 00:20: initial creation
-func (r *_Remote) _Answered(answer *pluginpb.Answer) {
-	r.guard.Lock()
-	waiting, found := r.waiting[answer.GetId()]
-	r.guard.Unlock()
-
-	if !found {
-		return
+//   - 2026-11-08 02:10: initial creation (C84, Q240)
+func ListenTemp() (common.Listener, error) {
+	held, err := host.ListenTemp()
+	if err != nil {
+		return nil, err
 	}
 
-	select {
-	case waiting <- answer:
-	default:
-	}
-}
-
-// _Left marks the given stream as gone, so every call waiting on it fails
-// rather than blocking on something nobody is reading.
-//
-// Takes the stream it is ending rather than reading the current one. An old
-// connection tearing down after a new one has attached would otherwise close
-// the new one's channel and leave a live plugin unreachable. Idempotent for the
-// same reason: a stream can be reported gone by its reader and its writer both.
-//
-// Revisions:
-//   - 2026-09-25 00:20: initial creation
-//   - 2026-09-26 01:48: ends one stream rather than the plugin, so a restart is
-//     not undone by the connection it replaced
-func (r *_Remote) _Left(gone chan struct{}) {
-	r.guard.Lock()
-	defer r.guard.Unlock()
-
-	if r.gone != gone {
-		return
-	}
-
-	if !r.live {
-		return
-	}
-
-	r.live = false
-
-	close(gone)
-}
-
-// _Named is this plugin's name and what it currently supplies.
-//
-// Revisions:
-//   - 2026-09-26 01:48: initial creation
-func (r *_Remote) _Named() (string, []string) {
-	r.guard.Lock()
-	defer r.guard.Unlock()
-
-	return r.name, r.names
-}
-
-// _Live reports whether a process is answering for this plugin now.
-//
-// Revisions:
-//   - 2026-09-26 01:56: initial creation
-func (r *_Remote) _Live() bool {
-	r.guard.Lock()
-	defer r.guard.Unlock()
-
-	return r.live
+	return held, nil
 }

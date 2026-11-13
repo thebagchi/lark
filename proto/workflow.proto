@@ -15,6 +15,11 @@ option go_package = "github.com/thebagchi/lark/proto/gen/workflow;workflow";
 // else failed did not itself fail, and a run a caller stopped did not
 // break. Reporting either as FAILED tells a reader that something went
 // wrong where nothing did - which is why the value exists separately.
+//
+// NOT_STARTED is a function the run never started, because the run was
+// stopped before its spawn was made. It is a node the run adds when it
+// ends, not one a function reports, and it never lists a thread. A node
+// reads NOT_STARTED only in a run that did not succeed.
 enum Status {
   STATUS_UNSPECIFIED = 0;
   STATUS_PENDING     = 1;
@@ -22,6 +27,56 @@ enum Status {
   STATUS_SUCCEEDED   = 3;
   STATUS_FAILED      = 4;
   STATUS_CANCELLED   = 5;
+  STATUS_NOT_STARTED = 6;
+}
+
+// Value is one script value a flow states: the literal of an operand, an
+// argument of a call, a constant, and the default of an argument. It sits in
+// this package beside google.protobuf.Value, which the plugin wire and the
+// patches keep, because that one has no bytes and holds a number as a float64:
+// the flow must keep what the script wrote, so a flow written back reads the
+// same as the script.
+//
+// null is None. bool is True or False. int is a whole number that fits an
+// int64: protojson writes it as text, "-12", and reads it from text or from a
+// number, and refuses one outside the range. float is a float, so 1 and 1.0
+// differ, as they do in the script. string is valid UTF-8 text. bytes is the
+// bytes of a bytes literal, which JSON writes as base64. list holds values in
+// order. map holds values under string keys.
+//
+// A tuple is no kind: a tuple is not carried. A script int past the int64 range
+// is not carried either. A dict with a key that is no string is not a map: the
+// flow carries the statement as text (see Init). The order of a map is not
+// kept, so a dict of more than one pair is not carried either.
+//
+// A Value with no kind set is not a value, and a flow that holds one is
+// refused. So is a float that is NaN or an infinity, a null kind that holds
+// anything but null, and a value nested deeper than the walkers allow. A bare
+// JSON null where a Value stands is refused too: protojson reads it as no value
+// at all, so a host reads a flow through the lark command, or checks for it.
+// JSON holds every kind as an object with one member named for its kind:
+// {"string": "x"}, {"int": "3"}, {"bytes": "ZA=="}, {"null": null}.
+message Value {
+  oneof kind {
+    google.protobuf.NullValue null = 1;
+    bool bool                      = 2;
+    int64 int                      = 3;
+    double float                   = 4;
+    string string                  = 5;
+    bytes bytes                    = 6;
+    List list                      = 7;
+    Map map                        = 8;
+  }
+}
+
+// List is the items of a list value, in order.
+message List {
+  repeated Value items = 1;
+}
+
+// Map is the entries of a dict value whose keys are strings.
+message Map {
+  map<string, Value> entries = 1;
 }
 
 // Operand is one argument at a call site.
@@ -30,11 +85,24 @@ enum Status {
 // parameter of the function that contains the call, or the result of an
 // earlier statement on this same thread. A name has no value until the
 // run, which is why it is not a Value.
+//
+// expression is any other argument, as the script wrote it: retries > 0,
+// or "%s:%d" % (host, port). It is Starlark text that parses as one
+// expression. It has no value until the run, and the flow does not look
+// inside it.
 message Operand {
   oneof source {
-    google.protobuf.Value literal = 1;
-    string name                   = 2;
+    Value literal     = 1;
+    string name       = 2;
+    string expression = 3;
   }
+}
+
+// Keyword is one argument a call passes by name: retries = 3. The value is
+// an Operand, so a keyword may pass a literal, a name or an expression.
+message Keyword {
+  string name   = 1;
+  Operand value = 2;
 }
 
 // Call runs function. Two Calls of one function may differ in what they
@@ -51,11 +119,22 @@ message Operand {
 // result is the name this call is bound to, and only when the script
 // captures it. kept = sign("hello", "!") sets it. A bare sign("hello",
 // "!") leaves it empty.
+//
+// keywords are the arguments passed by name, after the others, in the
+// order the script wrote them. A call with none leaves it empty.
+//
+// builtin says function is not one the flow declares: a builtin such as
+// print or assert, a predeclared name, or a member of one, written as
+// hex.from_bytes. The flow does not know a builtin's parameters, so it
+// checks no count for it. False, the default, is a function the flow
+// declares, and every flow written before builtin existed reads so.
 message Call {
-  string function                     = 1;
-  repeated google.protobuf.Value args = 2;
-  repeated Operand operands           = 3;
-  string result                       = 4;
+  string function           = 1;
+  repeated Value args       = 2;
+  repeated Operand operands = 3;
+  string result             = 4;
+  repeated Keyword keywords = 5;
+  bool builtin              = 6;
 }
 
 // Join waits for every listed spawn to finish and folds them back into
@@ -283,6 +362,9 @@ message Function {
 // the function the lambda calls. A line that calls none - a join, a sleep,
 // a cancel - is no node.
 //
+// A function the run was stopped before starting is a node too, with the
+// status NOT_STARTED: see Graph.
+//
 // threads are the threads whose innermost call is this function at this
 // moment: the ones executing it, in the order they arrived. A thread
 // leaves when it calls something further or returns, so a function
@@ -314,8 +396,8 @@ message Edge {
 // declared function is not that.
 message Constant {
   oneof kind {
-    google.protobuf.Value value = 1;
-    Call call                   = 2;
+    Value value = 1;
+    Call call   = 2;
   }
 }
 
@@ -354,8 +436,24 @@ message Change {
 // declaration. A default that is null is a different thing and is
 // carried as one, because the script asked for None.
 message Arg {
-  string name                   = 1;
-  google.protobuf.Value default = 2;
+  string name   = 1;
+  Value default = 2;
+}
+
+// Init is one top-level statement that runs when a script is set up.
+//
+// call is the statement when it is a call: of a function the flow
+// declares, or of a builtin or a member of a predeclared name, with
+// positional arguments, keyword arguments, and arguments that are
+// expressions. text is a statement that is no call, as the script wrote it,
+// the way a function body the flow cannot model is carried: an if, a for,
+// an augmented assignment, and a call that unpacks its arguments. An Init
+// carries one of the two.
+message Init {
+  oneof form {
+    Call call   = 1;
+    string text = 2;
+  }
 }
 
 // Flow is the workflow a UI reads: the functions, the statements inside
@@ -381,6 +479,15 @@ message Arg {
 // stored. A generator writes def main() from whichever is set. The list
 // does not begin with a call of main. Field 2 is unused: it was the
 // thread list, and a flow has none.
+//
+// init is the entry script's own top-level statements that are no def,
+// no load and no constant or argument: a call, an assert, an if, a for,
+// an augmented assignment. One entry for each statement, in the order the
+// script wrote them. They run when the script is set up, before main,
+// the way a top-level statement runs when a file is read. A generator
+// writes them at the top of the file after the arguments, with no
+// function around them: init is not a name in the script. A statement of
+// a loaded module is not carried: that is an error of the derivation.
 message Flow {
   repeated Function functions     = 1;
   map<string, Constant> constants = 3;
@@ -390,6 +497,8 @@ message Flow {
     Statements main               = 5;
     string text                   = 6;
   }
+
+  repeated Init init              = 7;
 }
 
 // Cause names the function whose failure ended a run, and what it said.
@@ -407,7 +516,8 @@ message Cause {
 
 // Graph is the status of a run, as a call graph: every function the run
 // has called, each with its status and the threads executing it, and an
-// edge for each call between them. A user interface reads it to see what is
+// edge for each call between them. Once a run that did not succeed has
+// ended, it also holds the functions the stop kept it from starting. A user interface reads it to see what is
 // happening, while the run goes or once it has ended, and draws it as a
 // profiler draws one. It starts as {}, and each Change patches it.
 //
@@ -417,6 +527,17 @@ message Cause {
 // cause is set only when status is FAILED, so a host can test the pointer
 // rather than the enum. A cancelled run has no cause: nothing went wrong in
 // it, which is what CANCELLED is for.
+//
+// A spawn made after the run is stopped is refused, so a function the stop
+// came before is never started. When a run ends FAILED or CANCELLED, the
+// graph adds a node with the status NOT_STARTED for each function that a
+// called function spawns in its script and the run never started, and an
+// edge from the function that holds the spawn. A spawn in a function the run
+// never called adds nothing. The graph cannot tell a spawn the stop
+// prevented from one in a branch the script would not have taken, so a
+// function reads NOT_STARTED when any called function could have spawned it.
+// The cause names the function that stopped a FAILED run; a CANCELLED run has
+// none.
 message Graph {
   Status status           = 1;
   repeated Node functions = 2;

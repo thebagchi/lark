@@ -1,0 +1,603 @@
+// Regression probes for running a script: how long a duration may be, and
+// what a held name refuses.
+//
+// Revisions:
+//   - 2026-09-24 17:32: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+package tests
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"strings"
+	"testing"
+	"time"
+
+	"go.starlark.net/starlark"
+
+	larkfile "github.com/thebagchi/lark/v1/plugin/file"
+	"github.com/thebagchi/lark/v1/runtime"
+	"github.com/thebagchi/lark/v1/runtime/common"
+	"github.com/thebagchi/lark/v1/runtime/plugin/codec/buf"
+	_ "github.com/thebagchi/lark/v1/runtime/plugin/state"
+	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
+	"github.com/thebagchi/lark/v1/runtime/scheduler"
+)
+
+// TestDuration_Boundary checks that a duration at the edge of int64 does not
+// overflow silently to a negative value.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestDuration_Boundary(t *testing.T) {
+	var (
+		seconds  = float64(uint64(math.MaxInt64)+1) / float64(time.Second)
+		got, err = scheduler.Duration(starlark.Float(seconds))
+	)
+	t.Logf(
+		"seconds=%g duration=%d err=%v",
+		seconds,
+		got,
+		err,
+	)
+
+	if err == nil && got < 0 {
+		t.Errorf(
+			"duration past int64 was accepted as %d",
+			got,
+		)
+	}
+}
+
+// TestDuration_PastInt64IsRefused checks that a duration exceeding int64 is
+// refused with runtime.ErrDuration.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
+//   - 2026-11-08 13:25: names the package of each sentinel (C98 round 2)
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestDuration_PastInt64IsRefused(t *testing.T) {
+	var (
+		seconds = float64(uint64(math.MaxInt64)+1) / float64(time.Second)
+		_, err  = scheduler.Duration(starlark.Float(seconds))
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrDuration,
+	) {
+		t.Fatalf(
+			"got %v, want ErrDuration",
+			err,
+		)
+	}
+}
+
+// _Run compiles src and runs it, failing the test if it does not compile. Its
+// script is given file beside the runtime's own plugins, as these probes were
+// written against.
+//
+// Revisions:
+//   - 2026-09-24 17:32: initial creation
+//   - 2026-10-02 17:12: hands the compiler file, which the runtime no longer
+//     gives a script by itself
+//   - 2026-11-07 23:42: types come from common and workflowpb (C91w9, Q103)
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func _Run(
+	t *testing.T,
+	src string,
+) (starlark.Value, error) {
+	t.Helper()
+
+	built, err := runtime.Compile(
+		&common.Source{
+			Entry: "fixed.star",
+			Text:  []byte(src),
+		},
+		runtime.WithPlugins(larkfile.New()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := runtime.Start(
+		context.Background(),
+		built,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return run.Wait()
+}
+
+// TestState_SetOfAnotherNameInsideUpdateIsRefused checks that a set of a
+// different name inside an update is refused with runtime.ErrNested.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
+//   - 2026-11-08 13:25: names the package of each sentinel (C98 round 2)
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestState_SetOfAnotherNameInsideUpdateIsRefused(t *testing.T) {
+	_, err := _Run(
+		t,
+		`
+def main():
+    def change(v):
+        state.set("b", 1)
+        return v
+    state.update("a", change)
+    return "reached"
+`,
+	)
+	if !errors.Is(
+		err,
+		scheduler.ErrNested,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNested",
+			err,
+		)
+	}
+}
+
+// TestJoin_UnderTheLockIsRefused checks that a join called from inside an
+// update is refused quickly, naming the call that caused the refusal.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestJoin_UnderTheLockIsRefused(t *testing.T) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		2*time.Second,
+	)
+	defer cancel()
+
+	var (
+		started = time.Now()
+		_, err  = _RunCtx(
+			ctx,
+			t,
+			`
+def rival():
+    sleep(50)
+    return state.update("k", lambda v: "rival")
+
+def main():
+    handle = spawn(rival)
+    return state.update("k", lambda v: join(handle))
+`,
+		)
+	)
+	if time.Since(started) > 500*time.Millisecond {
+		t.Fatalf(
+			"join under the lock ran for %s: %v",
+			time.Since(started),
+			err,
+		)
+	}
+
+	if !errors.Is(
+		err,
+		runtime.ErrNested,
+	) {
+		t.Fatalf(
+			"got %v, want ErrNested",
+			err,
+		)
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		"join",
+	) {
+		t.Fatalf(
+			"want the refusal at join, got %v",
+			err,
+		)
+	}
+}
+
+// TestSpawn_InsideAnUpdateCarriesTheBan checks that a child spawned inside an
+// update inherits the ban on state operations.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestSpawn_InsideAnUpdateCarriesTheBan(t *testing.T) {
+	_, err := _Run(
+		t,
+		`
+def child():
+    sleep(50)
+    state.set("b", 1)
+
+def main():
+    found = []
+    def change(v):
+        found.append(spawn(child))
+        return "done"
+    state.update("a", change)
+    return join(found[0])
+`,
+	)
+	if !errors.Is(
+		err,
+		runtime.ErrNested,
+	) {
+		t.Fatalf(
+			"child set after the update: %v",
+
+			err,
+		)
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		"started inside an update",
+	) {
+		t.Fatalf(
+			"got %v",
+			err,
+		)
+	}
+}
+
+// TestUpdate_ReturnIsFrozenAndGetIsACopy checks that the value update returns
+// is frozen, and that get returns a mutable copy rather than the stored value.
+//
+// Revisions:
+//   - 2026-10-24 16:30: initial creation
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestUpdate_ReturnIsFrozenAndGetIsACopy(t *testing.T) {
+	_, err := _Run(
+		t,
+		`
+def main():
+    def change(v):
+        return [1]
+    made = state.update("k", change)
+    made.append(2)
+    return made
+`,
+	)
+	if err == nil {
+		t.Fatal("append to the value update returned was accepted")
+	}
+
+	value, err := _Run(
+		t,
+		`
+def main():
+    def change(v):
+        return [1]
+    state.update("k", change)
+    copied = state.get("k")
+    copied.append(2)
+    return [copied, state.get("k")]
+`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if value.String() != "[[1, 2], [1]]" {
+		t.Fatalf(
+			"get copy: %s",
+			value.String(),
+		)
+	}
+}
+
+// _RunCtx compiles src and runs it with ctx, answering with a compile's error
+// as well as a run's. Its script is given file beside the runtime's own
+// plugins, as these probes were written against.
+//
+// Revisions:
+//   - 2026-09-24 17:32: initial creation
+//   - 2026-10-02 17:12: hands the compiler file, which the runtime no longer
+//     gives a script by itself
+//   - 2026-10-03 08:33: takes the run's options, a memory ceiling among them
+//   - 2026-10-24 18:29: takes the context first
+//   - 2026-11-07 23:42: types come from common and workflowpb (C91w9, Q103)
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func _RunCtx(
+	ctx context.Context,
+
+	t *testing.T,
+	src string,
+	opts ...common.RunOption,
+) (starlark.Value, error) {
+	t.Helper()
+
+	built, err := runtime.Compile(
+		&common.Source{
+			Entry: "after.star",
+			Text:  []byte(src),
+		},
+		runtime.WithPlugins(larkfile.New()),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	run, err := runtime.Start(
+		ctx,
+		built,
+		opts...,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return run.Wait()
+}
+
+const (
+	// SETTLE is how long main waits, in milliseconds as its script spells it,
+	// so an unjoined child reaches its failure before the run ends. Without
+	// this the exit would cancel the child first and the test would pass having
+	// proved nothing.
+	//
+	// Revisions:
+	//   - 2026-09-24 21:42: initial creation
+	//   - 2026-11-06 22:37: revision history added (C90)
+	//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+	SETTLE = 200
+
+	// ORPHAN_SLEEP is how long the abandoned child asks to sleep, in
+	// milliseconds as its script spells it.
+	//
+	// Revisions:
+	//   - 2026-09-24 21:42: initial creation
+	//   - 2026-11-06 22:37: revision history added (C90)
+	//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+	ORPHAN_SLEEP = 2000
+
+	// KILLED_WITHIN is how long the run may take before its child is taken to
+	// have been waited for rather than killed. Measured 2026-09-24: 0.205s
+	// killed against 2.005s joined, so this sits between the two with room on
+	// either side of it.
+	//
+	// Revisions:
+	//   - 2026-09-24 21:42: initial creation
+	//   - 2026-11-06 22:37: revision history added (C90)
+	//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+	KILLED_WITHIN = time.Second
+)
+
+// TestSpawn_AnUnjoinedFailureDoesNotEndTheRun pins detached-thread semantics.
+//
+// Nobody asked the child for its value, so nothing is waiting to be told it
+// failed - the same answer a goroutine, a Java thread with an uncaught
+// exception or a Python daemon thread gives. The failure reaches the reporter;
+// only the run's result is left alone.
+//
+// The child marks the store before it fails and main returns that mark, so a
+// green run is evidence the child actually got there. A test that only checked
+// the error would pass just as well if the child had never run at all.
+//
+// Revisions:
+//   - 2026-09-24 21:26: initial creation
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestSpawn_AnUnjoinedFailureDoesNotEndTheRun(t *testing.T) {
+	var (
+		src = fmt.Sprintf(
+			`
+def child():
+    state.set("ran", True)
+
+    return None + 1
+
+def main():
+    spawn(child)
+    sleep(%v)
+
+    return state.get("ran")
+`, SETTLE,
+		)
+		got, err = _Run(
+			t,
+			src,
+		)
+	)
+	if err != nil {
+		t.Fatalf(
+			"an unjoined child's failure ended the run: %v",
+			err,
+		)
+	}
+
+	if got != starlark.Bool(true) {
+		t.Fatalf(
+			"main returned %v, so the child never reached its failure",
+			got,
+		)
+	}
+}
+
+// TestSpawn_AnUnjoinedChildIsKilledAtExit is the other half of the same rule.
+//
+// A run ends by cancelling its context and then waiting, so a child nobody
+// joined is cut off rather than waited out. This is what keeps the rule above
+// from being a way to abandon work that outlives the run - and it is why an
+// unjoined failure could not become the run's result even if it were wanted:
+// whether the child reaches its own failure first is a race with main
+// returning.
+//
+// Revisions:
+//   - 2026-09-24 21:26: initial creation
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestSpawn_AnUnjoinedChildIsKilledAtExit(t *testing.T) {
+	var (
+		src = fmt.Sprintf(
+			`
+def child():
+    sleep(%v)
+
+    return "the exit waited"
+
+def main():
+    spawn(child)
+
+    return "main finished"
+`, ORPHAN_SLEEP,
+		)
+		started = time.Now()
+		_, err  = _Run(
+			t,
+			src,
+		)
+	)
+	if err != nil {
+		t.Fatalf(
+			"the run failed: %v",
+			err,
+		)
+	}
+
+	taken := time.Since(started)
+	if taken >= KILLED_WITHIN {
+		t.Fatalf(
+			"the run took %v, so the child was waited for rather than killed",
+			taken,
+		)
+	}
+}
+
+// TestBuf_SpawnFreezesABuffer hands a buffer to a spawned thread and expects
+// the thread's write refused, and raised again at the join: two threads
+// writing one buffer would race.
+//
+// Revisions:
+//   - 2026-10-08 21:16: initial creation
+//   - 2026-10-08 21:37: write_bytes, where write was
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestBuf_SpawnFreezesABuffer(t *testing.T) {
+	_, err := _Run(
+		t,
+		`
+def main():
+    b = buf.new()
+    handle = spawn(lambda: b.write_bytes("x"))
+    join(handle)
+`,
+	)
+	if !errors.Is(
+		err,
+		buf.ErrFrozen,
+	) {
+		t.Fatalf(
+			"a spawned write gave %v, want %v",
+			err,
+			buf.ErrFrozen,
+		)
+	}
+}
+
+// TestBuf_StoreRefusesABuffer stores a buffer and expects it refused: a buffer
+// is not data, and a store would hand every thread one buffer to write.
+//
+// Revisions:
+//   - 2026-10-08 21:16: initial creation
+//   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+//   - 2026-11-10 17:15: uses ErrConvert, formerly ErrNotProtoValue (C121, Q349)
+func TestBuf_StoreRefusesABuffer(t *testing.T) {
+	_, err := _Run(
+		t,
+		`
+def main():
+    state.set("b", buf.new())
+`,
+	)
+	if !errors.Is(
+		err,
+		unpack.ErrConvert,
+	) {
+		t.Fatalf(
+			"a stored buffer gave %v, want %v",
+			err,
+			unpack.ErrConvert,
+		)
+	}
+}
+
+// TestFail_ManyThreadsAtOnceGiveOneOutcome fails many threads at the same
+// moment and expects Wait to return exactly one of their failures, whole.
+//
+// Each thread fails with its own number. The error must hold one number only:
+// two would mean the run blamed two threads, and none would mean the outcome
+// was lost. Run it with -race -count=200.
+//
+// Revisions:
+//   - 2026-11-02 10:56: initial creation
+//   - 2026-11-10 00:25: moved to tests/ (C120a, Q311)
+func TestFail_ManyThreadsAtOnceGiveOneOutcome(t *testing.T) {
+	const THREADS = 32
+
+	var src strings.Builder
+
+	for i := range THREADS {
+		fmt.Fprintf(
+			&src,
+			`
+def boom_%[1]d():
+    for _ in range(50):
+        pass
+
+    assert(False, "blame-%[1]d-end")
+`,
+			i,
+		)
+	}
+
+	src.WriteString("\ndef main():\n    handles = []\n")
+
+	for i := range THREADS {
+		fmt.Fprintf(
+			&src,
+			"    handles.append(spawn(boom_%d))\n",
+			i,
+		)
+	}
+
+	src.WriteString("    return join(*handles)\n")
+
+	_, err := _Run(
+		t,
+		src.String(),
+	)
+	if err == nil {
+		t.Fatal("failing threads left the run with no error")
+	}
+
+	var found []int
+
+	for i := range THREADS {
+		if strings.Contains(
+			err.Error(),
+			fmt.Sprintf(
+				"blame-%d-end",
+				i,
+			),
+		) {
+			found = append(
+				found,
+				i,
+			)
+		}
+	}
+
+	if len(found) != 1 {
+		t.Fatalf(
+			"error blames threads %v, want exactly one: %v",
+			found,
+			err,
+		)
+	}
+}

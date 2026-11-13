@@ -11,14 +11,13 @@ thirdparty/
 # The working record: how this was planned, proved, reviewed and logged, and
 # the conventions it was written to. Kept on disk, out of the repository.
 .claude/
-.claude/skills/ste100/
-.claude/hooks/langlint.sh
-.guidelines/
-.poc/
 poc/
+out/
 CLAUDE.md
-review.md
-reviewer.md
+
+# Markdown is a working note until someone chooses to publish it. A tracked
+# file stays tracked; a new one goes in only by name, with git add -f.
+*.md
 
 # The checkers and the gates, copied from the convention kit. The kit is their source.
 .tools/
@@ -29,10 +28,6 @@ Makefile
 coverage.*
 *.coverprofile
 profile.cov
-
-# A WSL utility for deleting Windows Zone.Identifier sidecars. It lives here
-# because that is where it is run from, not because it belongs to this project.
-purge_zone_identifier.py
 
 # Editor settings. Whoever works here chooses their own; a copy in the tree
 # would make one person's choices everybody else's.

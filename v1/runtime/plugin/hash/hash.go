@@ -24,50 +24,34 @@
 // forge. They are here because a script meeting an old checksum still has to
 // read it, and a runtime that refused would just send the author somewhere
 // worse.
+//
+// Revisions:
+//   - 2026-09-24 17:26: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 package hash
 
 import (
-	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"errors"
-	"fmt"
-	stdhash "hash"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 	"github.com/thebagchi/lark/v1/runtime/plugin/codec/hex"
+	"github.com/thebagchi/lark/v1/runtime/plugin/hash/internal/digest"
+	"github.com/thebagchi/lark/v1/runtime/plugin/hash/internal/spec"
 	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
-// ErrAlgorithm is returned for a keyed digest asked for under a name this does
-// not know.
 var (
-	ErrAlgorithm = errors.New("no such algorithm")
-)
-
-// NAME is the module, and the names it holds.
-const (
-	NAME   = "hash"
-	MD5    = "md5"
-	SHA1   = "sha1"
-	SHA256 = "sha256"
-	SHA512 = "sha512"
-	HMAC   = "hmac"
-	CRC32  = "crc32"
-
-	// KEY and DATA are what hmac calls its arguments, so a script may pass
-	// them either way round, and ALGORITHM which digest to key.
-	ALGORITHM = "algorithm"
-	KEY       = "key"
-	DATA      = "data"
-
-	// NO_SEED is the checksum a chain starts from.
-	NO_SEED = 0
+	// ErrAlgorithm is digest.ErrAlgorithm.
+	//
+	// Revisions:
+	//   - 2026-11-10 01:37: initial creation (C120b, Q319)
+	ErrAlgorithm = digest.ErrAlgorithm
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -80,14 +64,19 @@ func init() {
 }
 
 // _Hash is the plugin. Empty: a digest works on what it is given.
+//
+// Revisions:
+//   - 2026-09-24 17:26: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 type _Hash struct{}
 
 // Name is what this plugin is called when a conflict has to name it.
 //
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
+//   - 2026-11-08 00:26: read the names from internal/spec (C91w12b)
 func (h *_Hash) Name() string {
-	return NAME
+	return spec.NAME
 }
 
 // Values returns the hash module.
@@ -95,22 +84,37 @@ func (h *_Hash) Name() string {
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
 //   - 2026-10-08 17:47: crc32, from codec
+//   - 2026-11-08 00:26: read the names from internal/spec (C91w12b)
+//   - 2026-11-10 11:32: uses digest.HMAC and digest.CRC32, which moved to internal/digest
+//     (C120b, Q315)
 func (h *_Hash) Values() starlark.StringDict {
 	return starlark.StringDict{
-		NAME: &starlarkstruct.Module{
-			Name: NAME,
+		spec.NAME: &starlarkstruct.Module{
+			Name: spec.NAME,
 			Members: starlark.StringDict{
-				MD5:    _Digest(MD5),
-				SHA1:   _Digest(SHA1),
-				SHA256: _Digest(SHA256),
-				SHA512: _Digest(SHA512),
-				HMAC: starlark.NewBuiltin(
-					NAME+"."+HMAC,
-					_HMAC,
+				spec.MD5: _Digest(
+					spec.MD5,
+					_MD5Hex,
 				),
-				CRC32: starlark.NewBuiltin(
-					NAME+"."+CRC32,
-					_CRC32,
+				spec.SHA1: _Digest(
+					spec.SHA1,
+					_SHA1Hex,
+				),
+				spec.SHA256: _Digest(
+					spec.SHA256,
+					_SHA256Hex,
+				),
+				spec.SHA512: _Digest(
+					spec.SHA512,
+					_SHA512Hex,
+				),
+				spec.HMAC: starlark.NewBuiltin(
+					spec.NAME+"."+spec.HMAC,
+					digest.HMAC,
+				),
+				spec.CRC32: starlark.NewBuiltin(
+					spec.NAME+"."+spec.CRC32,
+					digest.CRC32,
 				),
 			},
 		},
@@ -120,19 +124,30 @@ func (h *_Hash) Values() starlark.StringDict {
 // _Digest is the builtin for one unkeyed digest.
 //
 // Built from the name rather than written five times: the four differ in which
-// constructor they call and in nothing else, and five copies of one function
-// is five places for one fix to be forgotten.
+// sum they call and in nothing else, and five copies of one function is five
+// places for one fix to be forgotten.
 //
 // The data is a view of the script's value, not a copy: a digest copies what
 // it is given into a block of its own and keeps nothing of it, which is the
 // contract of unpack.View.
 //
+// The sum is the one-shot function of the algorithm, not a digest that is
+// built, written to, and asked for its sum. The one-shot form keeps its state
+// on the stack, so the call allocates the text and the box around it, and
+// nothing else. hmac stays streaming: it needs a digest to key.
+//
 // Revisions:
 //   - 2026-09-23 23:20: initial creation
 //   - 2026-10-29 01:08: reads a view of the data rather than a copy
-func _Digest(name string) *starlark.Builtin {
+//   - 2026-11-03 22:30: takes the one-shot sum of its algorithm, not a
+//     constructor (C38a)
+//   - 2026-11-08 00:26: read the names from internal/spec (C91w12b)
+func _Digest(
+	name string,
+	sum func([]byte) string,
+) *starlark.Builtin {
 	return starlark.NewBuiltin(
-		NAME+"."+name,
+		spec.NAME+"."+name,
 		func(
 			thread *starlark.Thread,
 			fn *starlark.Builtin,
@@ -148,199 +163,52 @@ func _Digest(name string) *starlark.Builtin {
 				return nil, err
 			}
 
-			digest, err := _Maker(name)
-			if err != nil {
-				return nil, fmt.Errorf(
-					"%s: %w",
-					fn.Name(),
-					err,
-				)
-			}
-
-			return _Sum(
-				fn.Name(),
-				digest(),
-				data,
-			)
+			return starlark.String(sum(data)), nil
 		},
 	)
 }
 
-// _HMAC is the keyed digest: hmac(algorithm, key, data).
+// _MD5Hex is the MD5 digest of data as upper-case hex.
 //
-// The algorithm is named rather than there being one builtin per digest,
-// because a script choosing between them chooses a string and a table of five
-// near-identical names would be read as five different things.
-//
-// Returns ErrAlgorithm for a name this does not know.
+// The digest is an array on the stack and hex.Encode only reads it, so the
+// text is the one allocation. hex.Encode already hands its buffer over as the
+// string, so unpack.Handover has nothing left to do here. The three functions
+// that follow hold the same.
 //
 // Revisions:
-//   - 2026-09-23 23:20: initial creation
-func _HMAC(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	algorithm, key, data, err := _HMACArgs(
-		fn,
-		args,
-		kwargs,
-	)
-	if err != nil {
-		return nil, err
-	}
+//   - 2026-11-03 22:30: initial creation (C38a)
+func _MD5Hex(data []byte) string {
+	sum := md5.Sum(data)
 
-	secret, message, err := _HMACBytes(
-		fn,
-		key,
-		data,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	digest, err := _Maker(algorithm)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%s: %w",
-			fn.Name(),
-			err,
-		)
-	}
-
-	return _Sum(
-		fn.Name(),
-		hmac.New(
-			digest,
-			secret,
-		),
-		message,
-	)
+	return hex.Encode(sum[:])
 }
 
-// _HMACArgs reads the algorithm, the key, and the message.
+// _SHA1Hex is the SHA-1 digest of data as upper-case hex.
 //
 // Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _HMACArgs(
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (string, starlark.Value, starlark.Value, error) {
-	var (
-		algorithm string
-		key       starlark.Value
-		data      starlark.Value
-	)
+//   - 2026-11-03 22:30: initial creation (C38a)
+func _SHA1Hex(data []byte) string {
+	sum := sha1.Sum(data)
 
-	err := starlark.UnpackArgs(
-		fn.Name(),
-		args,
-		kwargs,
-		ALGORITHM,
-		&algorithm,
-		KEY,
-		&key,
-		DATA,
-		&data,
-	)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	return algorithm, key, data, nil
+	return hex.Encode(sum[:])
 }
 
-// _HMACBytes reads the key and the message as bytes.
-//
-// Each is a view of the script's value, not a copy. hmac.New copies the key
-// into its pads, or hashes a long key first, and keeps only its length; the
-// message goes to a digest, which keeps nothing of it. That is the contract of
-// unpack.View.
+// _SHA256Hex is the SHA-256 digest of data as upper-case hex.
 //
 // Revisions:
-//   - 2026-10-24 18:29: initial creation
-//   - 2026-10-29 01:08: reads a view of the key and the message rather than a
-//     copy
-func _HMACBytes(
-	fn *starlark.Builtin,
-	key starlark.Value,
-	data starlark.Value,
-) ([]byte, []byte, error) {
-	secret, err := unpack.View(
-		fn.Name(),
-		key,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
+//   - 2026-11-03 22:30: initial creation (C38a)
+func _SHA256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
 
-	message, err := unpack.View(
-		fn.Name(),
-		data,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return secret, message, nil
+	return hex.Encode(sum[:])
 }
 
-// _Maker is the constructor one name asks for.
-//
-// The constructor rather than a built digest, because hmac takes one and
-// calls it twice - so handing back the function is what lets an unknown name
-// be refused once, before anything is built, without a second lookup that
-// cannot report what it found.
+// _SHA512Hex is the SHA-512 digest of data as upper-case hex.
 //
 // Revisions:
-//   - 2026-09-23 23:20: initial creation
-func _Maker(name string) (func() stdhash.Hash, error) {
-	switch name {
-	case MD5:
-		return md5.New, nil
+//   - 2026-11-03 22:30: initial creation (C38a)
+func _SHA512Hex(data []byte) string {
+	sum := sha512.Sum512(data)
 
-	case SHA1:
-		return sha1.New, nil
-
-	case SHA256:
-		return sha256.New, nil
-
-	case SHA512:
-		return sha512.New, nil
-	}
-
-	return nil, fmt.Errorf(
-		"%q: %w",
-		name,
-		ErrAlgorithm,
-	)
-}
-
-// _Sum is data through made, as upper-case hex.
-//
-// Writing to a digest never fails - the interface carries an error because
-// io.Writer does, and every implementation here returns nil - but ignoring one
-// is forbidden, so it is checked rather than dropped.
-//
-// Revisions:
-//   - 2026-09-23 23:20: initial creation
-//   - 2026-10-08 18:06: upper case, as every hex the runtime writes
-//   - 2026-10-29 01:08: writes through hex.Encode rather than fmt's %X
-func _Sum(
-	who string,
-	made stdhash.Hash,
-	data []byte,
-) (starlark.Value, error) {
-	_, err := made.Write(data)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%s: %w",
-			who,
-			err,
-		)
-	}
-
-	return starlark.String(hex.Encode(made.Sum(nil))), nil
+	return hex.Encode(sum[:])
 }

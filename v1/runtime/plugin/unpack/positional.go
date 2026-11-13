@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/v1/runtime/common"
 )
 
 // Positional refuses a call that is not exactly count positional arguments,
@@ -22,6 +24,8 @@ import (
 //
 // Revisions:
 //   - 2026-10-29 01:32: initial creation
+//   - 2026-11-04 23:50: names a nil builtin ANONYMOUS, and refuses a missing argument or a nil
+//     value (C86 fix round 3)
 func Positional(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
@@ -31,14 +35,14 @@ func Positional(
 	if len(kwargs) > 0 {
 		return fmt.Errorf(
 			"%s: unexpected keyword arguments",
-			fn.Name(),
+			_NameOf(fn),
 		)
 	}
 
 	if len(args) != count {
 		return fmt.Errorf(
 			"%s: got %d arguments, want %d",
-			fn.Name(),
+			_NameOf(fn),
 			len(args),
 			count,
 		)
@@ -55,18 +59,29 @@ func Positional(
 //
 // Revisions:
 //   - 2026-10-29 01:32: initial creation
+//   - 2026-11-04 23:50: names a nil builtin ANONYMOUS, and refuses a missing argument or a nil
+//     value (C86 fix round 3)
 func StringAt(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	idx int,
 ) (string, error) {
+	err := _Missing(
+		fn,
+		args,
+		idx,
+	)
+	if err != nil {
+		return "", err
+	}
+
 	text, ok := starlark.AsString(args[idx])
 	if !ok {
 		return "", fmt.Errorf(
 			"%s: for parameter %d: got %s, want string",
-			fn.Name(),
+			_NameOf(fn),
 			idx+1,
-			args[idx].Type(),
+			_TypeOf(args[idx]),
 		)
 	}
 
@@ -80,18 +95,29 @@ func StringAt(
 //
 // Revisions:
 //   - 2026-10-29 01:32: initial creation
+//   - 2026-11-04 23:50: names a nil builtin ANONYMOUS, and refuses a missing argument or a nil
+//     value (C86 fix round 3)
 func CallableAt(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	idx int,
 ) (starlark.Callable, error) {
+	err := _Missing(
+		fn,
+		args,
+		idx,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	callable, ok := args[idx].(starlark.Callable)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%s: for parameter %d: got %s, want callable",
-			fn.Name(),
+			_NameOf(fn),
 			idx+1,
-			args[idx].Type(),
+			_TypeOf(args[idx]),
 		)
 	}
 
@@ -104,18 +130,29 @@ func CallableAt(
 //
 // Revisions:
 //   - 2026-10-29 23:58: initial creation
+//   - 2026-11-04 23:50: names a nil builtin ANONYMOUS, and refuses a missing argument or a nil
+//     value (C86 fix round 3)
 func _IntAt(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	idx int,
 ) (starlark.Int, error) {
+	err := _Missing(
+		fn,
+		args,
+		idx,
+	)
+	if err != nil {
+		return starlark.Int{}, err
+	}
+
 	number, ok := args[idx].(starlark.Int)
 	if !ok {
 		return starlark.Int{}, fmt.Errorf(
 			"%s: for parameter %d: got %s, want int",
-			fn.Name(),
+			_NameOf(fn),
 			idx+1,
-			args[idx].Type(),
+			_TypeOf(args[idx]),
 		)
 	}
 
@@ -128,6 +165,9 @@ func _IntAt(
 //
 // Revisions:
 //   - 2026-10-29 23:58: initial creation
+//   - 2026-11-02 10:58: bound the script text in the error (C21)
+//   - 2026-11-04 23:50: names a nil builtin ANONYMOUS, and refuses a missing argument or a nil
+//     value (C86 fix round 3)
 func _SizeAt(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
@@ -152,12 +192,61 @@ func _SizeAt(
 
 		return 0, fmt.Errorf(
 			format,
-			fn.Name(),
+			_NameOf(fn),
 			idx+1,
-			number,
+			ShortText(number.String()),
 			strconv.IntSize,
 		)
 	}
 
 	return int(wide), nil
+}
+
+// _NameOf is fn's name, or ANONYMOUS for a nil builtin, which only a Go caller
+// can pass and whose Name would dereference it.
+//
+// Revisions:
+//   - 2026-11-04 23:50: initial creation (C86 fix round 3)
+//   - 2026-11-08 00:59: names read from common (C91w12c, Q244)
+func _NameOf(fn *starlark.Builtin) string {
+	if fn == nil {
+		return common.ANONYMOUS
+	}
+
+	return fn.Name()
+}
+
+// _TypeOf is the type of a value, or "nothing" for a nil value, which has no
+// Type method to ask.
+//
+// Revisions:
+//   - 2026-11-04 23:50: initial creation (C86 fix round 3)
+func _TypeOf(value starlark.Value) string {
+	if value == nil {
+		return "nothing"
+	}
+
+	return value.Type()
+}
+
+// _Missing is the refusal for an argument position the caller did not fill:
+// out of range, since there is no argument there to take.
+//
+// Revisions:
+//   - 2026-11-04 23:50: initial creation (C86 fix round 3)
+func _Missing(
+	fn *starlark.Builtin,
+	args starlark.Tuple,
+	idx int,
+) error {
+	if idx >= 0 && idx < len(args) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%s: for parameter %d: no such argument: %w",
+		_NameOf(fn),
+		idx+1,
+		ErrRange,
+	)
 }

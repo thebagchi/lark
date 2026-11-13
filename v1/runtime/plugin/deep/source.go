@@ -1,7 +1,13 @@
 package deep
 
 import (
+	"fmt"
+
 	"go.starlark.net/syntax"
+
+	"github.com/thebagchi/lark/v1/runtime/guard"
+	"github.com/thebagchi/lark/v1/runtime/plugin/deep/internal/clone"
+	"github.com/thebagchi/lark/v1/runtime/plugin/internal/common"
 )
 
 // ShowsCode is the first call to module.member in tree whose second argument
@@ -25,20 +31,67 @@ import (
 //   - 2026-09-24 20:10: initial creation, as state's Check
 //   - 2026-09-30 22:41: a question any plugin can ask of its own call, rather than
 //     state's
+//   - 2026-11-04 19:30: a nil tree shows no code (C87)
+//   - 2026-11-04 19:30: returns an error for a tree that panics the walk; the
+//     error wraps the recovered panic (C87 fix round 1)
 func ShowsCode(
 	tree *syntax.File,
 	module string,
 	member string,
-) (*syntax.CallExpr, string) {
+) (*syntax.CallExpr, string, error) {
+	if tree == nil {
+		return nil, "", nil
+	}
+
 	declared := map[string]bool{}
 
 	for _, stmt := range tree.Stmts {
 		def, ok := stmt.(*syntax.DefStmt)
-		if ok {
+		if ok && def != nil && def.Name != nil {
 			declared[def.Name.Name] = true
 		}
 	}
 
+	var (
+		found *syntax.CallExpr
+		named string
+	)
+
+	// syntax.Walk panics on a nil node in the tree. The panic is an error the
+	// caller sees: a tree that cannot be read must not pass as one that shows
+	// no code.
+	raised := guard.Contained(func() {
+		found, named = _Seek(
+			tree,
+			module,
+			member,
+			declared,
+		)
+	})
+	if raised != nil {
+		return nil, "", fmt.Errorf(
+			"read the source for %s.%s: %w",
+			module,
+			member,
+			raised,
+		)
+	}
+
+	return found, named, nil
+}
+
+// _Seek walks tree for the first call of module.member that shows a function,
+// and returns it with what it shows.
+//
+// Revisions:
+//   - 2026-11-04 19:30: initial creation, the walk ShowsCode had (C87)
+//   - 2026-11-10 11:32: uses clone.Calls, which moved to internal/clone (C120b, Q315)
+func _Seek(
+	tree *syntax.File,
+	module string,
+	member string,
+	declared map[string]bool,
+) (*syntax.CallExpr, string) {
 	var (
 		found *syntax.CallExpr
 		named string
@@ -52,7 +105,7 @@ func ShowsCode(
 			}
 
 			call, ok := node.(*syntax.CallExpr)
-			if !ok || len(call.Args) != 2 || !_Calls(
+			if !ok || len(call.Args) != 2 || !clone.Calls(
 				call,
 				module,
 				member,
@@ -60,7 +113,7 @@ func ShowsCode(
 				return true
 			}
 
-			named = _Names(
+			named = common.Names(
 				call.Args[1],
 				declared,
 			)
@@ -73,65 +126,4 @@ func ShowsCode(
 	)
 
 	return found, named
-}
-
-// _Calls reports whether a call is module.member.
-//
-// Revisions:
-//   - 2026-09-24 20:10: initial creation, as state's _Stores
-//   - 2026-09-30 22:41: names the call it looks for, rather than state.set
-func _Calls(
-	call *syntax.CallExpr,
-	module string,
-	member string,
-) bool {
-	dotted, ok := call.Fn.(*syntax.DotExpr)
-	if !ok || dotted.Name.Name != member {
-		return false
-	}
-
-	held, ok := dotted.X.(*syntax.Ident)
-
-	return ok && held.Name == module
-}
-
-// _Names is what an argument plainly is, when that is a function, and empty
-// when the source does not say.
-//
-// Revisions:
-//   - 2026-09-24 20:10: initial creation, in state
-func _Names(
-	arg syntax.Expr,
-	declared map[string]bool,
-) string {
-	switch held := _Bare(arg).(type) {
-	case *syntax.LambdaExpr:
-		return "a lambda"
-
-	case *syntax.Ident:
-		if declared[held.Name] {
-			return "the function " + held.Name
-		}
-	}
-
-	return ""
-}
-
-// _Bare is an expression with its parentheses taken off.
-//
-// Extra parentheses do not change what was written, so (helper) shows a
-// function as plainly as helper does. Without this the two spellings were
-// answered differently: one refused where it was written, the other carried
-// to the run and refused there - for the same mistake, with the same fix, at
-// two different moments.
-//
-// Revisions:
-//   - 2026-09-24 21:10: initial creation, in state
-func _Bare(expr syntax.Expr) syntax.Expr {
-	held, ok := expr.(*syntax.ParenExpr)
-	if !ok {
-		return expr
-	}
-
-	return _Bare(held.X)
 }

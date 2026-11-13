@@ -17,11 +17,14 @@
 // A module rather than two top-level names, so a host that does not want a
 // script able to block on another thread leaves the import out. Nothing bounds
 // how long a wait lasts except the timeout the script itself chose.
+//
+// Revisions:
+//   - 2026-09-30 21:12: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 package event
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -31,33 +34,19 @@ import (
 
 	"github.com/thebagchi/lark/v1/runtime/plugin"
 	"github.com/thebagchi/lark/v1/runtime/plugin/deep"
+	"github.com/thebagchi/lark/v1/runtime/plugin/event/internal/latch"
+	"github.com/thebagchi/lark/v1/runtime/plugin/event/internal/spec"
+	shared "github.com/thebagchi/lark/v1/runtime/plugin/internal/common"
+	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// NAME is the module, and the names it holds.
-const (
-	NAME = "event"
-	POST = "post"
-	WAIT = "wait"
-
-	// EXPIRED is what a wait that ran out puts in the second half of its
-	// answer. A message rather than a bool, because it is what a script prints
-	// or fails with.
-	EXPIRED = "timed out"
-)
-
 var (
-	// ErrPosted is returned for posting an event that has already been posted.
+	// ErrPosted is latch.ErrPosted.
 	//
-	// A latch says a thing happened, and a thing happens once. Posting twice is
-	// either two different things sharing a name or the same thing reported
-	// twice, and both are mistakes a script author would rather hear about.
-	ErrPosted = errors.New("this event has already been posted")
-
-	// ErrNotData is returned for a value an event cannot carry, for the reason
-	// a store cannot hold one: another thread reads it, and code means nothing
-	// to whoever did not write it.
-	ErrNotData = errors.New("not data an event can carry")
+	// Revisions:
+	//   - 2026-11-10 01:37: initial creation (C120b, Q319)
+	ErrPosted = latch.ErrPosted
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -71,31 +60,37 @@ func init() {
 
 // _Event is the plugin. Empty: the events themselves belong to a run, not to
 // the plugin, because two runs in one process must not see each other's.
+//
+// Revisions:
+//   - 2026-09-30 21:12: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 type _Event struct{}
 
 // Name is what this plugin is called when a conflict has to name it.
 //
 // Revisions:
 //   - 2026-09-30 21:00: initial creation
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
 func (e *_Event) Name() string {
-	return NAME
+	return spec.NAME
 }
 
 // Values returns the event module.
 //
 // Revisions:
 //   - 2026-09-30 21:00: initial creation
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
 func (e *_Event) Values() starlark.StringDict {
 	return starlark.StringDict{
-		NAME: &starlarkstruct.Module{
-			Name: NAME,
+		spec.NAME: &starlarkstruct.Module{
+			Name: spec.NAME,
 			Members: starlark.StringDict{
-				POST: starlark.NewBuiltin(
-					NAME+"."+POST,
+				spec.POST: starlark.NewBuiltin(
+					spec.NAME+"."+spec.POST,
 					_Post,
 				),
-				WAIT: starlark.NewBuiltin(
-					NAME+"."+WAIT,
+				spec.WAIT: starlark.NewBuiltin(
+					spec.NAME+"."+spec.WAIT,
 					_Wait,
 				),
 			},
@@ -116,23 +111,31 @@ func (e *_Event) Values() starlark.StringDict {
 //
 // Revisions:
 //   - 2026-09-30 22:41: initial creation
+//   - 2026-11-04 19:30: refuses a source it cannot read (C87 fix round 1)
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
+//   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
+//   - 2026-11-10 17:15: uses ErrConvert, formerly ErrNotProtoValue (C121, Q349)
 func (e *_Event) Check(tree *syntax.File) error {
-	call, named := deep.ShowsCode(
+	call, named, err := deep.ShowsCode(
 		tree,
-		NAME,
-		POST,
+		spec.NAME,
+		spec.POST,
 	)
+	if err != nil {
+		return err
+	}
+
 	if call == nil {
 		return nil
 	}
 
 	return fmt.Errorf(
-		"%s.%s at %s posts %s: %w",
-		NAME,
-		POST,
+		"%s.%s at %s posts %s: not data an event can carry: %w",
+		spec.NAME,
+		spec.POST,
 		call.Lparen,
 		named,
-		ErrNotData,
+		unpack.ErrConvert,
 	)
 }
 
@@ -141,11 +144,11 @@ func (e *_Event) Check(tree *syntax.File) error {
 // Takes a value rather than defaulting one, because state.set does and an event
 // carrying nothing is a thing a script can say with None.
 //
-// Returns ErrPosted for a second post of one name, ErrNotData for a value
-// another thread could not read, and ErrMemory when the run cannot afford to
-// hold it. Answers with None, as state.set does. Never panics.
+// Returns ErrPosted for a second post of one name, and unpack.ErrConvert for a value
+// another thread could not read. Answers with None, as state.set does. Never
+// panics.
 //
-// The first two stop the whole run, the way a failed assertion does, rather
+// Both stop the whole run, the way a failed assertion does, rather
 // than only the thread that posted. A thread nobody joins fails silently - its
 // error reaches the report and never becomes the run's result - so a spawned
 // worker posting twice, or posting a function, would otherwise say nothing, and
@@ -156,13 +159,17 @@ func (e *_Event) Check(tree *syntax.File) error {
 //   - 2026-09-30 21:00: initial creation
 //   - 2026-09-30 21:55: a second post, or one that is not data, stops the whole
 //     run rather than the thread
+//   - 2026-11-01 13:00: no longer refuses for memory
+//   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
+//   - 2026-11-10 11:32: uses latch.PostArgs, which moved to internal/latch (C120b, Q315)
+//   - 2026-11-10 17:15: uses ErrConvert, formerly ErrNotProtoValue (C121, Q349)
 func _Post(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	name, value, err := _PostArgs(
+	name, value, err := latch.PostArgs(
 		fn,
 		args,
 		kwargs,
@@ -192,10 +199,14 @@ func _Post(
 // _Posted stores the event, and stops the run when it was already posted.
 //
 // A second post is a mistake in the script rather than a limit it reached.
-// The budget refusing fails only the thread, as it does for the store.
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-11-01 13:00: the only refusal left is a second post
+//   - 2026-11-02 10:58: bound the script text in the error (C21)
+//   - 2026-11-06 00:10: names a nil builtin ANONYMOUS rather than panicking (C100b)
+//   - 2026-11-10 11:32: uses names that moved to internal/latch and are exported there (C120b,
+//     Q315)
 func _Posted(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -206,39 +217,26 @@ func _Posted(
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%s: %w",
-			fn.Name(),
+			shared.Called(fn),
 			err,
 		)
 	}
 
 	value.Freeze()
 
-	err = events._Post(
-		scheduler.Allowance(thread),
+	err = events.Post(
 		name,
 		value,
 	)
-	if errors.Is(
-		err,
-		ErrPosted,
-	) {
+	if err != nil {
 		return nil, scheduler.Fail(
 			thread,
 			fmt.Errorf(
-				"%s %q: %w",
-				fn.Name(),
-				name,
+				"%s %s: %w",
+				shared.Called(fn),
+				unpack.QuotePrefix(name),
 				err,
 			),
-		)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%s %q: %w",
-			fn.Name(),
-			name,
-			err,
 		)
 	}
 
@@ -269,13 +267,16 @@ func _Posted(
 //   - 2026-10-02 01:41: reads its bound in milliseconds, as every duration is
 //   - 2026-10-24 16:05: refuses while a name is held, as join does, so a wait
 //     inside an update cannot deadlock against the thread that would post
+//   - 2026-11-10 11:32: uses latch.WaitBound and latch.NotUpdating, which moved to
+//     internal/latch (C120b, Q315)
+//   - 2026-11-13 01:24: uses NotUpdating, which moved to plugin/internal/common (C131, Q417)
 func _Wait(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
-	name, bound, err := _WaitBound(
+	name, bound, err := latch.WaitBound(
 		fn,
 		args,
 		kwargs,
@@ -284,7 +285,7 @@ func _Wait(
 		return nil, err
 	}
 
-	err = _NotUpdating(
+	err = shared.NotUpdating(
 		thread,
 		fn,
 	)
@@ -304,6 +305,10 @@ func _Wait(
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-11-01 13:00: takes the named latch without a charge
+//   - 2026-11-06 00:10: names a nil builtin ANONYMOUS rather than panicking (C100b)
+//   - 2026-11-10 11:32: uses names that moved to internal/latch and are exported there (C120b,
+//     Q315)
 func _Waited(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -314,7 +319,7 @@ func _Waited(
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%s: %w",
-			fn.Name(),
+			shared.Called(fn),
 			err,
 		)
 	}
@@ -323,20 +328,7 @@ func _Waited(
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%s: %w",
-			fn.Name(),
-			err,
-		)
-	}
-
-	held, err := events._Named(
-		scheduler.Allowance(thread),
-		name,
-	)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%s %q: %w",
-			fn.Name(),
-			name,
+			shared.Called(fn),
 			err,
 		)
 	}
@@ -346,17 +338,22 @@ func _Waited(
 		&_WaitCall{
 			fn:    fn,
 			name:  name,
-			held:  held,
+			held:  events.Named(name),
 			bound: bound,
 		},
 	)
 }
 
 // _WaitCall is the name, the latch, and the clock bound a wait shares.
+//
+// Revisions:
+//   - 2026-10-28 18:20: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-10 11:32: uses latch.Latch, which moved to internal/latch (C120b, Q315)
 type _WaitCall struct {
 	fn    *starlark.Builtin
 	name  string
-	held  *_Latch
+	held  *latch.Latch
 	bound time.Duration
 }
 
@@ -364,19 +361,24 @@ type _WaitCall struct {
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-11-02 10:58: bound the script text in the error (C21)
+//   - 2026-11-06 00:10: names a nil builtin ANONYMOUS rather than panicking (C100b)
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
+//   - 2026-11-10 11:32: uses names that moved to internal/latch and are exported there (C120b,
+//     Q315)
 func _WaitAnswer(
 	ctx context.Context,
 	call *_WaitCall,
 ) (starlark.Value, error) {
-	value, expired, err := call.held._Await(
+	value, expired, err := call.held.Await(
 		ctx,
 		call.bound,
 	)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"%s %q: %w",
-			call.fn.Name(),
-			call.name,
+			"%s %s: %w",
+			shared.Called(call.fn),
+			unpack.QuotePrefix(call.name),
 			err,
 		)
 	}
@@ -384,7 +386,7 @@ func _WaitAnswer(
 	if expired {
 		return _Answer(
 			starlark.None,
-			starlark.String(EXPIRED),
+			starlark.String(spec.EXPIRED),
 		), nil
 	}
 
@@ -394,52 +396,35 @@ func _WaitAnswer(
 	), nil
 }
 
-// _PostArgs reads the name and the value a post was given.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _PostArgs(
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (string, starlark.Value, error) {
-	var (
-		name  string
-		value starlark.Value
-	)
-
-	const NEEDED = 2
-
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
-		args,
-		kwargs,
-		NEEDED,
-		&name,
-		&value,
-	)
-	if err != nil {
-		return "", nil, fmt.Errorf(
-			"%s: %w",
-			fn.Name(),
-			err,
-		)
-	}
-
-	return name, value, nil
-}
-
 // _PostData refuses a value the store would not keep, and stops the run.
 //
 // Revisions:
 //   - 2026-10-24 18:29: initial creation
+//   - 2026-11-02 10:58: bound the script text in the error (C21)
+//   - 2026-11-02 12:28: a value nested past common.DEPTH is an error that ends
+//     the run (C26)
+//   - 2026-11-06 00:10: names a nil builtin ANONYMOUS rather than panicking (C100b)
+//   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
+//   - 2026-11-10 17:15: uses ErrConvert, formerly ErrNotProtoValue (C121, Q349)
 func _PostData(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
 	name string,
 	value starlark.Value,
 ) error {
-	bad, ok := deep.IsData(value)
+	bad, ok, err := deep.IsData(
+		scheduler.Ambient(thread),
+		value,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"%s %s: %w",
+			shared.Called(fn),
+			unpack.QuotePrefix(name),
+			err,
+		)
+	}
+
 	if ok {
 		return nil
 	}
@@ -447,89 +432,12 @@ func _PostData(
 	return scheduler.Fail(
 		thread,
 		fmt.Errorf(
-			"%s %q: %s: %w",
-			fn.Name(),
-			name,
+			"%s %s: %s: not data an event can carry: %w",
+			shared.Called(fn),
+			unpack.QuotePrefix(name),
 			bad.Type(),
-			ErrNotData,
+			unpack.ErrConvert,
 		),
-	)
-}
-
-// _WaitBound reads the name and the duration a wait was given.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _WaitBound(
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (string, time.Duration, error) {
-	var (
-		name  string
-		given starlark.Value
-	)
-
-	const NEEDED = 2
-
-	err := starlark.UnpackPositionalArgs(
-		fn.Name(),
-		args,
-		kwargs,
-		NEEDED,
-		&name,
-		&given,
-	)
-	if err != nil {
-		return "", 0, fmt.Errorf(
-			"%s: %w",
-			fn.Name(),
-			err,
-		)
-	}
-
-	bound, err := scheduler.Duration(given)
-	if err != nil {
-		return "", 0, fmt.Errorf(
-			"%s %q: %w",
-			fn.Name(),
-			name,
-			err,
-		)
-	}
-
-	return name, bound, nil
-}
-
-// _NotUpdating refuses a wait while this evaluation holds a name.
-//
-// The thread that would post the event may need that name, and the wait
-// lasts until the bound or until the run is cancelled.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _NotUpdating(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-) error {
-	updating, err := scheduler.Updating(thread)
-	if err != nil {
-		return fmt.Errorf(
-			"%s: %w",
-			fn.Name(),
-			err,
-		)
-	}
-
-	if updating == "" {
-		return nil
-	}
-
-	return fmt.Errorf(
-		"%s inside an update of %q: %w",
-		fn.Name(),
-		updating,
-		scheduler.ErrNested,
 	)
 }
 

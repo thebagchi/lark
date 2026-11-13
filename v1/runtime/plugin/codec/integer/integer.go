@@ -9,33 +9,32 @@
 //
 // Encode, EncodeSigned, Decode and DecodeSigned are the conversions themselves,
 // exported so buf writes and reads integers by these rules rather than by a
-// second copy of them.
+// second copy of them. The behavior lives in integer/internal/field; this
+// package forwards to it. The data, common.Field, and the byte orders,
+// common.BIG and common.LITTLE, are in package common.
+//
+// Revisions:
+//   - 2026-10-08 22:45: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:17: thin forwards to integer/internal/field (C91w8b)
 package integer
 
 import (
 	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
 
+	"github.com/thebagchi/lark/v1/runtime/common"
 	"github.com/thebagchi/lark/v1/runtime/plugin"
-	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
-	"github.com/thebagchi/lark/v1/runtime/scheduler"
+	"github.com/thebagchi/lark/v1/runtime/plugin/codec/integer/internal/field"
 )
 
-// NAME is the module, and the two names it holds.
-const (
-	NAME       = "integer"
-	FROM_BYTES = "from_bytes"
-	TO_BYTES   = "to_bytes"
-
-	// N, WIDTH, DATA, ORDER and SIGNED are what the two functions call their
-	// arguments, for a script that names one, and OPTIONAL marks an argument a
-	// script may leave out.
-	N        = "n"
-	WIDTH    = "width"
-	DATA     = "data"
-	ORDER    = "order"
-	SIGNED   = "signed"
-	OPTIONAL = "?"
+// ErrOrder is returned for a byte order that is neither big nor little.
+//
+// Revisions:
+//   - 2026-10-08 22:45: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 19:17: an alias of field.ErrOrder (C91w8b)
+var (
+	ErrOrder = field.ErrOrder
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -43,187 +42,105 @@ const (
 //
 // Revisions:
 //   - 2026-10-08 18:42: initial creation
+//   - 2026-11-07 19:17: registers field.New() (C91w8b)
 func init() {
-	plugin.Register(new(_Integer))
+	plugin.Register(field.New())
 }
 
-// _Integer is the plugin. Empty: every conversion works on what it is given.
-type _Integer struct{}
-
-// Name is what this plugin is called when a conflict has to name it.
+// Unpack reads a builtin's arguments as a common.Field: an integer, a width, and
+// a byte order, big unless a third argument names one.
+//
+// A nil fn is named "builtin" in an error.
 //
 // Revisions:
-//   - 2026-10-08 18:42: initial creation
-func (i *_Integer) Name() string {
-	return NAME
-}
-
-// Values returns the integer module.
-//
-// Revisions:
-//   - 2026-10-08 18:42: initial creation
-func (i *_Integer) Values() starlark.StringDict {
-	return starlark.StringDict{
-		NAME: &starlarkstruct.Module{
-			Name: NAME,
-			Members: starlark.StringDict{
-				FROM_BYTES: starlark.NewBuiltin(
-					NAME+"."+FROM_BYTES,
-					_FromBytes,
-				),
-				TO_BYTES: starlark.NewBuiltin(
-					NAME+"."+TO_BYTES,
-					_ToBytes,
-				),
-			},
-		},
-	}
-}
-
-// _FromBytes is data as an integer: big-endian unless the order is "little",
-// and unsigned unless signed is True.
-//
-// Revisions:
-//   - 2026-09-21 10:35: initial creation, as codec's bytes2int
-//   - 2026-10-08 18:42: a member of the integer module, as from_bytes
-//   - 2026-10-08 21:08: takes a byte order, and reads through Decode
-//   - 2026-10-08 21:37: takes signed, and lets a script name any argument
-func _FromBytes(
-	thread *starlark.Thread,
+//   - 2026-10-08 21:08: initial creation
+//   - 2026-11-04 19:30: a nil builtin is named ANONYMOUS, not dereferenced (C87)
+//   - 2026-11-06 21:23: names the builtin with Called, nil-safe (C102, Q213)
+//   - 2026-11-07 19:17: forwards to field.Unpack; the earlier revisions are there (C91w8b)
+func Unpack(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	var (
-		given  starlark.Value
-		order  = BIG
-		signed bool
-	)
-
-	err := starlark.UnpackArgs(
-		fn.Name(),
-		args,
-		kwargs,
-		DATA,
-		&given,
-		ORDER+OPTIONAL,
-		&order,
-		SIGNED+OPTIONAL,
-		&signed,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := unpack.Bytes(
-		fn.Name(),
-		given,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	decode := Decode
-	if signed {
-		decode = DecodeSigned
-	}
-
-	number, err := decode(
-		fn.Name(),
-		data,
-		order,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return starlark.MakeBigInt(number), nil
-}
-
-// _ToBytes is an integer as bytes, zero-padded to the width given, big-endian
-// unless the order is "little", and unsigned unless signed is True; the number
-// must fit.
-//
-// Revisions:
-//   - 2026-09-21 10:35: initial creation, as codec's int2bytes
-//   - 2026-10-08 17:47: refuses with unpack's ErrRange, which hex and binary refuse
-//     with too
-//   - 2026-10-08 18:42: a member of the integer module, as to_bytes
-//   - 2026-10-08 21:08: takes a byte order, and writes through Encode, which charges
-//     the width to the run
-//   - 2026-10-08 21:37: takes signed, and lets a script name any argument
-func _ToBytes(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	number, width, order, signed, err := _ByteArgs(
+) (*common.Field, error) {
+	return field.Unpack(
 		fn,
 		args,
 		kwargs,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	encode := Encode
-	if signed {
-		encode = EncodeSigned
-	}
-
-	field := &Field{
-		Number: number.BigInt(),
-		Width:  width,
-		Order:  order,
-	}
-
-	var data []byte
-
-	data, err = encode(
-		scheduler.Allowance(thread),
-		fn.Name(),
-		field,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return starlark.Bytes(data), nil
 }
 
-// _ByteArgs reads the number, the width, the order, and whether it is signed.
+// Encode is the field's number as unsigned bytes, as many as its width, in its
+// order.
+//
+// Returns unpack.ErrRange for a width below one, a negative number, or a number
+// too wide for the width, ErrOrder for an order that is neither big nor little.
 //
 // Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _ByteArgs(
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Int, int, string, bool, error) {
-	var (
-		number starlark.Int
-		width  int
-		order  = BIG
-		signed bool
+//   - 2026-09-21 10:35: initial creation, as the body of codec's int2bytes
+//   - 2026-11-07 19:17: forwards to field.Encode; the earlier revisions are there (C91w8b)
+func Encode(
+	who string,
+	data *common.Field,
+) ([]byte, error) {
+	return field.Encode(
+		who,
+		data,
 	)
+}
 
-	err := starlark.UnpackArgs(
-		fn.Name(),
-		args,
-		kwargs,
-		N,
-		&number,
-		WIDTH,
-		&width,
-		ORDER+OPTIONAL,
-		&order,
-		SIGNED+OPTIONAL,
-		&signed,
+// EncodeSigned is the field's number in two's complement, as many bytes as its
+// width, in its order.
+//
+// Returns as Encode does, but for a negative number, which it writes.
+//
+// Revisions:
+//   - 2026-10-08 21:08: initial creation
+//   - 2026-11-07 19:17: forwards to field.EncodeSigned; the earlier revisions are there (C91w8b)
+func EncodeSigned(
+	who string,
+	data *common.Field,
+) ([]byte, error) {
+	return field.EncodeSigned(
+		who,
+		data,
 	)
-	if err != nil {
-		return starlark.Int{}, 0, "", false, err
-	}
+}
 
-	return number, width, order, signed, nil
+// Decode reads data as an unsigned integer, its bytes in order.
+//
+// Returns ErrOrder for an order that is neither big nor little.
+//
+// Revisions:
+//   - 2026-09-21 10:35: initial creation, as the body of codec's bytes2int
+//   - 2026-11-07 19:17: forwards to field.Decode; the earlier revisions are there (C91w8b)
+func Decode(
+	who string,
+	data []byte,
+	order string,
+) (starlark.Int, error) {
+	return field.Decode(
+		who,
+		data,
+		order,
+	)
+}
+
+// DecodeSigned reads data as an integer in two's complement, its bytes in
+// order.
+//
+// Returns ErrOrder for an order that is neither big nor little.
+//
+// Revisions:
+//   - 2026-10-08 21:08: initial creation
+//   - 2026-11-07 19:17: forwards to field.DecodeSigned; the earlier revisions are there (C91w8b)
+func DecodeSigned(
+	who string,
+	data []byte,
+	order string,
+) (starlark.Int, error) {
+	return field.DecodeSigned(
+		who,
+		data,
+		order,
+	)
 }

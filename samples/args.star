@@ -3,8 +3,8 @@
 #
 # Run it as it is to see the defaults, then supply some:
 #
-#   lark -s samples/args.star
-#   lark -s samples/args.star -a '{"host": "db.internal", "port": 5432}'
+#   lark run samples/args.star
+#   lark run -args '{"host": "db.internal", "port": 5432}' samples/args.star
 #
 # A declaration is a module-level statement, and the name it binds need not be
 # the name a caller supplies it under - "host" arrives, "server" is what this
@@ -26,7 +26,7 @@ tags = arg("tags", ["staging"])
 # A run initialises the script itself, so a check about the run's arguments
 # belongs out here, where it stops a bad run before it does any work:
 #
-#   lark -s samples/args.star -a '{"retries": 0}'
+#   lark run -args '{"retries": 0}' samples/args.star
 
 assert(retries > 0, "retries must be at least one")
 

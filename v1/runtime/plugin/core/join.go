@@ -1,184 +1,28 @@
 package core
 
 import (
-	"errors"
-	"fmt"
-
 	"go.starlark.net/starlark"
 
+	"github.com/thebagchi/lark/v1/runtime/common"
+	"github.com/thebagchi/lark/v1/runtime/plugin/core/internal/builtin"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
 )
 
-// ErrNotAHandle is returned when join or cancel is given something that is not
-// a handle, or any keyword argument.
 var (
-	ErrNotAHandle = errors.New("join wants handles")
+	// ErrHandle is builtin.ErrHandle.
+	//
+	// Revisions:
+	//   - 2026-11-10 01:37: initial creation (C120b, Q319)
+	//   - 2026-11-10 17:15: renamed from ErrNotAHandle (C121, Q348)
+	ErrHandle = builtin.ErrHandle
+
+	// ErrSelf is builtin.ErrSelf.
+	//
+	// Revisions:
+	//   - 2026-11-10 16:00: initial creation (C116, B237, Q327)
+	//   - 2026-11-10 17:15: renamed from ErrSelfJoin (C121, Q348)
+	ErrSelf = builtin.ErrSelf
 )
-
-// _Join waits for every handle given and returns what each produced, in the
-// order they were passed.
-//
-// A thread that failed re-raises here, in the thread that joined it, so a
-// caller cannot take a result list and be unaware that one of them never
-// arrived. The first failure in argument order wins, which makes the outcome
-// depend on how the script was written rather than on which thread lost a race.
-//
-// A join is a line of the thread that waits, reported around the wait with the
-// threads it waits on, so a watcher can say which threads were joined. A join
-// refused before it waits is still a line, and it fails.
-//
-// Returns ErrNotAHandle when an argument is something else, and
-// scheduler.ErrCancelled when a joined handle was cancelled or the joining
-// evaluation was.
-//
-// Revisions:
-//   - 2026-09-19 20:42: initial creation
-//   - 2026-09-20 00:10: cancels the handles it has not reached when one fails,
-//     and waits for them, rather than waiting for every handle first
-//   - 2026-09-21 08:09: waits through Wait, so the joining evaluation's own
-//     cancellation ends the join
-//   - 2026-09-21 09:46: moved here from the scheduler
-//   - 2026-10-02 00:48: reports itself as a line, naming the threads it waits
-//     on
-func _Join(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	handles, err := _Handles(
-		JOIN,
-		args,
-		kwargs,
-	)
-
-	scheduler.Open(
-		thread,
-		&scheduler.Line{
-			Builtin: JOIN,
-			Waits:   _Threads(handles),
-		},
-	)
-
-	values, err := _Joined(
-		thread,
-		fn,
-		handles,
-		err,
-	)
-
-	scheduler.Close(
-		thread,
-		"",
-		err,
-	)
-
-	return values, err
-}
-
-// _Joined waits for every handle given, once _Handles has read them, and
-// returns what each produced, in the order they were passed.
-//
-// Revisions:
-//   - 2026-10-02 00:48: initial creation, from _Join's body, so the line _Join
-//     reports closes whichever way this ends
-func _Joined(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	handles []*scheduler.Handle,
-	err error,
-) (starlark.Value, error) {
-	if err != nil {
-		return nil, err
-	}
-
-	err = _NotNested(
-		thread,
-		fn,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return _Waited(
-		thread,
-		handles,
-	)
-}
-
-// _NotNested refuses a join while this evaluation holds a name.
-//
-// The wait can be one nothing in the script can end: an update takes the
-// name before it calls its function. A thread that inherited the mark can
-// join into the same cycle.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _NotNested(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-) error {
-	updating, err := scheduler.Updating(thread)
-	if err != nil {
-		return fmt.Errorf(
-			"%s: %w",
-			fn.Name(),
-			err,
-		)
-	}
-
-	if updating == "" {
-		return nil
-	}
-
-	return fmt.Errorf(
-		"%s inside an update of %q: %w",
-		fn.Name(),
-		updating,
-		scheduler.ErrNested,
-	)
-}
-
-// _Waited waits for every handle and answers with the list of results.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _Waited(
-	thread *starlark.Thread,
-	handles []*scheduler.Handle,
-) (starlark.Value, error) {
-	values := make(
-		[]starlark.Value,
-		0,
-		len(handles),
-	)
-
-	for index, handle := range handles {
-		value, err := scheduler.Wait(
-			thread,
-			handle,
-		)
-		if err != nil {
-			_Abort(
-				thread,
-				handles[index+1:],
-			)
-
-			return nil, fmt.Errorf(
-				"%s: %w",
-				handle.Name(),
-				err,
-			)
-		}
-
-		values = append(
-			values,
-			value,
-		)
-	}
-
-	return starlark.NewList(values), nil
-}
 
 // _Cancel stops every handle given, without waiting for any of them.
 //
@@ -190,6 +34,11 @@ func _Waited(
 //   - 2026-09-19 20:44: initial creation
 //   - 2026-09-21 09:46: moved here from the scheduler
 //   - 2026-10-02 00:48: reports itself as a line
+//   - 2026-11-02 00:29: closes its line once, as _Join does, with the error
+//     _Stopped returns
+//   - 2026-11-07 19:16: uses the names moved to common or unexported (C91w4)
+//   - 2026-11-08 00:26: read the names from internal/spec (C91w12b)
+//   - 2026-11-08 01:03: reads the moved names from common (Q244, C91w12d)
 func _Cancel(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -198,126 +47,53 @@ func _Cancel(
 ) (starlark.Value, error) {
 	scheduler.Open(
 		thread,
-		&scheduler.Line{
-			Builtin: CANCEL,
+		&common.Line{
+			Builtin: common.CANCEL,
 		},
 	)
 
-	handles, err := _Handles(
-		CANCEL,
+	err := _Stopped(
 		args,
 		kwargs,
 	)
-	if err != nil {
-		scheduler.Close(
-			thread,
-			"",
-			err,
-		)
-
-		return nil, err
-	}
-
-	for _, handle := range handles {
-		handle.Stop()
-	}
 
 	scheduler.Close(
 		thread,
 		"",
-		nil,
+		err,
 	)
+
+	if err != nil {
+		return nil, err
+	}
 
 	return starlark.None, nil
 }
 
-// _Threads is the thread each handle runs on, in order.
+// _Stopped stops every handle given, once Handles has read them.
 //
 // Revisions:
-//   - 2026-10-02 00:48: initial creation
-func _Threads(handles []*scheduler.Handle) []string {
-	threads := make(
-		[]string,
-		0,
-		len(handles),
-	)
-
-	for _, handle := range handles {
-		threads = append(
-			threads,
-			handle.Thread(),
-		)
-	}
-
-	return threads
-}
-
-// _Handles reads a builtin's arguments as a list of handles.
-//
-// Revisions:
-//   - 2026-09-19 20:45: initial creation
-func _Handles(
-	name string,
+//   - 2026-11-02 00:29: initial creation, from _Cancel's body, so the line
+//     _Cancel reports closes in one place whichever way this ends
+//   - 2026-11-08 00:26: read the names from internal/spec (C91w12b)
+//   - 2026-11-08 01:03: reads the moved names from common (Q244, C91w12d)
+//   - 2026-11-10 11:32: uses builtin.Handles, which moved to internal/builtin (C120b, Q315)
+func _Stopped(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
-) ([]*scheduler.Handle, error) {
-	if len(kwargs) > 0 {
-		return nil, fmt.Errorf(
-			"%s takes no keyword arguments: %w",
-			name,
-			ErrNotAHandle,
-		)
-	}
-
-	handles := make(
-		[]*scheduler.Handle,
-		0,
-		len(args),
+) error {
+	handles, err := builtin.Handles(
+		common.CANCEL,
+		args,
+		kwargs,
 	)
-
-	for _, arg := range args {
-		handle, ok := arg.(*scheduler.Handle)
-		if !ok {
-			return nil, fmt.Errorf(
-				"%s got %s: %w",
-				name,
-				arg.Type(),
-				ErrNotAHandle,
-			)
-		}
-
-		handles = append(
-			handles,
-			handle,
-		)
+	if err != nil {
+		return err
 	}
 
-	return handles, nil
-}
-
-// _Abort cancels every handle given and waits for each to stop, or for the
-// caller's own evaluation to be cancelled.
-//
-// Waiting is the half that is easy to leave out. Cancelling alone would let a
-// join return while the evaluations it gave up on were still unwinding, which
-// is how a run ends with goroutines still touching its state.
-//
-// Revisions:
-//   - 2026-09-20 00:11: initial creation
-//   - 2026-09-21 08:09: watches the caller's context while it waits
-//   - 2026-09-21 09:46: settles through the scheduler
-func _Abort(
-	thread *starlark.Thread,
-	handles []*scheduler.Handle,
-) {
 	for _, handle := range handles {
 		handle.Stop()
 	}
 
-	for _, handle := range handles {
-		scheduler.Settle(
-			thread,
-			handle,
-		)
-	}
+	return nil
 }

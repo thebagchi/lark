@@ -31,6 +31,11 @@ const (
 // else failed did not itself fail, and a run a caller stopped did not
 // break. Reporting either as FAILED tells a reader that something went
 // wrong where nothing did - which is why the value exists separately.
+//
+// NOT_STARTED is a function the run never started, because the run was
+// stopped before its spawn was made. It is a node the run adds when it
+// ends, not one a function reports, and it never lists a thread. A node
+// reads NOT_STARTED only in a run that did not succeed.
 type Status int32
 
 const (
@@ -40,6 +45,7 @@ const (
 	Status_STATUS_SUCCEEDED   Status = 3
 	Status_STATUS_FAILED      Status = 4
 	Status_STATUS_CANCELLED   Status = 5
+	Status_STATUS_NOT_STARTED Status = 6
 )
 
 // Enum value maps for Status.
@@ -51,6 +57,7 @@ var (
 		3: "STATUS_SUCCEEDED",
 		4: "STATUS_FAILED",
 		5: "STATUS_CANCELLED",
+		6: "STATUS_NOT_STARTED",
 	}
 	Status_value = map[string]int32{
 		"STATUS_UNSPECIFIED": 0,
@@ -59,6 +66,7 @@ var (
 		"STATUS_SUCCEEDED":   3,
 		"STATUS_FAILED":      4,
 		"STATUS_CANCELLED":   5,
+		"STATUS_NOT_STARTED": 6,
 	}
 )
 
@@ -89,18 +97,318 @@ func (Status) EnumDescriptor() ([]byte, []int) {
 	return file_workflow_proto_rawDescGZIP(), []int{0}
 }
 
+// Value is one script value a flow states: the literal of an operand, an
+// argument of a call, a constant, and the default of an argument. It sits in
+// this package beside google.protobuf.Value, which the plugin wire and the
+// patches keep, because that one has no bytes and holds a number as a float64:
+// the flow must keep what the script wrote, so a flow written back reads the
+// same as the script.
+//
+// null is None. bool is True or False. int is a whole number that fits an
+// int64: protojson writes it as text, "-12", and reads it from text or from a
+// number, and refuses one outside the range. float is a float, so 1 and 1.0
+// differ, as they do in the script. string is valid UTF-8 text. bytes is the
+// bytes of a bytes literal, which JSON writes as base64. list holds values in
+// order. map holds values under string keys.
+//
+// A tuple is no kind: a tuple is not carried. A script int past the int64 range
+// is not carried either. A dict with a key that is no string is not a map: the
+// flow carries the statement as text (see Init). The order of a map is not
+// kept, so a dict of more than one pair is not carried either.
+//
+// A Value with no kind set is not a value, and a flow that holds one is
+// refused. So is a float that is NaN or an infinity, a null kind that holds
+// anything but null, and a value nested deeper than the walkers allow. A bare
+// JSON null where a Value stands is refused too: protojson reads it as no value
+// at all, so a host reads a flow through the lark command, or checks for it.
+// JSON holds every kind as an object with one member named for its kind:
+// {"string": "x"}, {"int": "3"}, {"bytes": "ZA=="}, {"null": null}.
+type Value struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*Value_Null
+	//	*Value_Bool
+	//	*Value_Int
+	//	*Value_Float
+	//	*Value_String_
+	//	*Value_Bytes
+	//	*Value_List
+	//	*Value_Map
+	Kind          isValue_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Value) Reset() {
+	*x = Value{}
+	mi := &file_workflow_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Value) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Value) ProtoMessage() {}
+
+func (x *Value) ProtoReflect() protoreflect.Message {
+	mi := &file_workflow_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Value.ProtoReflect.Descriptor instead.
+func (*Value) Descriptor() ([]byte, []int) {
+	return file_workflow_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *Value) GetKind() isValue_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *Value) GetNull() structpb.NullValue {
+	if x != nil {
+		if x, ok := x.Kind.(*Value_Null); ok {
+			return x.Null
+		}
+	}
+	return structpb.NullValue(0)
+}
+
+func (x *Value) GetBool() bool {
+	if x != nil {
+		if x, ok := x.Kind.(*Value_Bool); ok {
+			return x.Bool
+		}
+	}
+	return false
+}
+
+func (x *Value) GetInt() int64 {
+	if x != nil {
+		if x, ok := x.Kind.(*Value_Int); ok {
+			return x.Int
+		}
+	}
+	return 0
+}
+
+func (x *Value) GetFloat() float64 {
+	if x != nil {
+		if x, ok := x.Kind.(*Value_Float); ok {
+			return x.Float
+		}
+	}
+	return 0
+}
+
+func (x *Value) GetString_() string {
+	if x != nil {
+		if x, ok := x.Kind.(*Value_String_); ok {
+			return x.String_
+		}
+	}
+	return ""
+}
+
+func (x *Value) GetBytes() []byte {
+	if x != nil {
+		if x, ok := x.Kind.(*Value_Bytes); ok {
+			return x.Bytes
+		}
+	}
+	return nil
+}
+
+func (x *Value) GetList() *List {
+	if x != nil {
+		if x, ok := x.Kind.(*Value_List); ok {
+			return x.List
+		}
+	}
+	return nil
+}
+
+func (x *Value) GetMap() *Map {
+	if x != nil {
+		if x, ok := x.Kind.(*Value_Map); ok {
+			return x.Map
+		}
+	}
+	return nil
+}
+
+type isValue_Kind interface {
+	isValue_Kind()
+}
+
+type Value_Null struct {
+	Null structpb.NullValue `protobuf:"varint,1,opt,name=null,proto3,enum=google.protobuf.NullValue,oneof"`
+}
+
+type Value_Bool struct {
+	Bool bool `protobuf:"varint,2,opt,name=bool,proto3,oneof"`
+}
+
+type Value_Int struct {
+	Int int64 `protobuf:"varint,3,opt,name=int,proto3,oneof"`
+}
+
+type Value_Float struct {
+	Float float64 `protobuf:"fixed64,4,opt,name=float,proto3,oneof"`
+}
+
+type Value_String_ struct {
+	String_ string `protobuf:"bytes,5,opt,name=string,proto3,oneof"`
+}
+
+type Value_Bytes struct {
+	Bytes []byte `protobuf:"bytes,6,opt,name=bytes,proto3,oneof"`
+}
+
+type Value_List struct {
+	List *List `protobuf:"bytes,7,opt,name=list,proto3,oneof"`
+}
+
+type Value_Map struct {
+	Map *Map `protobuf:"bytes,8,opt,name=map,proto3,oneof"`
+}
+
+func (*Value_Null) isValue_Kind() {}
+
+func (*Value_Bool) isValue_Kind() {}
+
+func (*Value_Int) isValue_Kind() {}
+
+func (*Value_Float) isValue_Kind() {}
+
+func (*Value_String_) isValue_Kind() {}
+
+func (*Value_Bytes) isValue_Kind() {}
+
+func (*Value_List) isValue_Kind() {}
+
+func (*Value_Map) isValue_Kind() {}
+
+// List is the items of a list value, in order.
+type List struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*Value               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *List) Reset() {
+	*x = List{}
+	mi := &file_workflow_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *List) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*List) ProtoMessage() {}
+
+func (x *List) ProtoReflect() protoreflect.Message {
+	mi := &file_workflow_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use List.ProtoReflect.Descriptor instead.
+func (*List) Descriptor() ([]byte, []int) {
+	return file_workflow_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *List) GetItems() []*Value {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+// Map is the entries of a dict value whose keys are strings.
+type Map struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       map[string]*Value      `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Map) Reset() {
+	*x = Map{}
+	mi := &file_workflow_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Map) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Map) ProtoMessage() {}
+
+func (x *Map) ProtoReflect() protoreflect.Message {
+	mi := &file_workflow_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Map.ProtoReflect.Descriptor instead.
+func (*Map) Descriptor() ([]byte, []int) {
+	return file_workflow_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Map) GetEntries() map[string]*Value {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
 // Operand is one argument at a call site.
 //
 // literal is the value. name is a module-level constant or argument, a
 // parameter of the function that contains the call, or the result of an
 // earlier statement on this same thread. A name has no value until the
 // run, which is why it is not a Value.
+//
+// expression is any other argument, as the script wrote it: retries > 0,
+// or "%s:%d" % (host, port). It is Starlark text that parses as one
+// expression. It has no value until the run, and the flow does not look
+// inside it.
 type Operand struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Source:
 	//
 	//	*Operand_Literal
 	//	*Operand_Name
+	//	*Operand_Expression
 	Source        isOperand_Source `protobuf_oneof:"source"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -108,7 +416,7 @@ type Operand struct {
 
 func (x *Operand) Reset() {
 	*x = Operand{}
-	mi := &file_workflow_proto_msgTypes[0]
+	mi := &file_workflow_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -120,7 +428,7 @@ func (x *Operand) String() string {
 func (*Operand) ProtoMessage() {}
 
 func (x *Operand) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[0]
+	mi := &file_workflow_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -133,7 +441,7 @@ func (x *Operand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Operand.ProtoReflect.Descriptor instead.
 func (*Operand) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{0}
+	return file_workflow_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Operand) GetSource() isOperand_Source {
@@ -143,7 +451,7 @@ func (x *Operand) GetSource() isOperand_Source {
 	return nil
 }
 
-func (x *Operand) GetLiteral() *structpb.Value {
+func (x *Operand) GetLiteral() *Value {
 	if x != nil {
 		if x, ok := x.Source.(*Operand_Literal); ok {
 			return x.Literal
@@ -161,21 +469,90 @@ func (x *Operand) GetName() string {
 	return ""
 }
 
+func (x *Operand) GetExpression() string {
+	if x != nil {
+		if x, ok := x.Source.(*Operand_Expression); ok {
+			return x.Expression
+		}
+	}
+	return ""
+}
+
 type isOperand_Source interface {
 	isOperand_Source()
 }
 
 type Operand_Literal struct {
-	Literal *structpb.Value `protobuf:"bytes,1,opt,name=literal,proto3,oneof"`
+	Literal *Value `protobuf:"bytes,1,opt,name=literal,proto3,oneof"`
 }
 
 type Operand_Name struct {
 	Name string `protobuf:"bytes,2,opt,name=name,proto3,oneof"`
 }
 
+type Operand_Expression struct {
+	Expression string `protobuf:"bytes,3,opt,name=expression,proto3,oneof"`
+}
+
 func (*Operand_Literal) isOperand_Source() {}
 
 func (*Operand_Name) isOperand_Source() {}
+
+func (*Operand_Expression) isOperand_Source() {}
+
+// Keyword is one argument a call passes by name: retries = 3. The value is
+// an Operand, so a keyword may pass a literal, a name or an expression.
+type Keyword struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         *Operand               `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Keyword) Reset() {
+	*x = Keyword{}
+	mi := &file_workflow_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Keyword) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Keyword) ProtoMessage() {}
+
+func (x *Keyword) ProtoReflect() protoreflect.Message {
+	mi := &file_workflow_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Keyword.ProtoReflect.Descriptor instead.
+func (*Keyword) Descriptor() ([]byte, []int) {
+	return file_workflow_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Keyword) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Keyword) GetValue() *Operand {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
 
 // Call runs function. Two Calls of one function may differ in what they
 // pass.
@@ -191,19 +568,30 @@ func (*Operand_Name) isOperand_Source() {}
 // result is the name this call is bound to, and only when the script
 // captures it. kept = sign("hello", "!") sets it. A bare sign("hello",
 // "!") leaves it empty.
+//
+// keywords are the arguments passed by name, after the others, in the
+// order the script wrote them. A call with none leaves it empty.
+//
+// builtin says function is not one the flow declares: a builtin such as
+// print or assert, a predeclared name, or a member of one, written as
+// hex.from_bytes. The flow does not know a builtin's parameters, so it
+// checks no count for it. False, the default, is a function the flow
+// declares, and every flow written before builtin existed reads so.
 type Call struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Function      string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
-	Args          []*structpb.Value      `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
+	Args          []*Value               `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
 	Operands      []*Operand             `protobuf:"bytes,3,rep,name=operands,proto3" json:"operands,omitempty"`
 	Result        string                 `protobuf:"bytes,4,opt,name=result,proto3" json:"result,omitempty"`
+	Keywords      []*Keyword             `protobuf:"bytes,5,rep,name=keywords,proto3" json:"keywords,omitempty"`
+	Builtin       bool                   `protobuf:"varint,6,opt,name=builtin,proto3" json:"builtin,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Call) Reset() {
 	*x = Call{}
-	mi := &file_workflow_proto_msgTypes[1]
+	mi := &file_workflow_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -215,7 +603,7 @@ func (x *Call) String() string {
 func (*Call) ProtoMessage() {}
 
 func (x *Call) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[1]
+	mi := &file_workflow_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -228,7 +616,7 @@ func (x *Call) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Call.ProtoReflect.Descriptor instead.
 func (*Call) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{1}
+	return file_workflow_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Call) GetFunction() string {
@@ -238,7 +626,7 @@ func (x *Call) GetFunction() string {
 	return ""
 }
 
-func (x *Call) GetArgs() []*structpb.Value {
+func (x *Call) GetArgs() []*Value {
 	if x != nil {
 		return x.Args
 	}
@@ -257,6 +645,20 @@ func (x *Call) GetResult() string {
 		return x.Result
 	}
 	return ""
+}
+
+func (x *Call) GetKeywords() []*Keyword {
+	if x != nil {
+		return x.Keywords
+	}
+	return nil
+}
+
+func (x *Call) GetBuiltin() bool {
+	if x != nil {
+		return x.Builtin
+	}
+	return false
 }
 
 // Join waits for every listed spawn to finish and folds them back into
@@ -279,7 +681,7 @@ type Join struct {
 
 func (x *Join) Reset() {
 	*x = Join{}
-	mi := &file_workflow_proto_msgTypes[2]
+	mi := &file_workflow_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -291,7 +693,7 @@ func (x *Join) String() string {
 func (*Join) ProtoMessage() {}
 
 func (x *Join) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[2]
+	mi := &file_workflow_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -304,7 +706,7 @@ func (x *Join) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Join.ProtoReflect.Descriptor instead.
 func (*Join) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{2}
+	return file_workflow_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Join) GetBindings() []string {
@@ -339,7 +741,7 @@ type Cancel struct {
 
 func (x *Cancel) Reset() {
 	*x = Cancel{}
-	mi := &file_workflow_proto_msgTypes[3]
+	mi := &file_workflow_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -351,7 +753,7 @@ func (x *Cancel) String() string {
 func (*Cancel) ProtoMessage() {}
 
 func (x *Cancel) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[3]
+	mi := &file_workflow_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -364,7 +766,7 @@ func (x *Cancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cancel.ProtoReflect.Descriptor instead.
 func (*Cancel) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{3}
+	return file_workflow_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Cancel) GetBindings() []string {
@@ -394,7 +796,7 @@ type Condition struct {
 
 func (x *Condition) Reset() {
 	*x = Condition{}
-	mi := &file_workflow_proto_msgTypes[4]
+	mi := &file_workflow_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -406,7 +808,7 @@ func (x *Condition) String() string {
 func (*Condition) ProtoMessage() {}
 
 func (x *Condition) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[4]
+	mi := &file_workflow_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -419,7 +821,7 @@ func (x *Condition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Condition.ProtoReflect.Descriptor instead.
 func (*Condition) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{4}
+	return file_workflow_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Condition) GetKind() isCondition_Kind {
@@ -496,7 +898,7 @@ type If struct {
 
 func (x *If) Reset() {
 	*x = If{}
-	mi := &file_workflow_proto_msgTypes[5]
+	mi := &file_workflow_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -508,7 +910,7 @@ func (x *If) String() string {
 func (*If) ProtoMessage() {}
 
 func (x *If) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[5]
+	mi := &file_workflow_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -521,7 +923,7 @@ func (x *If) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use If.ProtoReflect.Descriptor instead.
 func (*If) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{5}
+	return file_workflow_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *If) GetCondition() *Condition {
@@ -565,7 +967,7 @@ type Expression struct {
 
 func (x *Expression) Reset() {
 	*x = Expression{}
-	mi := &file_workflow_proto_msgTypes[6]
+	mi := &file_workflow_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -577,7 +979,7 @@ func (x *Expression) String() string {
 func (*Expression) ProtoMessage() {}
 
 func (x *Expression) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[6]
+	mi := &file_workflow_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -590,7 +992,7 @@ func (x *Expression) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Expression.ProtoReflect.Descriptor instead.
 func (*Expression) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{6}
+	return file_workflow_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Expression) GetKind() isExpression_Kind {
@@ -661,7 +1063,7 @@ type Case struct {
 
 func (x *Case) Reset() {
 	*x = Case{}
-	mi := &file_workflow_proto_msgTypes[7]
+	mi := &file_workflow_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -673,7 +1075,7 @@ func (x *Case) String() string {
 func (*Case) ProtoMessage() {}
 
 func (x *Case) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[7]
+	mi := &file_workflow_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -686,7 +1088,7 @@ func (x *Case) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Case.ProtoReflect.Descriptor instead.
 func (*Case) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{7}
+	return file_workflow_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Case) GetValue() string {
@@ -720,7 +1122,7 @@ type Match struct {
 
 func (x *Match) Reset() {
 	*x = Match{}
-	mi := &file_workflow_proto_msgTypes[8]
+	mi := &file_workflow_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -732,7 +1134,7 @@ func (x *Match) String() string {
 func (*Match) ProtoMessage() {}
 
 func (x *Match) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[8]
+	mi := &file_workflow_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -745,7 +1147,7 @@ func (x *Match) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Match.ProtoReflect.Descriptor instead.
 func (*Match) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{8}
+	return file_workflow_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Match) GetExpression() *Expression {
@@ -783,7 +1185,7 @@ type Repeat struct {
 
 func (x *Repeat) Reset() {
 	*x = Repeat{}
-	mi := &file_workflow_proto_msgTypes[9]
+	mi := &file_workflow_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -795,7 +1197,7 @@ func (x *Repeat) String() string {
 func (*Repeat) ProtoMessage() {}
 
 func (x *Repeat) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[9]
+	mi := &file_workflow_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -808,7 +1210,7 @@ func (x *Repeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Repeat.ProtoReflect.Descriptor instead.
 func (*Repeat) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{9}
+	return file_workflow_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Repeat) GetCall() *Call {
@@ -846,7 +1248,7 @@ type Retry struct {
 
 func (x *Retry) Reset() {
 	*x = Retry{}
-	mi := &file_workflow_proto_msgTypes[10]
+	mi := &file_workflow_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -858,7 +1260,7 @@ func (x *Retry) String() string {
 func (*Retry) ProtoMessage() {}
 
 func (x *Retry) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[10]
+	mi := &file_workflow_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -871,7 +1273,7 @@ func (x *Retry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Retry.ProtoReflect.Descriptor instead.
 func (*Retry) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{10}
+	return file_workflow_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Retry) GetCall() *Call {
@@ -909,7 +1311,7 @@ type Sleep struct {
 
 func (x *Sleep) Reset() {
 	*x = Sleep{}
-	mi := &file_workflow_proto_msgTypes[11]
+	mi := &file_workflow_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -921,7 +1323,7 @@ func (x *Sleep) String() string {
 func (*Sleep) ProtoMessage() {}
 
 func (x *Sleep) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[11]
+	mi := &file_workflow_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -934,7 +1336,7 @@ func (x *Sleep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Sleep.ProtoReflect.Descriptor instead.
 func (*Sleep) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{11}
+	return file_workflow_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Sleep) GetDurationMs() int32 {
@@ -957,7 +1359,7 @@ type Timeout struct {
 
 func (x *Timeout) Reset() {
 	*x = Timeout{}
-	mi := &file_workflow_proto_msgTypes[12]
+	mi := &file_workflow_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -969,7 +1371,7 @@ func (x *Timeout) String() string {
 func (*Timeout) ProtoMessage() {}
 
 func (x *Timeout) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[12]
+	mi := &file_workflow_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -982,7 +1384,7 @@ func (x *Timeout) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Timeout.ProtoReflect.Descriptor instead.
 func (*Timeout) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{12}
+	return file_workflow_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Timeout) GetCall() *Call {
@@ -1020,7 +1422,7 @@ type Spawn struct {
 
 func (x *Spawn) Reset() {
 	*x = Spawn{}
-	mi := &file_workflow_proto_msgTypes[13]
+	mi := &file_workflow_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1032,7 +1434,7 @@ func (x *Spawn) String() string {
 func (*Spawn) ProtoMessage() {}
 
 func (x *Spawn) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[13]
+	mi := &file_workflow_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1045,7 +1447,7 @@ func (x *Spawn) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Spawn.ProtoReflect.Descriptor instead.
 func (*Spawn) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{13}
+	return file_workflow_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *Spawn) GetBinding() string {
@@ -1086,7 +1488,7 @@ type Loop struct {
 
 func (x *Loop) Reset() {
 	*x = Loop{}
-	mi := &file_workflow_proto_msgTypes[14]
+	mi := &file_workflow_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1098,7 +1500,7 @@ func (x *Loop) String() string {
 func (*Loop) ProtoMessage() {}
 
 func (x *Loop) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[14]
+	mi := &file_workflow_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1111,7 +1513,7 @@ func (x *Loop) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Loop.ProtoReflect.Descriptor instead.
 func (*Loop) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{14}
+	return file_workflow_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Loop) GetTimes() *Operand {
@@ -1161,7 +1563,7 @@ type Statement struct {
 
 func (x *Statement) Reset() {
 	*x = Statement{}
-	mi := &file_workflow_proto_msgTypes[15]
+	mi := &file_workflow_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1173,7 +1575,7 @@ func (x *Statement) String() string {
 func (*Statement) ProtoMessage() {}
 
 func (x *Statement) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[15]
+	mi := &file_workflow_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1186,7 +1588,7 @@ func (x *Statement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Statement.ProtoReflect.Descriptor instead.
 func (*Statement) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{15}
+	return file_workflow_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Statement) GetAction() isStatement_Action {
@@ -1377,7 +1779,7 @@ type Statements struct {
 
 func (x *Statements) Reset() {
 	*x = Statements{}
-	mi := &file_workflow_proto_msgTypes[16]
+	mi := &file_workflow_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1389,7 +1791,7 @@ func (x *Statements) String() string {
 func (*Statements) ProtoMessage() {}
 
 func (x *Statements) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[16]
+	mi := &file_workflow_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1402,7 +1804,7 @@ func (x *Statements) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Statements.ProtoReflect.Descriptor instead.
 func (*Statements) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{16}
+	return file_workflow_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Statements) GetStatement() []*Statement {
@@ -1437,7 +1839,7 @@ type Function struct {
 
 func (x *Function) Reset() {
 	*x = Function{}
-	mi := &file_workflow_proto_msgTypes[17]
+	mi := &file_workflow_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1449,7 +1851,7 @@ func (x *Function) String() string {
 func (*Function) ProtoMessage() {}
 
 func (x *Function) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[17]
+	mi := &file_workflow_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1462,7 +1864,7 @@ func (x *Function) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Function.ProtoReflect.Descriptor instead.
 func (*Function) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{17}
+	return file_workflow_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Function) GetName() string {
@@ -1533,6 +1935,9 @@ func (*Function_Statements) isFunction_Code() {}
 // the function the lambda calls. A line that calls none - a join, a sleep,
 // a cancel - is no node.
 //
+// A function the run was stopped before starting is a node too, with the
+// status NOT_STARTED: see Graph.
+//
 // threads are the threads whose innermost call is this function at this
 // moment: the ones executing it, in the order they arrived. A thread
 // leaves when it calls something further or returns, so a function
@@ -1548,7 +1953,7 @@ type Node struct {
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_workflow_proto_msgTypes[18]
+	mi := &file_workflow_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1560,7 +1965,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[18]
+	mi := &file_workflow_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1573,7 +1978,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{18}
+	return file_workflow_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Node) GetName() string {
@@ -1613,7 +2018,7 @@ type Edge struct {
 
 func (x *Edge) Reset() {
 	*x = Edge{}
-	mi := &file_workflow_proto_msgTypes[19]
+	mi := &file_workflow_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1625,7 +2030,7 @@ func (x *Edge) String() string {
 func (*Edge) ProtoMessage() {}
 
 func (x *Edge) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[19]
+	mi := &file_workflow_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1638,7 +2043,7 @@ func (x *Edge) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Edge.ProtoReflect.Descriptor instead.
 func (*Edge) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{19}
+	return file_workflow_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Edge) GetCaller() string {
@@ -1676,7 +2081,7 @@ type Constant struct {
 
 func (x *Constant) Reset() {
 	*x = Constant{}
-	mi := &file_workflow_proto_msgTypes[20]
+	mi := &file_workflow_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1688,7 +2093,7 @@ func (x *Constant) String() string {
 func (*Constant) ProtoMessage() {}
 
 func (x *Constant) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[20]
+	mi := &file_workflow_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1701,7 +2106,7 @@ func (x *Constant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Constant.ProtoReflect.Descriptor instead.
 func (*Constant) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{20}
+	return file_workflow_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Constant) GetKind() isConstant_Kind {
@@ -1711,7 +2116,7 @@ func (x *Constant) GetKind() isConstant_Kind {
 	return nil
 }
 
-func (x *Constant) GetValue() *structpb.Value {
+func (x *Constant) GetValue() *Value {
 	if x != nil {
 		if x, ok := x.Kind.(*Constant_Value); ok {
 			return x.Value
@@ -1734,7 +2139,7 @@ type isConstant_Kind interface {
 }
 
 type Constant_Value struct {
-	Value *structpb.Value `protobuf:"bytes,1,opt,name=value,proto3,oneof"`
+	Value *Value `protobuf:"bytes,1,opt,name=value,proto3,oneof"`
 }
 
 type Constant_Call struct {
@@ -1772,7 +2177,7 @@ type Change struct {
 
 func (x *Change) Reset() {
 	*x = Change{}
-	mi := &file_workflow_proto_msgTypes[21]
+	mi := &file_workflow_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1784,7 +2189,7 @@ func (x *Change) String() string {
 func (*Change) ProtoMessage() {}
 
 func (x *Change) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[21]
+	mi := &file_workflow_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1797,7 +2202,7 @@ func (x *Change) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Change.ProtoReflect.Descriptor instead.
 func (*Change) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{21}
+	return file_workflow_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Change) GetOperations() []*patch.Operation {
@@ -1822,14 +2227,14 @@ func (x *Change) GetOperations() []*patch.Operation {
 type Arg struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Default       *structpb.Value        `protobuf:"bytes,2,opt,name=default,proto3" json:"default,omitempty"`
+	Default       *Value                 `protobuf:"bytes,2,opt,name=default,proto3" json:"default,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Arg) Reset() {
 	*x = Arg{}
-	mi := &file_workflow_proto_msgTypes[22]
+	mi := &file_workflow_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1841,7 +2246,7 @@ func (x *Arg) String() string {
 func (*Arg) ProtoMessage() {}
 
 func (x *Arg) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[22]
+	mi := &file_workflow_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1854,7 +2259,7 @@ func (x *Arg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Arg.ProtoReflect.Descriptor instead.
 func (*Arg) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{22}
+	return file_workflow_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Arg) GetName() string {
@@ -1864,12 +2269,103 @@ func (x *Arg) GetName() string {
 	return ""
 }
 
-func (x *Arg) GetDefault() *structpb.Value {
+func (x *Arg) GetDefault() *Value {
 	if x != nil {
 		return x.Default
 	}
 	return nil
 }
+
+// Init is one top-level statement that runs when a script is set up.
+//
+// call is the statement when it is a call: of a function the flow
+// declares, or of a builtin or a member of a predeclared name, with
+// positional arguments, keyword arguments, and arguments that are
+// expressions. text is a statement that is no call, as the script wrote it,
+// the way a function body the flow cannot model is carried: an if, a for,
+// an augmented assignment, and a call that unpacks its arguments. An Init
+// carries one of the two.
+type Init struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Form:
+	//
+	//	*Init_Call
+	//	*Init_Text
+	Form          isInit_Form `protobuf_oneof:"form"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Init) Reset() {
+	*x = Init{}
+	mi := &file_workflow_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Init) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Init) ProtoMessage() {}
+
+func (x *Init) ProtoReflect() protoreflect.Message {
+	mi := &file_workflow_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Init.ProtoReflect.Descriptor instead.
+func (*Init) Descriptor() ([]byte, []int) {
+	return file_workflow_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *Init) GetForm() isInit_Form {
+	if x != nil {
+		return x.Form
+	}
+	return nil
+}
+
+func (x *Init) GetCall() *Call {
+	if x != nil {
+		if x, ok := x.Form.(*Init_Call); ok {
+			return x.Call
+		}
+	}
+	return nil
+}
+
+func (x *Init) GetText() string {
+	if x != nil {
+		if x, ok := x.Form.(*Init_Text); ok {
+			return x.Text
+		}
+	}
+	return ""
+}
+
+type isInit_Form interface {
+	isInit_Form()
+}
+
+type Init_Call struct {
+	Call *Call `protobuf:"bytes,1,opt,name=call,proto3,oneof"`
+}
+
+type Init_Text struct {
+	Text string `protobuf:"bytes,2,opt,name=text,proto3,oneof"`
+}
+
+func (*Init_Call) isInit_Form() {}
+
+func (*Init_Text) isInit_Form() {}
 
 // Flow is the workflow a UI reads: the functions, the statements inside
 // them, and main. It carries no status. A run does not require a flow.
@@ -1894,6 +2390,15 @@ func (x *Arg) GetDefault() *structpb.Value {
 // stored. A generator writes def main() from whichever is set. The list
 // does not begin with a call of main. Field 2 is unused: it was the
 // thread list, and a flow has none.
+//
+// init is the entry script's own top-level statements that are no def,
+// no load and no constant or argument: a call, an assert, an if, a for,
+// an augmented assignment. One entry for each statement, in the order the
+// script wrote them. They run when the script is set up, before main,
+// the way a top-level statement runs when a file is read. A generator
+// writes them at the top of the file after the arguments, with no
+// function around them: init is not a name in the script. A statement of
+// a loaded module is not carried: that is an error of the derivation.
 type Flow struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Functions []*Function            `protobuf:"bytes,1,rep,name=functions,proto3" json:"functions,omitempty"`
@@ -1904,13 +2409,14 @@ type Flow struct {
 	//	*Flow_Main
 	//	*Flow_Text
 	Spine         isFlow_Spine `protobuf_oneof:"spine"`
+	Init          []*Init      `protobuf:"bytes,7,rep,name=init,proto3" json:"init,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Flow) Reset() {
 	*x = Flow{}
-	mi := &file_workflow_proto_msgTypes[23]
+	mi := &file_workflow_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1922,7 +2428,7 @@ func (x *Flow) String() string {
 func (*Flow) ProtoMessage() {}
 
 func (x *Flow) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[23]
+	mi := &file_workflow_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1935,7 +2441,7 @@ func (x *Flow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flow.ProtoReflect.Descriptor instead.
 func (*Flow) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{23}
+	return file_workflow_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *Flow) GetFunctions() []*Function {
@@ -1984,6 +2490,13 @@ func (x *Flow) GetText() string {
 	return ""
 }
 
+func (x *Flow) GetInit() []*Init {
+	if x != nil {
+		return x.Init
+	}
+	return nil
+}
+
 type isFlow_Spine interface {
 	isFlow_Spine()
 }
@@ -2018,7 +2531,7 @@ type Cause struct {
 
 func (x *Cause) Reset() {
 	*x = Cause{}
-	mi := &file_workflow_proto_msgTypes[24]
+	mi := &file_workflow_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2030,7 +2543,7 @@ func (x *Cause) String() string {
 func (*Cause) ProtoMessage() {}
 
 func (x *Cause) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[24]
+	mi := &file_workflow_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2043,7 +2556,7 @@ func (x *Cause) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cause.ProtoReflect.Descriptor instead.
 func (*Cause) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{24}
+	return file_workflow_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Cause) GetFunction() string {
@@ -2062,7 +2575,8 @@ func (x *Cause) GetFailure() string {
 
 // Graph is the status of a run, as a call graph: every function the run
 // has called, each with its status and the threads executing it, and an
-// edge for each call between them. A user interface reads it to see what is
+// edge for each call between them. Once a run that did not succeed has
+// ended, it also holds the functions the stop kept it from starting. A user interface reads it to see what is
 // happening, while the run goes or once it has ended, and draws it as a
 // profiler draws one. It starts as {}, and each Change patches it.
 //
@@ -2072,6 +2586,17 @@ func (x *Cause) GetFailure() string {
 // cause is set only when status is FAILED, so a host can test the pointer
 // rather than the enum. A cancelled run has no cause: nothing went wrong in
 // it, which is what CANCELLED is for.
+//
+// A spawn made after the run is stopped is refused, so a function the stop
+// came before is never started. When a run ends FAILED or CANCELLED, the
+// graph adds a node with the status NOT_STARTED for each function that a
+// called function spawns in its script and the run never started, and an
+// edge from the function that holds the spawn. A spawn in a function the run
+// never called adds nothing. The graph cannot tell a spawn the stop
+// prevented from one in a branch the script would not have taken, so a
+// function reads NOT_STARTED when any called function could have spawned it.
+// The cause names the function that stopped a FAILED run; a CANCELLED run has
+// none.
 type Graph struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Status        Status                 `protobuf:"varint,1,opt,name=status,proto3,enum=workflow.Status" json:"status,omitempty"`
@@ -2084,7 +2609,7 @@ type Graph struct {
 
 func (x *Graph) Reset() {
 	*x = Graph{}
-	mi := &file_workflow_proto_msgTypes[25]
+	mi := &file_workflow_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2096,7 +2621,7 @@ func (x *Graph) String() string {
 func (*Graph) ProtoMessage() {}
 
 func (x *Graph) ProtoReflect() protoreflect.Message {
-	mi := &file_workflow_proto_msgTypes[25]
+	mi := &file_workflow_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2109,7 +2634,7 @@ func (x *Graph) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Graph.ProtoReflect.Descriptor instead.
 func (*Graph) Descriptor() ([]byte, []int) {
-	return file_workflow_proto_rawDescGZIP(), []int{25}
+	return file_workflow_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *Graph) GetStatus() Status {
@@ -2144,16 +2669,41 @@ var File_workflow_proto protoreflect.FileDescriptor
 
 const file_workflow_proto_rawDesc = "" +
 	"\n" +
-	"\x0eworkflow.proto\x12\bworkflow\x1a\x1cgoogle/protobuf/struct.proto\x1a\vpatch.proto\"]\n" +
-	"\aOperand\x122\n" +
-	"\aliteral\x18\x01 \x01(\v2\x16.google.protobuf.ValueH\x00R\aliteral\x12\x14\n" +
-	"\x04name\x18\x02 \x01(\tH\x00R\x04nameB\b\n" +
-	"\x06source\"\x95\x01\n" +
+	"\x0eworkflow.proto\x12\bworkflow\x1a\x1cgoogle/protobuf/struct.proto\x1a\vpatch.proto\"\xfe\x01\n" +
+	"\x05Value\x120\n" +
+	"\x04null\x18\x01 \x01(\x0e2\x1a.google.protobuf.NullValueH\x00R\x04null\x12\x14\n" +
+	"\x04bool\x18\x02 \x01(\bH\x00R\x04bool\x12\x12\n" +
+	"\x03int\x18\x03 \x01(\x03H\x00R\x03int\x12\x16\n" +
+	"\x05float\x18\x04 \x01(\x01H\x00R\x05float\x12\x18\n" +
+	"\x06string\x18\x05 \x01(\tH\x00R\x06string\x12\x16\n" +
+	"\x05bytes\x18\x06 \x01(\fH\x00R\x05bytes\x12$\n" +
+	"\x04list\x18\a \x01(\v2\x0e.workflow.ListH\x00R\x04list\x12!\n" +
+	"\x03map\x18\b \x01(\v2\r.workflow.MapH\x00R\x03mapB\x06\n" +
+	"\x04kind\"-\n" +
+	"\x04List\x12%\n" +
+	"\x05items\x18\x01 \x03(\v2\x0f.workflow.ValueR\x05items\"\x88\x01\n" +
+	"\x03Map\x124\n" +
+	"\aentries\x18\x01 \x03(\v2\x1a.workflow.Map.EntriesEntryR\aentries\x1aK\n" +
+	"\fEntriesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12%\n" +
+	"\x05value\x18\x02 \x01(\v2\x0f.workflow.ValueR\x05value:\x028\x01\"x\n" +
+	"\aOperand\x12+\n" +
+	"\aliteral\x18\x01 \x01(\v2\x0f.workflow.ValueH\x00R\aliteral\x12\x14\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x12 \n" +
+	"\n" +
+	"expression\x18\x03 \x01(\tH\x00R\n" +
+	"expressionB\b\n" +
+	"\x06source\"F\n" +
+	"\aKeyword\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
+	"\x05value\x18\x02 \x01(\v2\x11.workflow.OperandR\x05value\"\xd7\x01\n" +
 	"\x04Call\x12\x1a\n" +
-	"\bfunction\x18\x01 \x01(\tR\bfunction\x12*\n" +
-	"\x04args\x18\x02 \x03(\v2\x16.google.protobuf.ValueR\x04args\x12-\n" +
+	"\bfunction\x18\x01 \x01(\tR\bfunction\x12#\n" +
+	"\x04args\x18\x02 \x03(\v2\x0f.workflow.ValueR\x04args\x12-\n" +
 	"\boperands\x18\x03 \x03(\v2\x11.workflow.OperandR\boperands\x12\x16\n" +
-	"\x06result\x18\x04 \x01(\tR\x06result\":\n" +
+	"\x06result\x18\x04 \x01(\tR\x06result\x12-\n" +
+	"\bkeywords\x18\x05 \x03(\v2\x11.workflow.KeywordR\bkeywords\x12\x18\n" +
+	"\abuiltin\x18\x06 \x01(\bR\abuiltin\":\n" +
 	"\x04Join\x12\x1a\n" +
 	"\bbindings\x18\x01 \x03(\tR\bbindings\x12\x16\n" +
 	"\x06result\x18\x02 \x01(\tR\x06result\"$\n" +
@@ -2235,24 +2785,29 @@ const file_workflow_proto_rawDesc = "" +
 	"\athreads\x18\x03 \x03(\tR\athreads\"6\n" +
 	"\x04Edge\x12\x16\n" +
 	"\x06caller\x18\x01 \x01(\tR\x06caller\x12\x16\n" +
-	"\x06callee\x18\x02 \x01(\tR\x06callee\"h\n" +
-	"\bConstant\x12.\n" +
-	"\x05value\x18\x01 \x01(\v2\x16.google.protobuf.ValueH\x00R\x05value\x12$\n" +
+	"\x06callee\x18\x02 \x01(\tR\x06callee\"a\n" +
+	"\bConstant\x12'\n" +
+	"\x05value\x18\x01 \x01(\v2\x0f.workflow.ValueH\x00R\x05value\x12$\n" +
 	"\x04call\x18\x02 \x01(\v2\x0e.workflow.CallH\x00R\x04callB\x06\n" +
 	"\x04kind\":\n" +
 	"\x06Change\x120\n" +
 	"\n" +
 	"operations\x18\x01 \x03(\v2\x10.patch.OperationR\n" +
-	"operations\"K\n" +
+	"operations\"D\n" +
 	"\x03Arg\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
-	"\adefault\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\adefault\"\x88\x03\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
+	"\adefault\x18\x02 \x01(\v2\x0f.workflow.ValueR\adefault\"J\n" +
+	"\x04Init\x12$\n" +
+	"\x04call\x18\x01 \x01(\v2\x0e.workflow.CallH\x00R\x04call\x12\x14\n" +
+	"\x04text\x18\x02 \x01(\tH\x00R\x04textB\x06\n" +
+	"\x04form\"\xac\x03\n" +
 	"\x04Flow\x120\n" +
 	"\tfunctions\x18\x01 \x03(\v2\x12.workflow.FunctionR\tfunctions\x12;\n" +
 	"\tconstants\x18\x03 \x03(\v2\x1d.workflow.Flow.ConstantsEntryR\tconstants\x12,\n" +
 	"\x04args\x18\x04 \x03(\v2\x18.workflow.Flow.ArgsEntryR\x04args\x12*\n" +
 	"\x04main\x18\x05 \x01(\v2\x14.workflow.StatementsH\x00R\x04main\x12\x14\n" +
-	"\x04text\x18\x06 \x01(\tH\x00R\x04text\x1aP\n" +
+	"\x04text\x18\x06 \x01(\tH\x00R\x04text\x12\"\n" +
+	"\x04init\x18\a \x03(\v2\x0e.workflow.InitR\x04init\x1aP\n" +
 	"\x0eConstantsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
 	"\x05value\x18\x02 \x01(\v2\x12.workflow.ConstantR\x05value:\x028\x01\x1aF\n" +
@@ -2267,14 +2822,15 @@ const file_workflow_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\x0e2\x10.workflow.StatusR\x06status\x12,\n" +
 	"\tfunctions\x18\x02 \x03(\v2\x0e.workflow.NodeR\tfunctions\x12$\n" +
 	"\x05calls\x18\x03 \x03(\v2\x0e.workflow.EdgeR\x05calls\x12%\n" +
-	"\x05cause\x18\x04 \x01(\v2\x0f.workflow.CauseR\x05cause*\x87\x01\n" +
+	"\x05cause\x18\x04 \x01(\v2\x0f.workflow.CauseR\x05cause*\x9f\x01\n" +
 	"\x06Status\x12\x16\n" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSTATUS_PENDING\x10\x01\x12\x12\n" +
 	"\x0eSTATUS_RUNNING\x10\x02\x12\x14\n" +
 	"\x10STATUS_SUCCEEDED\x10\x03\x12\x11\n" +
 	"\rSTATUS_FAILED\x10\x04\x12\x14\n" +
-	"\x10STATUS_CANCELLED\x10\x05B7Z5github.com/thebagchi/lark/proto/gen/workflow;workflowb\x06proto3"
+	"\x10STATUS_CANCELLED\x10\x05\x12\x16\n" +
+	"\x12STATUS_NOT_STARTED\x10\x06B7Z5github.com/thebagchi/lark/proto/gen/workflow;workflowb\x06proto3"
 
 var (
 	file_workflow_proto_rawDescOnce sync.Once
@@ -2289,92 +2845,108 @@ func file_workflow_proto_rawDescGZIP() []byte {
 }
 
 var file_workflow_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_workflow_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_workflow_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_workflow_proto_goTypes = []any{
 	(Status)(0),             // 0: workflow.Status
-	(*Operand)(nil),         // 1: workflow.Operand
-	(*Call)(nil),            // 2: workflow.Call
-	(*Join)(nil),            // 3: workflow.Join
-	(*Cancel)(nil),          // 4: workflow.Cancel
-	(*Condition)(nil),       // 5: workflow.Condition
-	(*If)(nil),              // 6: workflow.If
-	(*Expression)(nil),      // 7: workflow.Expression
-	(*Case)(nil),            // 8: workflow.Case
-	(*Match)(nil),           // 9: workflow.Match
-	(*Repeat)(nil),          // 10: workflow.Repeat
-	(*Retry)(nil),           // 11: workflow.Retry
-	(*Sleep)(nil),           // 12: workflow.Sleep
-	(*Timeout)(nil),         // 13: workflow.Timeout
-	(*Spawn)(nil),           // 14: workflow.Spawn
-	(*Loop)(nil),            // 15: workflow.Loop
-	(*Statement)(nil),       // 16: workflow.Statement
-	(*Statements)(nil),      // 17: workflow.Statements
-	(*Function)(nil),        // 18: workflow.Function
-	(*Node)(nil),            // 19: workflow.Node
-	(*Edge)(nil),            // 20: workflow.Edge
-	(*Constant)(nil),        // 21: workflow.Constant
-	(*Change)(nil),          // 22: workflow.Change
-	(*Arg)(nil),             // 23: workflow.Arg
-	(*Flow)(nil),            // 24: workflow.Flow
-	(*Cause)(nil),           // 25: workflow.Cause
-	(*Graph)(nil),           // 26: workflow.Graph
-	nil,                     // 27: workflow.Flow.ConstantsEntry
-	nil,                     // 28: workflow.Flow.ArgsEntry
-	(*structpb.Value)(nil),  // 29: google.protobuf.Value
-	(*patch.Operation)(nil), // 30: patch.Operation
+	(*Value)(nil),           // 1: workflow.Value
+	(*List)(nil),            // 2: workflow.List
+	(*Map)(nil),             // 3: workflow.Map
+	(*Operand)(nil),         // 4: workflow.Operand
+	(*Keyword)(nil),         // 5: workflow.Keyword
+	(*Call)(nil),            // 6: workflow.Call
+	(*Join)(nil),            // 7: workflow.Join
+	(*Cancel)(nil),          // 8: workflow.Cancel
+	(*Condition)(nil),       // 9: workflow.Condition
+	(*If)(nil),              // 10: workflow.If
+	(*Expression)(nil),      // 11: workflow.Expression
+	(*Case)(nil),            // 12: workflow.Case
+	(*Match)(nil),           // 13: workflow.Match
+	(*Repeat)(nil),          // 14: workflow.Repeat
+	(*Retry)(nil),           // 15: workflow.Retry
+	(*Sleep)(nil),           // 16: workflow.Sleep
+	(*Timeout)(nil),         // 17: workflow.Timeout
+	(*Spawn)(nil),           // 18: workflow.Spawn
+	(*Loop)(nil),            // 19: workflow.Loop
+	(*Statement)(nil),       // 20: workflow.Statement
+	(*Statements)(nil),      // 21: workflow.Statements
+	(*Function)(nil),        // 22: workflow.Function
+	(*Node)(nil),            // 23: workflow.Node
+	(*Edge)(nil),            // 24: workflow.Edge
+	(*Constant)(nil),        // 25: workflow.Constant
+	(*Change)(nil),          // 26: workflow.Change
+	(*Arg)(nil),             // 27: workflow.Arg
+	(*Init)(nil),            // 28: workflow.Init
+	(*Flow)(nil),            // 29: workflow.Flow
+	(*Cause)(nil),           // 30: workflow.Cause
+	(*Graph)(nil),           // 31: workflow.Graph
+	nil,                     // 32: workflow.Map.EntriesEntry
+	nil,                     // 33: workflow.Flow.ConstantsEntry
+	nil,                     // 34: workflow.Flow.ArgsEntry
+	(structpb.NullValue)(0), // 35: google.protobuf.NullValue
+	(*patch.Operation)(nil), // 36: patch.Operation
 }
 var file_workflow_proto_depIdxs = []int32{
-	29, // 0: workflow.Operand.literal:type_name -> google.protobuf.Value
-	29, // 1: workflow.Call.args:type_name -> google.protobuf.Value
-	1,  // 2: workflow.Call.operands:type_name -> workflow.Operand
-	2,  // 3: workflow.Condition.call:type_name -> workflow.Call
-	5,  // 4: workflow.If.condition:type_name -> workflow.Condition
-	16, // 5: workflow.If.then:type_name -> workflow.Statement
-	16, // 6: workflow.If.else:type_name -> workflow.Statement
-	2,  // 7: workflow.Expression.call:type_name -> workflow.Call
-	16, // 8: workflow.Case.statement:type_name -> workflow.Statement
-	7,  // 9: workflow.Match.expression:type_name -> workflow.Expression
-	8,  // 10: workflow.Match.cases:type_name -> workflow.Case
-	16, // 11: workflow.Match.default:type_name -> workflow.Statement
-	2,  // 12: workflow.Repeat.call:type_name -> workflow.Call
-	2,  // 13: workflow.Retry.call:type_name -> workflow.Call
-	2,  // 14: workflow.Timeout.call:type_name -> workflow.Call
-	2,  // 15: workflow.Spawn.call:type_name -> workflow.Call
-	1,  // 16: workflow.Loop.times:type_name -> workflow.Operand
-	16, // 17: workflow.Loop.body:type_name -> workflow.Statement
-	2,  // 18: workflow.Statement.call:type_name -> workflow.Call
-	14, // 19: workflow.Statement.spawn:type_name -> workflow.Spawn
-	3,  // 20: workflow.Statement.join:type_name -> workflow.Join
-	6,  // 21: workflow.Statement.if:type_name -> workflow.If
-	9,  // 22: workflow.Statement.match:type_name -> workflow.Match
-	10, // 23: workflow.Statement.repeat:type_name -> workflow.Repeat
-	11, // 24: workflow.Statement.retry:type_name -> workflow.Retry
-	12, // 25: workflow.Statement.sleep:type_name -> workflow.Sleep
-	13, // 26: workflow.Statement.timeout:type_name -> workflow.Timeout
-	4,  // 27: workflow.Statement.cancel:type_name -> workflow.Cancel
-	15, // 28: workflow.Statement.loop:type_name -> workflow.Loop
-	16, // 29: workflow.Statements.statement:type_name -> workflow.Statement
-	17, // 30: workflow.Function.statements:type_name -> workflow.Statements
-	0,  // 31: workflow.Node.status:type_name -> workflow.Status
-	29, // 32: workflow.Constant.value:type_name -> google.protobuf.Value
-	2,  // 33: workflow.Constant.call:type_name -> workflow.Call
-	30, // 34: workflow.Change.operations:type_name -> patch.Operation
-	29, // 35: workflow.Arg.default:type_name -> google.protobuf.Value
-	18, // 36: workflow.Flow.functions:type_name -> workflow.Function
-	27, // 37: workflow.Flow.constants:type_name -> workflow.Flow.ConstantsEntry
-	28, // 38: workflow.Flow.args:type_name -> workflow.Flow.ArgsEntry
-	17, // 39: workflow.Flow.main:type_name -> workflow.Statements
-	0,  // 40: workflow.Graph.status:type_name -> workflow.Status
-	19, // 41: workflow.Graph.functions:type_name -> workflow.Node
-	20, // 42: workflow.Graph.calls:type_name -> workflow.Edge
-	25, // 43: workflow.Graph.cause:type_name -> workflow.Cause
-	21, // 44: workflow.Flow.ConstantsEntry.value:type_name -> workflow.Constant
-	23, // 45: workflow.Flow.ArgsEntry.value:type_name -> workflow.Arg
-	46, // [46:46] is the sub-list for method output_type
-	46, // [46:46] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	35, // 0: workflow.Value.null:type_name -> google.protobuf.NullValue
+	2,  // 1: workflow.Value.list:type_name -> workflow.List
+	3,  // 2: workflow.Value.map:type_name -> workflow.Map
+	1,  // 3: workflow.List.items:type_name -> workflow.Value
+	32, // 4: workflow.Map.entries:type_name -> workflow.Map.EntriesEntry
+	1,  // 5: workflow.Operand.literal:type_name -> workflow.Value
+	4,  // 6: workflow.Keyword.value:type_name -> workflow.Operand
+	1,  // 7: workflow.Call.args:type_name -> workflow.Value
+	4,  // 8: workflow.Call.operands:type_name -> workflow.Operand
+	5,  // 9: workflow.Call.keywords:type_name -> workflow.Keyword
+	6,  // 10: workflow.Condition.call:type_name -> workflow.Call
+	9,  // 11: workflow.If.condition:type_name -> workflow.Condition
+	20, // 12: workflow.If.then:type_name -> workflow.Statement
+	20, // 13: workflow.If.else:type_name -> workflow.Statement
+	6,  // 14: workflow.Expression.call:type_name -> workflow.Call
+	20, // 15: workflow.Case.statement:type_name -> workflow.Statement
+	11, // 16: workflow.Match.expression:type_name -> workflow.Expression
+	12, // 17: workflow.Match.cases:type_name -> workflow.Case
+	20, // 18: workflow.Match.default:type_name -> workflow.Statement
+	6,  // 19: workflow.Repeat.call:type_name -> workflow.Call
+	6,  // 20: workflow.Retry.call:type_name -> workflow.Call
+	6,  // 21: workflow.Timeout.call:type_name -> workflow.Call
+	6,  // 22: workflow.Spawn.call:type_name -> workflow.Call
+	4,  // 23: workflow.Loop.times:type_name -> workflow.Operand
+	20, // 24: workflow.Loop.body:type_name -> workflow.Statement
+	6,  // 25: workflow.Statement.call:type_name -> workflow.Call
+	18, // 26: workflow.Statement.spawn:type_name -> workflow.Spawn
+	7,  // 27: workflow.Statement.join:type_name -> workflow.Join
+	10, // 28: workflow.Statement.if:type_name -> workflow.If
+	13, // 29: workflow.Statement.match:type_name -> workflow.Match
+	14, // 30: workflow.Statement.repeat:type_name -> workflow.Repeat
+	15, // 31: workflow.Statement.retry:type_name -> workflow.Retry
+	16, // 32: workflow.Statement.sleep:type_name -> workflow.Sleep
+	17, // 33: workflow.Statement.timeout:type_name -> workflow.Timeout
+	8,  // 34: workflow.Statement.cancel:type_name -> workflow.Cancel
+	19, // 35: workflow.Statement.loop:type_name -> workflow.Loop
+	20, // 36: workflow.Statements.statement:type_name -> workflow.Statement
+	21, // 37: workflow.Function.statements:type_name -> workflow.Statements
+	0,  // 38: workflow.Node.status:type_name -> workflow.Status
+	1,  // 39: workflow.Constant.value:type_name -> workflow.Value
+	6,  // 40: workflow.Constant.call:type_name -> workflow.Call
+	36, // 41: workflow.Change.operations:type_name -> patch.Operation
+	1,  // 42: workflow.Arg.default:type_name -> workflow.Value
+	6,  // 43: workflow.Init.call:type_name -> workflow.Call
+	22, // 44: workflow.Flow.functions:type_name -> workflow.Function
+	33, // 45: workflow.Flow.constants:type_name -> workflow.Flow.ConstantsEntry
+	34, // 46: workflow.Flow.args:type_name -> workflow.Flow.ArgsEntry
+	21, // 47: workflow.Flow.main:type_name -> workflow.Statements
+	28, // 48: workflow.Flow.init:type_name -> workflow.Init
+	0,  // 49: workflow.Graph.status:type_name -> workflow.Status
+	23, // 50: workflow.Graph.functions:type_name -> workflow.Node
+	24, // 51: workflow.Graph.calls:type_name -> workflow.Edge
+	30, // 52: workflow.Graph.cause:type_name -> workflow.Cause
+	1,  // 53: workflow.Map.EntriesEntry.value:type_name -> workflow.Value
+	25, // 54: workflow.Flow.ConstantsEntry.value:type_name -> workflow.Constant
+	27, // 55: workflow.Flow.ArgsEntry.value:type_name -> workflow.Arg
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_workflow_proto_init() }
@@ -2383,20 +2955,31 @@ func file_workflow_proto_init() {
 		return
 	}
 	file_workflow_proto_msgTypes[0].OneofWrappers = []any{
+		(*Value_Null)(nil),
+		(*Value_Bool)(nil),
+		(*Value_Int)(nil),
+		(*Value_Float)(nil),
+		(*Value_String_)(nil),
+		(*Value_Bytes)(nil),
+		(*Value_List)(nil),
+		(*Value_Map)(nil),
+	}
+	file_workflow_proto_msgTypes[3].OneofWrappers = []any{
 		(*Operand_Literal)(nil),
 		(*Operand_Name)(nil),
+		(*Operand_Expression)(nil),
 	}
-	file_workflow_proto_msgTypes[4].OneofWrappers = []any{
+	file_workflow_proto_msgTypes[8].OneofWrappers = []any{
 		(*Condition_Value)(nil),
 		(*Condition_Call)(nil),
 		(*Condition_Name)(nil),
 	}
-	file_workflow_proto_msgTypes[6].OneofWrappers = []any{
+	file_workflow_proto_msgTypes[10].OneofWrappers = []any{
 		(*Expression_Value)(nil),
 		(*Expression_Call)(nil),
 		(*Expression_Name)(nil),
 	}
-	file_workflow_proto_msgTypes[15].OneofWrappers = []any{
+	file_workflow_proto_msgTypes[19].OneofWrappers = []any{
 		(*Statement_Call)(nil),
 		(*Statement_Spawn)(nil),
 		(*Statement_Join)(nil),
@@ -2409,15 +2992,19 @@ func file_workflow_proto_init() {
 		(*Statement_Cancel)(nil),
 		(*Statement_Loop)(nil),
 	}
-	file_workflow_proto_msgTypes[17].OneofWrappers = []any{
+	file_workflow_proto_msgTypes[21].OneofWrappers = []any{
 		(*Function_Body)(nil),
 		(*Function_Statements)(nil),
 	}
-	file_workflow_proto_msgTypes[20].OneofWrappers = []any{
+	file_workflow_proto_msgTypes[24].OneofWrappers = []any{
 		(*Constant_Value)(nil),
 		(*Constant_Call)(nil),
 	}
-	file_workflow_proto_msgTypes[23].OneofWrappers = []any{
+	file_workflow_proto_msgTypes[27].OneofWrappers = []any{
+		(*Init_Call)(nil),
+		(*Init_Text)(nil),
+	}
+	file_workflow_proto_msgTypes[28].OneofWrappers = []any{
 		(*Flow_Main)(nil),
 		(*Flow_Text)(nil),
 	}
@@ -2427,7 +3014,7 @@ func file_workflow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_workflow_proto_rawDesc), len(file_workflow_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   28,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

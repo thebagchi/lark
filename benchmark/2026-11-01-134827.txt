@@ -1,0 +1,417 @@
+PASS
+ok  	github.com/thebagchi/lark/v1/plugin/file	0.002s
+goos: linux
+goarch: amd64
+pkg: github.com/thebagchi/lark/v1/runtime
+cpu: 12th Gen Intel(R) Core(TM) i7-12800H
+BenchmarkRun_Return-8           	   81135	     14318 ns/op	    3152 B/op	      40 allocs/op
+BenchmarkRun_Return-8           	   85326	     14343 ns/op	    3152 B/op	      40 allocs/op
+BenchmarkRun_Return-8           	   82428	     14280 ns/op	    3152 B/op	      40 allocs/op
+BenchmarkRun_Return-8           	   81009	     14625 ns/op	    3152 B/op	      40 allocs/op
+BenchmarkRun_Return-8           	   82578	     14536 ns/op	    3152 B/op	      40 allocs/op
+BenchmarkRun_Return-8           	   81672	     14639 ns/op	    3152 B/op	      40 allocs/op
+BenchmarkEvaluate_Return-8      	  465999	      2345 ns/op	    3264 B/op	      44 allocs/op
+BenchmarkEvaluate_Return-8      	  517771	      2460 ns/op	    3264 B/op	      44 allocs/op
+BenchmarkEvaluate_Return-8      	  474453	      2418 ns/op	    3264 B/op	      44 allocs/op
+BenchmarkEvaluate_Return-8      	  514269	      2379 ns/op	    3264 B/op	      44 allocs/op
+BenchmarkEvaluate_Return-8      	  518275	      2317 ns/op	    3264 B/op	      44 allocs/op
+BenchmarkEvaluate_Return-8      	  492174	      2449 ns/op	    3264 B/op	      44 allocs/op
+BenchmarkSpawn_Join/1-8         	   52942	     23120 ns/op	    6104 B/op	      93 allocs/op
+BenchmarkSpawn_Join/1-8         	   55270	     21975 ns/op	    6104 B/op	      93 allocs/op
+BenchmarkSpawn_Join/1-8         	   58057	     22076 ns/op	    6104 B/op	      93 allocs/op
+BenchmarkSpawn_Join/1-8         	   56748	     22518 ns/op	    6104 B/op	      93 allocs/op
+BenchmarkSpawn_Join/1-8         	   51632	     22369 ns/op	    6104 B/op	      93 allocs/op
+BenchmarkSpawn_Join/1-8         	   56203	     22618 ns/op	    6104 B/op	      93 allocs/op
+BenchmarkSpawn_Join/16-8        	   13944	     86107 ns/op	   38995 B/op	     523 allocs/op
+BenchmarkSpawn_Join/16-8        	   13834	     85900 ns/op	   38981 B/op	     523 allocs/op
+BenchmarkSpawn_Join/16-8        	   14038	     87893 ns/op	   38992 B/op	     523 allocs/op
+BenchmarkSpawn_Join/16-8        	   13928	     86615 ns/op	   38985 B/op	     523 allocs/op
+BenchmarkSpawn_Join/16-8        	   13746	     86026 ns/op	   38979 B/op	     523 allocs/op
+BenchmarkSpawn_Join/16-8        	   13466	     86257 ns/op	   38976 B/op	     523 allocs/op
+BenchmarkSpawn_Join/256-8       	    1630	    762821 ns/op	  530623 B/op	    7023 allocs/op
+BenchmarkSpawn_Join/256-8       	    1504	    767760 ns/op	  530620 B/op	    7023 allocs/op
+BenchmarkSpawn_Join/256-8       	    1569	    779835 ns/op	  530252 B/op	    7023 allocs/op
+BenchmarkSpawn_Join/256-8       	    1396	    761058 ns/op	  530543 B/op	    7023 allocs/op
+BenchmarkSpawn_Join/256-8       	    1458	    767099 ns/op	  530592 B/op	    7023 allocs/op
+BenchmarkSpawn_Join/256-8       	    1537	    771826 ns/op	  530431 B/op	    7023 allocs/op
+BenchmarkEvaluate_SpawnJoin/1-8 	   70191	     16381 ns/op	    6416 B/op	     101 allocs/op
+BenchmarkEvaluate_SpawnJoin/1-8 	   71667	     16561 ns/op	    6416 B/op	     101 allocs/op
+BenchmarkEvaluate_SpawnJoin/1-8 	   72740	     16402 ns/op	    6416 B/op	     101 allocs/op
+BenchmarkEvaluate_SpawnJoin/1-8 	   70833	     16319 ns/op	    6416 B/op	     101 allocs/op
+BenchmarkEvaluate_SpawnJoin/1-8 	   73266	     16215 ns/op	    6416 B/op	     101 allocs/op
+BenchmarkEvaluate_SpawnJoin/1-8 	   72771	     16277 ns/op	    6416 B/op	     101 allocs/op
+BenchmarkEvaluate_SpawnJoin/16-8         	   15535	     76345 ns/op	   39289 B/op	     531 allocs/op
+BenchmarkEvaluate_SpawnJoin/16-8         	   15382	     76743 ns/op	   39300 B/op	     531 allocs/op
+BenchmarkEvaluate_SpawnJoin/16-8         	   15631	     77136 ns/op	   39299 B/op	     531 allocs/op
+BenchmarkEvaluate_SpawnJoin/16-8         	   15716	     76959 ns/op	   39294 B/op	     531 allocs/op
+BenchmarkEvaluate_SpawnJoin/16-8         	   15300	     77722 ns/op	   39303 B/op	     531 allocs/op
+BenchmarkEvaluate_SpawnJoin/16-8         	   15615	     76159 ns/op	   39293 B/op	     531 allocs/op
+BenchmarkEvaluate_SpawnJoin/256-8        	    1678	    754930 ns/op	  531368 B/op	    7031 allocs/op
+BenchmarkEvaluate_SpawnJoin/256-8        	    1537	    769468 ns/op	  531032 B/op	    7031 allocs/op
+BenchmarkEvaluate_SpawnJoin/256-8        	    1528	    768700 ns/op	  530778 B/op	    7031 allocs/op
+BenchmarkEvaluate_SpawnJoin/256-8        	    1639	    766894 ns/op	  530857 B/op	    7031 allocs/op
+BenchmarkEvaluate_SpawnJoin/256-8        	    1558	    765196 ns/op	  530926 B/op	    7031 allocs/op
+BenchmarkEvaluate_SpawnJoin/256-8        	    1530	    808166 ns/op	  530382 B/op	    7030 allocs/op
+BenchmarkCall_Statements/1000-8          	    2566	    419505 ns/op	  163808 B/op	    3056 allocs/op
+BenchmarkCall_Statements/1000-8          	    2871	    414058 ns/op	  163808 B/op	    3056 allocs/op
+BenchmarkCall_Statements/1000-8          	    2796	    414891 ns/op	  163808 B/op	    3056 allocs/op
+BenchmarkCall_Statements/1000-8          	    2742	    415707 ns/op	  163808 B/op	    3056 allocs/op
+BenchmarkCall_Statements/1000-8          	    2862	    408124 ns/op	  163808 B/op	    3056 allocs/op
+BenchmarkCall_Statements/1000-8          	    2942	    406461 ns/op	  163808 B/op	    3056 allocs/op
+BenchmarkCall_Statements/4000-8          	     771	   1556585 ns/op	  643809 B/op	   12056 allocs/op
+BenchmarkCall_Statements/4000-8          	     774	   1570444 ns/op	  643809 B/op	   12056 allocs/op
+BenchmarkCall_Statements/4000-8          	     752	   1533118 ns/op	  643809 B/op	   12056 allocs/op
+BenchmarkCall_Statements/4000-8          	     774	   1520032 ns/op	  643809 B/op	   12056 allocs/op
+BenchmarkCall_Statements/4000-8          	     780	   1540971 ns/op	  643809 B/op	   12056 allocs/op
+BenchmarkCall_Statements/4000-8          	     778	   1559353 ns/op	  643809 B/op	   12056 allocs/op
+BenchmarkCompile_Functions-8             	     604	   1943746 ns/op	 1598689 B/op	   23372 allocs/op
+BenchmarkCompile_Functions-8             	     620	   1910834 ns/op	 1598698 B/op	   23372 allocs/op
+BenchmarkCompile_Functions-8             	     615	   1930331 ns/op	 1598698 B/op	   23372 allocs/op
+BenchmarkCompile_Functions-8             	     619	   1951797 ns/op	 1598700 B/op	   23372 allocs/op
+BenchmarkCompile_Functions-8             	     618	   1934318 ns/op	 1598709 B/op	   23372 allocs/op
+BenchmarkCompile_Functions-8             	     624	   1926325 ns/op	 1598700 B/op	   23372 allocs/op
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime	95.433s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/artifact	0.003s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/dialect	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/graph	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/guard	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/observe	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/args	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/base32	0.002s
+goos: linux
+goarch: amd64
+pkg: github.com/thebagchi/lark/v1/runtime/plugin/base64
+cpu: 12th Gen Intel(R) Core(TM) i7-12800H
+BenchmarkEncode/16-8         	23560602	        48.59 ns/op	 329.29 MB/s	      40 B/op	       2 allocs/op
+BenchmarkEncode/16-8         	23941209	        48.06 ns/op	 332.88 MB/s	      40 B/op	       2 allocs/op
+BenchmarkEncode/16-8         	23887657	        48.26 ns/op	 331.56 MB/s	      40 B/op	       2 allocs/op
+BenchmarkEncode/16-8         	25400986	        47.80 ns/op	 334.75 MB/s	      40 B/op	       2 allocs/op
+BenchmarkEncode/16-8         	24418717	        47.74 ns/op	 335.14 MB/s	      40 B/op	       2 allocs/op
+BenchmarkEncode/16-8         	24602102	        48.21 ns/op	 331.90 MB/s	      40 B/op	       2 allocs/op
+BenchmarkEncode/1024-8       	 1000000	      1014 ns/op	1010.06 MB/s	    2832 B/op	       3 allocs/op
+BenchmarkEncode/1024-8       	 1000000	      1001 ns/op	1022.88 MB/s	    2832 B/op	       3 allocs/op
+BenchmarkEncode/1024-8       	 1000000	      1012 ns/op	1012.05 MB/s	    2832 B/op	       3 allocs/op
+BenchmarkEncode/1024-8       	 1000000	      1007 ns/op	1017.20 MB/s	    2832 B/op	       3 allocs/op
+BenchmarkEncode/1024-8       	 1208409	      1020 ns/op	1003.95 MB/s	    2832 B/op	       3 allocs/op
+BenchmarkEncode/1024-8       	 1000000	      1011 ns/op	1013.20 MB/s	    2832 B/op	       3 allocs/op
+BenchmarkEncode/65536-8      	   20847	     56424 ns/op	1161.49 MB/s	  180240 B/op	       3 allocs/op
+BenchmarkEncode/65536-8      	   20736	     56058 ns/op	1169.07 MB/s	  180240 B/op	       3 allocs/op
+BenchmarkEncode/65536-8      	   20617	     56311 ns/op	1163.83 MB/s	  180240 B/op	       3 allocs/op
+BenchmarkEncode/65536-8      	   20281	     57351 ns/op	1142.73 MB/s	  180240 B/op	       3 allocs/op
+BenchmarkEncode/65536-8      	   21146	     56766 ns/op	1154.49 MB/s	  180240 B/op	       3 allocs/op
+BenchmarkEncode/65536-8      	   21022	     56397 ns/op	1162.05 MB/s	  180240 B/op	       3 allocs/op
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/base64	25.243s
+goos: linux
+goarch: amd64
+pkg: github.com/thebagchi/lark/v1/runtime/plugin/codec/binary
+cpu: 12th Gen Intel(R) Core(TM) i7-12800H
+BenchmarkEncode/16-8         	27136831	        46.07 ns/op	 347.32 MB/s	     128 B/op	       1 allocs/op
+BenchmarkEncode/16-8         	26345192	        45.47 ns/op	 351.91 MB/s	     128 B/op	       1 allocs/op
+BenchmarkEncode/16-8         	25592001	        45.60 ns/op	 350.88 MB/s	     128 B/op	       1 allocs/op
+BenchmarkEncode/16-8         	26639548	        46.01 ns/op	 347.75 MB/s	     128 B/op	       1 allocs/op
+BenchmarkEncode/16-8         	26393049	        46.03 ns/op	 347.59 MB/s	     128 B/op	       1 allocs/op
+BenchmarkEncode/16-8         	26688469	        45.79 ns/op	 349.45 MB/s	     128 B/op	       1 allocs/op
+BenchmarkEncode/1024-8       	  521947	      2230 ns/op	 459.27 MB/s	    8192 B/op	       1 allocs/op
+BenchmarkEncode/1024-8       	  513204	      2261 ns/op	 452.91 MB/s	    8192 B/op	       1 allocs/op
+BenchmarkEncode/1024-8       	  524468	      2254 ns/op	 454.36 MB/s	    8192 B/op	       1 allocs/op
+BenchmarkEncode/1024-8       	  586942	      2220 ns/op	 461.21 MB/s	    8192 B/op	       1 allocs/op
+BenchmarkEncode/1024-8       	  524175	      2244 ns/op	 456.24 MB/s	    8192 B/op	       1 allocs/op
+BenchmarkEncode/1024-8       	  560764	      2213 ns/op	 462.78 MB/s	    8192 B/op	       1 allocs/op
+BenchmarkEncode/65536-8      	    9328	    110626 ns/op	 592.41 MB/s	  524297 B/op	       1 allocs/op
+BenchmarkEncode/65536-8      	   10000	    111789 ns/op	 586.25 MB/s	  524298 B/op	       1 allocs/op
+BenchmarkEncode/65536-8      	   10840	    116306 ns/op	 563.48 MB/s	  524297 B/op	       1 allocs/op
+BenchmarkEncode/65536-8      	    9112	    111882 ns/op	 585.76 MB/s	  524298 B/op	       1 allocs/op
+BenchmarkEncode/65536-8      	    9691	    115835 ns/op	 565.77 MB/s	  524298 B/op	       1 allocs/op
+BenchmarkEncode/65536-8      	   10293	    116928 ns/op	 560.48 MB/s	  524298 B/op	       1 allocs/op
+BenchmarkDecode/16-8         	34116471	        34.89 ns/op	3668.58 MB/s	      16 B/op	       1 allocs/op
+BenchmarkDecode/16-8         	34151145	        34.51 ns/op	3709.18 MB/s	      16 B/op	       1 allocs/op
+BenchmarkDecode/16-8         	34380175	        34.30 ns/op	3731.81 MB/s	      16 B/op	       1 allocs/op
+BenchmarkDecode/16-8         	34940122	        34.32 ns/op	3729.29 MB/s	      16 B/op	       1 allocs/op
+BenchmarkDecode/16-8         	33927424	        33.89 ns/op	3776.55 MB/s	      16 B/op	       1 allocs/op
+BenchmarkDecode/16-8         	34581502	        33.73 ns/op	3794.43 MB/s	      16 B/op	       1 allocs/op
+BenchmarkDecode/1024-8       	  938623	      1123 ns/op	7293.68 MB/s	    1024 B/op	       1 allocs/op
+BenchmarkDecode/1024-8       	 1000000	      1087 ns/op	7535.80 MB/s	    1024 B/op	       1 allocs/op
+BenchmarkDecode/1024-8       	 1000000	      1132 ns/op	7238.73 MB/s	    1024 B/op	       1 allocs/op
+BenchmarkDecode/1024-8       	 1079217	      1089 ns/op	7520.79 MB/s	    1024 B/op	       1 allocs/op
+BenchmarkDecode/1024-8       	 1000000	      1153 ns/op	7105.93 MB/s	    1024 B/op	       1 allocs/op
+BenchmarkDecode/1024-8       	 1000000	      1089 ns/op	7521.10 MB/s	    1024 B/op	       1 allocs/op
+BenchmarkDecode/65536-8      	   17792	     66908 ns/op	7835.92 MB/s	   65536 B/op	       1 allocs/op
+BenchmarkDecode/65536-8      	   17857	     67647 ns/op	7750.34 MB/s	   65536 B/op	       1 allocs/op
+BenchmarkDecode/65536-8      	   17275	     67498 ns/op	7767.46 MB/s	   65536 B/op	       1 allocs/op
+BenchmarkDecode/65536-8      	   18051	     67915 ns/op	7719.78 MB/s	   65536 B/op	       1 allocs/op
+BenchmarkDecode/65536-8      	   17977	     68151 ns/op	7693.04 MB/s	   65536 B/op	       1 allocs/op
+BenchmarkDecode/65536-8      	   17667	     67589 ns/op	7757.01 MB/s	   65536 B/op	       1 allocs/op
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/codec/binary	50.114s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/codec/buf	0.002s
+goos: linux
+goarch: amd64
+pkg: github.com/thebagchi/lark/v1/runtime/plugin/codec/hex
+cpu: 12th Gen Intel(R) Core(TM) i7-12800H
+BenchmarkFromBytes/16-8         	22220119	        51.51 ns/op	 310.65 MB/s	      48 B/op	       2 allocs/op
+BenchmarkFromBytes/16-8         	22505269	        51.82 ns/op	 308.78 MB/s	      48 B/op	       2 allocs/op
+BenchmarkFromBytes/16-8         	23474379	        51.06 ns/op	 313.38 MB/s	      48 B/op	       2 allocs/op
+BenchmarkFromBytes/16-8         	23082135	        50.95 ns/op	 314.05 MB/s	      48 B/op	       2 allocs/op
+BenchmarkFromBytes/16-8         	22749474	        51.24 ns/op	 312.26 MB/s	      48 B/op	       2 allocs/op
+BenchmarkFromBytes/16-8         	22418217	        52.11 ns/op	 307.04 MB/s	      48 B/op	       2 allocs/op
+BenchmarkFromBytes/1024-8       	  915963	      1303 ns/op	 785.90 MB/s	    2064 B/op	       2 allocs/op
+BenchmarkFromBytes/1024-8       	  901311	      1325 ns/op	 773.02 MB/s	    2064 B/op	       2 allocs/op
+BenchmarkFromBytes/1024-8       	  746299	      1506 ns/op	 680.14 MB/s	    2064 B/op	       2 allocs/op
+BenchmarkFromBytes/1024-8       	  783290	      1378 ns/op	 743.09 MB/s	    2064 B/op	       2 allocs/op
+BenchmarkFromBytes/1024-8       	  894934	      1375 ns/op	 744.53 MB/s	    2064 B/op	       2 allocs/op
+BenchmarkFromBytes/1024-8       	  788858	      1330 ns/op	 769.88 MB/s	    2064 B/op	       2 allocs/op
+BenchmarkFromBytes/65536-8      	   16107	     76032 ns/op	 861.95 MB/s	  131088 B/op	       2 allocs/op
+BenchmarkFromBytes/65536-8      	   16239	     77984 ns/op	 840.38 MB/s	  131088 B/op	       2 allocs/op
+BenchmarkFromBytes/65536-8      	   15636	     78158 ns/op	 838.50 MB/s	  131088 B/op	       2 allocs/op
+BenchmarkFromBytes/65536-8      	   15454	     79725 ns/op	 822.03 MB/s	  131088 B/op	       2 allocs/op
+BenchmarkFromBytes/65536-8      	   15025	     80878 ns/op	 810.31 MB/s	  131088 B/op	       2 allocs/op
+BenchmarkFromBytes/65536-8      	   15544	     78970 ns/op	 829.88 MB/s	  131088 B/op	       2 allocs/op
+BenchmarkToBytes/16-8           	17074786	        71.72 ns/op	 446.17 MB/s	      48 B/op	       3 allocs/op
+BenchmarkToBytes/16-8           	16526131	        70.99 ns/op	 450.79 MB/s	      48 B/op	       3 allocs/op
+BenchmarkToBytes/16-8           	16829434	        73.29 ns/op	 436.61 MB/s	      48 B/op	       3 allocs/op
+BenchmarkToBytes/16-8           	17233707	        72.10 ns/op	 443.85 MB/s	      48 B/op	       3 allocs/op
+BenchmarkToBytes/16-8           	16530854	        70.25 ns/op	 455.51 MB/s	      48 B/op	       3 allocs/op
+BenchmarkToBytes/16-8           	17370018	        69.19 ns/op	 462.49 MB/s	      48 B/op	       3 allocs/op
+BenchmarkToBytes/1024-8         	 1000000	      1111 ns/op	1843.52 MB/s	    2064 B/op	       3 allocs/op
+BenchmarkToBytes/1024-8         	  899646	      1122 ns/op	1825.87 MB/s	    2064 B/op	       3 allocs/op
+BenchmarkToBytes/1024-8         	 1000000	      1135 ns/op	1805.15 MB/s	    2064 B/op	       3 allocs/op
+BenchmarkToBytes/1024-8         	  985036	      1142 ns/op	1793.76 MB/s	    2064 B/op	       3 allocs/op
+BenchmarkToBytes/1024-8         	 1000000	      1120 ns/op	1828.56 MB/s	    2064 B/op	       3 allocs/op
+BenchmarkToBytes/1024-8         	 1000000	      1112 ns/op	1841.17 MB/s	    2064 B/op	       3 allocs/op
+BenchmarkToBytes/65536-8        	   19251	     60222 ns/op	2176.49 MB/s	  131088 B/op	       3 allocs/op
+BenchmarkToBytes/65536-8        	   19862	     60750 ns/op	2157.55 MB/s	  131088 B/op	       3 allocs/op
+BenchmarkToBytes/65536-8        	   19082	     61520 ns/op	2130.56 MB/s	  131088 B/op	       3 allocs/op
+BenchmarkToBytes/65536-8        	   19707	     60182 ns/op	2177.92 MB/s	  131088 B/op	       3 allocs/op
+BenchmarkToBytes/65536-8        	   19503	     59808 ns/op	2191.55 MB/s	  131088 B/op	       3 allocs/op
+BenchmarkToBytes/65536-8        	   20218	     61699 ns/op	2124.38 MB/s	  131088 B/op	       3 allocs/op
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/codec/hex	51.619s
+goos: linux
+goarch: amd64
+pkg: github.com/thebagchi/lark/v1/runtime/plugin/codec/integer
+cpu: 12th Gen Intel(R) Core(TM) i7-12800H
+BenchmarkEncode/unsigned/big/1-8         	54100597	        22.89 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/1-8         	55460770	        22.76 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/1-8         	53713116	        22.71 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/1-8         	57146563	        22.82 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/1-8         	51840817	        22.43 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/1-8         	54274368	        22.94 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/4-8         	50275459	        23.99 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/4-8         	48375913	        23.98 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/4-8         	47901217	        23.58 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/4-8         	47768379	        23.92 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/4-8         	48142416	        24.15 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/4-8         	48860773	        24.17 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/8-8         	46328013	        26.09 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/8-8         	44355183	        26.05 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/8-8         	45518140	        25.95 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/8-8         	46752693	        25.36 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/8-8         	46194752	        25.69 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/8-8         	46181547	        25.54 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/16-8        	33511695	        37.22 ns/op	      16 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/16-8        	31996482	        36.59 ns/op	      16 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/16-8        	33231048	        36.59 ns/op	      16 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/16-8        	33165732	        36.70 ns/op	      16 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/16-8        	32637777	        36.02 ns/op	      16 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/big/16-8        	33358431	        36.31 ns/op	      16 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/1-8      	54543405	        22.80 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/1-8      	56518240	        22.31 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/1-8      	52789047	        22.58 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/1-8      	56583763	        22.54 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/1-8      	47763476	        22.64 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/1-8      	54779244	        22.44 ns/op	       1 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/4-8      	50558180	        22.99 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/4-8      	54146167	        23.36 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/4-8      	51995380	        23.13 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/4-8      	52987515	        23.13 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/4-8      	52127301	        22.95 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/4-8      	50910422	        22.60 ns/op	       4 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/8-8      	44756215	        25.67 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/8-8      	48528021	        24.97 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/8-8      	44064144	        24.65 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/8-8      	49282238	        24.28 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/8-8      	48287638	        24.94 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/8-8      	45669523	        24.59 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/unsigned/little/16-8     	20117388	        59.36 ns/op	      32 B/op	       2 allocs/op
+BenchmarkEncode/unsigned/little/16-8     	20752710	        60.95 ns/op	      32 B/op	       2 allocs/op
+BenchmarkEncode/unsigned/little/16-8     	18980624	        62.12 ns/op	      32 B/op	       2 allocs/op
+BenchmarkEncode/unsigned/little/16-8     	19480654	        61.09 ns/op	      32 B/op	       2 allocs/op
+BenchmarkEncode/unsigned/little/16-8     	19988737	        61.19 ns/op	      32 B/op	       2 allocs/op
+BenchmarkEncode/unsigned/little/16-8     	20450712	        59.91 ns/op	      32 B/op	       2 allocs/op
+BenchmarkEncode/signed/big/8-8           	48054872	        25.63 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/big/8-8           	46240290	        25.10 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/big/8-8           	48554102	        25.40 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/big/8-8           	46843886	        25.30 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/big/8-8           	47626147	        26.01 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/big/8-8           	46388980	        25.80 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/little/8-8        	45325544	        25.19 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/little/8-8        	47805486	        25.26 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/little/8-8        	45578844	        25.82 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/little/8-8        	47035262	        25.86 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/little/8-8        	46644466	        25.72 ns/op	       8 B/op	       1 allocs/op
+BenchmarkEncode/signed/little/8-8        	47988572	        25.78 ns/op	       8 B/op	       1 allocs/op
+BenchmarkDecode/unsigned/big/1-8         	33676556	        32.60 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/1-8         	34319796	        32.65 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/1-8         	35590779	        32.70 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/1-8         	34595142	        32.44 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/1-8         	34580073	        32.36 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/1-8         	34307816	        32.82 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/4-8         	34410153	        33.05 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/4-8         	29754531	        35.18 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/4-8         	34366314	        32.68 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/4-8         	34540591	        32.91 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/4-8         	35676775	        32.04 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/4-8         	36427723	        31.62 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/8-8         	37311308	        32.03 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/8-8         	35399696	        32.01 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/8-8         	35370511	        33.36 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/8-8         	33884540	        32.38 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/8-8         	34978462	        32.11 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/8-8         	36266328	        32.06 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/16-8        	27394330	        43.98 ns/op	      80 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/16-8        	26916056	        43.79 ns/op	      80 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/16-8        	26753378	        44.92 ns/op	      80 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/16-8        	27380678	        45.07 ns/op	      80 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/16-8        	26283036	        44.39 ns/op	      80 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/big/16-8        	26708335	        44.65 ns/op	      80 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/1-8      	34916781	        32.45 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/1-8      	36341300	        32.55 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/1-8      	34489768	        32.14 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/1-8      	35908365	        32.42 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/1-8      	36649650	        32.38 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/1-8      	35539254	        32.77 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/4-8      	33906819	        32.35 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/4-8      	35223858	        32.44 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/4-8      	36882721	        32.74 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/4-8      	36137647	        32.37 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/4-8      	35061093	        32.48 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/4-8      	35597787	        32.38 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/8-8      	36345688	        32.38 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/8-8      	35625780	        32.03 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/8-8      	36311812	        32.17 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/8-8      	35794322	        32.51 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/8-8      	36676628	        31.98 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/8-8      	36258140	        32.87 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/unsigned/little/16-8     	17483758	        69.52 ns/op	      96 B/op	       3 allocs/op
+BenchmarkDecode/unsigned/little/16-8     	16762429	        69.83 ns/op	      96 B/op	       3 allocs/op
+BenchmarkDecode/unsigned/little/16-8     	16779844	        69.69 ns/op	      96 B/op	       3 allocs/op
+BenchmarkDecode/unsigned/little/16-8     	16836186	        70.64 ns/op	      96 B/op	       3 allocs/op
+BenchmarkDecode/unsigned/little/16-8     	17033564	        69.55 ns/op	      96 B/op	       3 allocs/op
+BenchmarkDecode/unsigned/little/16-8     	16348978	        68.97 ns/op	      96 B/op	       3 allocs/op
+BenchmarkDecode/signed/big/8-8           	38903259	        31.13 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/big/8-8           	38413264	        31.44 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/big/8-8           	37852969	        30.99 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/big/8-8           	39199483	        31.29 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/big/8-8           	38682969	        31.15 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/big/8-8           	37047944	        31.73 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/little/8-8        	37300552	        31.95 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/little/8-8        	37839674	        31.96 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/little/8-8        	36856429	        31.36 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/little/8-8        	38619937	        31.48 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/little/8-8        	37131776	        31.73 ns/op	      40 B/op	       2 allocs/op
+BenchmarkDecode/signed/little/8-8        	37217748	        31.17 ns/op	      40 B/op	       2 allocs/op
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/codec/integer	147.054s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/core	0.003s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/deep	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/event	0.003s
+goos: linux
+goarch: amd64
+pkg: github.com/thebagchi/lark/v1/runtime/plugin/flow
+cpu: 12th Gen Intel(R) Core(TM) i7-12800H
+BenchmarkRetry_EmptyBody-8   	   72583	     16289 ns/op	    4112 B/op	      58 allocs/op
+BenchmarkRetry_EmptyBody-8   	   74892	     16265 ns/op	    4112 B/op	      58 allocs/op
+BenchmarkRetry_EmptyBody-8   	   74907	     16413 ns/op	    4112 B/op	      58 allocs/op
+BenchmarkRetry_EmptyBody-8   	   72434	     16291 ns/op	    4112 B/op	      58 allocs/op
+BenchmarkRetry_EmptyBody-8   	   73453	     17854 ns/op	    4112 B/op	      58 allocs/op
+BenchmarkRetry_EmptyBody-8   	   72274	     16241 ns/op	    4112 B/op	      58 allocs/op
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/flow	8.307s
+goos: linux
+goarch: amd64
+pkg: github.com/thebagchi/lark/v1/runtime/plugin/hash
+cpu: 12th Gen Intel(R) Core(TM) i7-12800H
+BenchmarkSHA256/16-8         	 6555356	       188.2 ns/op	  85.03 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/16-8         	 6604138	       185.4 ns/op	  86.28 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/16-8         	 6508492	       184.2 ns/op	  86.88 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/16-8         	 6434902	       183.5 ns/op	  87.19 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/16-8         	 6706831	       181.8 ns/op	  88.01 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/16-8         	 6617311	       179.4 ns/op	  89.17 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/1024-8       	 1843552	       633.1 ns/op	1617.41 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/1024-8       	 1874138	       651.2 ns/op	1572.36 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/1024-8       	 1866894	       639.0 ns/op	1602.52 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/1024-8       	 1913954	       633.4 ns/op	1616.71 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/1024-8       	 1906990	       636.7 ns/op	1608.34 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/1024-8       	 1856479	       637.1 ns/op	1607.22 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/65536-8      	   39348	     30329 ns/op	2160.82 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/65536-8      	   38859	     30045 ns/op	2181.29 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/65536-8      	   38056	     30511 ns/op	2147.94 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/65536-8      	   38719	     30199 ns/op	2170.11 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/65536-8      	   38790	     30483 ns/op	2149.91 MB/s	     240 B/op	       4 allocs/op
+BenchmarkSHA256/65536-8      	   40801	     31049 ns/op	2110.73 MB/s	     240 B/op	       4 allocs/op
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/hash	28.482s
+?   	github.com/thebagchi/lark/v1/runtime/plugin/json	[no test files]
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/jsonpath	0.003s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/math	0.003s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/path	0.003s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/random	0.003s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/regexp	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/remote	0.005s
+goos: linux
+goarch: amd64
+pkg: github.com/thebagchi/lark/v1/runtime/plugin/state
+cpu: 12th Gen Intel(R) Core(TM) i7-12800H
+BenchmarkContend_TwoThreadsOnOneName-8   	      10	 101170911 ns/op	       101.0 ms/op	   11208 B/op	     155 allocs/op
+BenchmarkContend_TwoThreadsOnOneName-8   	      10	 101032715 ns/op	       101.0 ms/op	   10940 B/op	     154 allocs/op
+BenchmarkContend_TwoThreadsOnOneName-8   	      10	 100738769 ns/op	       100.0 ms/op	   10932 B/op	     153 allocs/op
+BenchmarkContend_TwoThreadsOnOneName-8   	      10	 100757767 ns/op	       101.0 ms/op	   10732 B/op	     153 allocs/op
+BenchmarkContend_TwoThreadsOnOneName-8   	      10	 100689395 ns/op	       100.0 ms/op	   10743 B/op	     153 allocs/op
+BenchmarkContend_TwoThreadsOnOneName-8   	      10	 100880132 ns/op	       100.0 ms/op	   10684 B/op	     152 allocs/op
+BenchmarkState_SetGet-8                  	    3062	    406325 ns/op	   52465 B/op	    2056 allocs/op
+BenchmarkState_SetGet-8                  	    3022	    409952 ns/op	   52465 B/op	    2056 allocs/op
+BenchmarkState_SetGet-8                  	    3051	    409194 ns/op	   52464 B/op	    2056 allocs/op
+BenchmarkState_SetGet-8                  	    2911	    412503 ns/op	   52464 B/op	    2056 allocs/op
+BenchmarkState_SetGet-8                  	    2815	    410179 ns/op	   52464 B/op	    2056 allocs/op
+BenchmarkState_SetGet-8                  	    2775	    418308 ns/op	   52464 B/op	    2056 allocs/op
+BenchmarkState_Threads-8                 	    1227	   1030758 ns/op	   95784 B/op	    2246 allocs/op
+BenchmarkState_Threads-8                 	    1189	   1029601 ns/op	   95712 B/op	    2245 allocs/op
+BenchmarkState_Threads-8                 	    1201	    994367 ns/op	   95756 B/op	    2246 allocs/op
+BenchmarkState_Threads-8                 	    1221	    977290 ns/op	   95744 B/op	    2246 allocs/op
+BenchmarkState_Threads-8                 	    1192	    978167 ns/op	   95748 B/op	    2246 allocs/op
+BenchmarkState_Threads-8                 	    1236	    987344 ns/op	   95736 B/op	    2245 allocs/op
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/state	22.065s
+?   	github.com/thebagchi/lark/v1/runtime/plugin/time	[no test files]
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/unpack	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/plugin/utils	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/scheduler	0.002s
+?   	github.com/thebagchi/lark/v1/runtime/script	[no test files]
+PASS
+ok  	github.com/thebagchi/lark/v1/runtime/spelling	0.002s
+PASS
+ok  	github.com/thebagchi/lark/v1/testing	0.004s

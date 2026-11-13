@@ -7,12 +7,19 @@
 // state hands a reader something it owns, and a JSON patch that copies a value
 // must give the copy its own containers. Two implementations of "copy this and
 // everything under it" would be two sets of cycle handling to keep in step.
+//
+// Revisions:
+//   - 2026-09-20 00:39: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 package deep
 
 import (
-	"fmt"
+	"context"
 
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/v1/runtime/plugin/deep/internal/clone"
+	"github.com/thebagchi/lark/v1/runtime/trail"
 )
 
 // Copy returns a deep, unfrozen copy of value.
@@ -41,254 +48,28 @@ import (
 //   - 2026-09-24 16:08: moved here, where jsonpath reaches it too
 //   - 2026-10-29 01:22: builds the seen map only for a container, so a scalar
 //     costs no allocation
-func Copy(value starlark.Value) (starlark.Value, error) {
-	// A scalar comes back as it is and never reaches the map, so the map is
-	// built only for what can hold something. A store copies every value a
-	// script reads, and most are one number or one word.
+//   - 2026-11-02 12:28: takes the context of the walk; a value nested past
+//     common.DEPTH is trail.ErrTooDeep, which ends the run, and the walk looks
+//     at ctx every common.POLL elements (C26)
+//   - 2026-11-04 19:30: a nil container is returned as it is, not a panic (C87)
+//   - 2026-11-10 11:32: uses clone.Into, which moved to internal/clone (C120b, Q315)
+func Copy(
+	ctx context.Context,
+	value starlark.Value,
+) (starlark.Value, error) {
+	// A scalar comes back as it is and never reaches the map or the trail, so
+	// both are built only for what can hold something. A store copies every
+	// value a script reads, and most are one number or one word.
 	switch value.(type) {
 	case *starlark.List, *starlark.Dict, starlark.Tuple, *starlark.Set:
-		return _Into(
+		return clone.Into(
+			trail.Bounded(ctx),
 			value,
 			map[starlark.Value]starlark.Value{},
 		)
 	}
 
-	return _Into(
-		value,
-		nil,
-	)
-}
-
-// _Into copies value, reusing whatever has already been copied.
-//
-// The seen map is what makes a self-referential value safe. Starlark allows
-// one - x = [1]; x.append(x) is legal - and a copy that did not remember what
-// it had already made would follow that reference until the stack ran out.
-//
-// It also preserves sharing: a value reachable twice is copied once, so a
-// script that reads back a structure with two paths to one list still has two
-// paths to one list.
-//
-// Only the three mutable containers consult the map, each in its own copier.
-// They are the only values that can alias or cycle, and they are pointers,
-// which a Go map can hash. A tuple is a slice, which a Go map cannot: looking
-// every value up here panicked on the first tuple a script stored.
-//
-// Revisions:
-//   - 2026-09-20 00:43: initial creation, as state's own _CopyInto
-//   - 2026-09-24 16:08: moved here
-//   - 2026-09-21 08:09: consults seen only for a container, so a tuple never
-//     reaches a map that cannot hash it
-//   - 2026-10-03 08:26: unexported, Copy being how anything outside copies
-func _Into(
-	value starlark.Value,
-	seen map[starlark.Value]starlark.Value,
-) (starlark.Value, error) {
-	switch original := value.(type) {
-	case *starlark.List:
-		return _List(
-			original,
-			seen,
-		)
-
-	case *starlark.Dict:
-		return _Dict(
-			original,
-			seen,
-		)
-
-	case starlark.Tuple:
-		return _Tuple(
-			original,
-			seen,
-		)
-
-	case *starlark.Set:
-		return _Set(
-			original,
-			seen,
-		)
-
-	default:
-		return value, nil
-	}
-}
-
-// _CopyList copies a list, registering the copy before filling it so a list
-// that contains itself terminates.
-//
-// Revisions:
-//   - 2026-09-20 00:44: initial creation
-//   - 2026-09-21 08:09: reuses a copy already made
-func _List(
-	original *starlark.List,
-	seen map[starlark.Value]starlark.Value,
-) (starlark.Value, error) {
-	copied, found := seen[original]
-	if found {
-		return copied, nil
-	}
-
-	made := starlark.NewList(make(
-		[]starlark.Value,
-		0,
-		original.Len(),
-	))
-
-	seen[original] = made
-
-	for index := range original.Len() {
-		element, err := _Into(
-			original.Index(index),
-			seen,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		err = made.Append(element)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"copy element %d: %w",
-				index,
-				err,
-			)
-		}
-	}
-
-	return made, nil
-}
-
-// _CopyDict copies a dict, registering the copy before filling it.
-//
-// Keys are copied too, because a tuple key may hold a mutable value. The pairs
-// are walked through Entries rather than Items, which builds a slice of every
-// pair first: on a dict of 4096 members, a third of what the copy allocated.
-//
-// Revisions:
-//   - 2026-09-20 00:45: initial creation
-//   - 2026-09-21 08:09: reuses a copy already made
-//   - 2026-10-03 17:08: walks the pairs without first building a slice of them
-func _Dict(
-	original *starlark.Dict,
-	seen map[starlark.Value]starlark.Value,
-) (starlark.Value, error) {
-	copied, found := seen[original]
-	if found {
-		return copied, nil
-	}
-
-	made := starlark.NewDict(original.Len())
-
-	seen[original] = made
-
-	for name, value := range original.Entries() {
-		key, err := _Into(
-			name,
-			seen,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		held, err := _Into(
-			value,
-			seen,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		err = made.SetKey(
-			key,
-			held,
-		)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"copy key %s: %w",
-				name.String(),
-				err,
-			)
-		}
-	}
-
-	return made, nil
-}
-
-// _CopyTuple copies a tuple.
-//
-// A tuple cannot be changed, but what it holds can, so its elements are copied
-// and the tuple itself is rebuilt. It is not registered in seen beforehand: a
-// tuple cannot contain itself, because it is built complete.
-//
-// Revisions:
-//   - 2026-09-20 00:46: initial creation
-func _Tuple(
-	original starlark.Tuple,
-	seen map[starlark.Value]starlark.Value,
-) (starlark.Value, error) {
-	made := make(
-		starlark.Tuple,
-		0,
-		len(original),
-	)
-
-	for _, element := range original {
-		copied, err := _Into(
-			element,
-			seen,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		made = append(
-			made,
-			copied,
-		)
-	}
-
-	return made, nil
-}
-
-// _CopySet copies a set.
-//
-// A set holds only hashable values, and nothing hashable is mutable, so the
-// members are taken as they are and only the set itself is new.
-//
-// Revisions:
-//   - 2026-09-20 00:47: initial creation
-//   - 2026-09-21 08:09: reuses a copy already made
-func _Set(
-	original *starlark.Set,
-	seen map[starlark.Value]starlark.Value,
-) (starlark.Value, error) {
-	copied, found := seen[original]
-	if found {
-		return copied, nil
-	}
-
-	made := starlark.NewSet(original.Len())
-
-	seen[original] = made
-
-	iterator := original.Iterate()
-	defer iterator.Done()
-
-	var member starlark.Value
-
-	for iterator.Next(&member) {
-		err := made.Insert(member)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"copy member %s: %w",
-				member.String(),
-				err,
-			)
-		}
-	}
-
-	return made, nil
+	return value, nil
 }
 
 // IsData reports whether value, and everything under it, is data.
@@ -297,7 +78,9 @@ func _Set(
 // number, a string, bytes, and the containers of those. A function is code, a
 // handle names a thread, a module is a plugin's own table - none of them mean
 // anything to whoever did not make them, so a caller passing one across a
-// boundary has made a mistake that otherwise reads as if it worked.
+// boundary has made a mistake that otherwise reads as if it worked. A nil value,
+// as an element or as the value itself, is not data either: a script cannot
+// build one, a Go host can, and freezing the container that holds it panics.
 //
 // The first return is what failed, so a caller can say which thing was wrong
 // rather than naming the outermost container. It is nil when the answer is
@@ -305,162 +88,45 @@ func _Set(
 //
 // Deep, because a list of functions is no more data than a function is. A
 // value that contains itself terminates, which Starlark allows and the copier
-// beside this already handles.
+// beside this already handles: a cycle is data here, so the walk keeps a set
+// of what it has seen and leaves the trail to count the depth.
+//
+// The error is not an answer about the value. It is trail.ErrDeep for a
+// value nested past common.DEPTH, which ends the run, or the context's error
+// when ctx is done. A caller returns it, wrapped with %w.
 //
 // Revisions:
 //   - 2026-09-24 20:10: initial creation, as state's own _Data
 //   - 2026-09-24 20:14: a question anything can ask, rather than one plugin's
-func IsData(value starlark.Value) (starlark.Value, bool) {
+//   - 2026-11-02 12:28: takes the context of the walk and returns an error as
+//     a third result, for a value nested too deep (C26)
+//   - 2026-11-04 19:30: a nil *List, *Dict or *Set is not data (C87)
+//   - 2026-11-10 11:32: uses clone.Walk, which moved to internal/clone (C120b, Q315)
+//   - 2026-11-10 17:15: uses ErrDeep, formerly ErrTooDeep (C121, Q349)
+//   - 2026-11-13 09:37: a nil value, as an element or as the value, is not data (C131, B293, Q429)
+func IsData(
+	ctx context.Context,
+	value starlark.Value,
+) (starlark.Value, bool, error) {
 	// Most values a script stores are one number or one word, and those
-	// cannot contain anything - so the map the walk needs is built only once
-	// something might be walked into.
+	// cannot contain anything - so the map and the trail the walk needs are
+	// built only once something might be walked into.
 	switch value.(type) {
 	case *starlark.List, *starlark.Dict, starlark.Tuple, *starlark.Set:
-		return _Walk(
+		bad, err := clone.Walk(
+			trail.Bounded(ctx),
 			value,
 			map[starlark.Value]bool{},
 		)
+
+		return bad, bad == nil && err == nil, err
 	}
 
-	return _Walk(
+	bad, err := clone.Walk(
+		nil,
 		value,
 		nil,
 	)
-}
 
-// _Walk is IsData, carrying what it has already seen.
-//
-// Revisions:
-//   - 2026-09-24 20:14: initial creation
-func _Walk(
-	value starlark.Value,
-	seen map[starlark.Value]bool,
-) (starlark.Value, bool) {
-	switch held := value.(type) {
-	case starlark.NoneType, starlark.Bool, starlark.Int, starlark.Float,
-		starlark.String, starlark.Bytes:
-		return nil, true
-
-	case *starlark.List:
-		return _Every(
-			held,
-			seen,
-		)
-
-	case *starlark.Dict:
-		return _Pairs(
-			held,
-			seen,
-		)
-
-	case starlark.Tuple:
-		return _Items(
-			held,
-			seen,
-		)
-
-	case *starlark.Set:
-		return _Every(
-			held,
-			seen,
-		)
-	}
-
-	return value, false
-}
-
-// _Every walks a list or a set.
-//
-// Revisions:
-//   - 2026-09-24 20:10: initial creation
-func _Every(
-	held starlark.Iterable,
-	seen map[starlark.Value]bool,
-) (starlark.Value, bool) {
-	if seen[held] {
-		return nil, true
-	}
-
-	seen[held] = true
-
-	iter := held.Iterate()
-	defer iter.Done()
-
-	var value starlark.Value
-
-	for iter.Next(&value) {
-		bad, ok := _Walk(
-			value,
-			seen,
-		)
-		if !ok {
-			return bad, false
-		}
-	}
-
-	return nil, true
-}
-
-// _Pairs walks a dict, keys as well as values.
-//
-// Through Entries rather than Items, which builds a slice of every pair first,
-// and on a dict of 4096 members that slice was all the walk allocated.
-//
-// Revisions:
-//   - 2026-09-24 20:10: initial creation
-//   - 2026-10-03 17:08: walks the pairs without first building a slice of them
-func _Pairs(
-	held *starlark.Dict,
-	seen map[starlark.Value]bool,
-) (starlark.Value, bool) {
-	if seen[held] {
-		return nil, true
-	}
-
-	seen[held] = true
-
-	for key, value := range held.Entries() {
-		bad, ok := _Walk(
-			key,
-			seen,
-		)
-		if !ok {
-			return bad, false
-		}
-
-		bad, ok = _Walk(
-			value,
-			seen,
-		)
-		if !ok {
-			return bad, false
-		}
-	}
-
-	return nil, true
-}
-
-// _Items walks a tuple.
-//
-// A tuple is a slice rather than a pointer, so it cannot be a map key and is
-// not recorded in seen. It cannot contain itself either, for the same reason:
-// there is nothing to take the address of.
-//
-// Revisions:
-//   - 2026-09-24 20:10: initial creation
-func _Items(
-	held starlark.Tuple,
-	seen map[starlark.Value]bool,
-) (starlark.Value, bool) {
-	for _, value := range held {
-		bad, ok := _Walk(
-			value,
-			seen,
-		)
-		if !ok {
-			return bad, false
-		}
-	}
-
-	return nil, true
+	return bad, bad == nil && err == nil, err
 }

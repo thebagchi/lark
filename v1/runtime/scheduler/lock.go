@@ -1,25 +1,48 @@
 package scheduler
 
 import (
-	"context"
-	"errors"
-	"fmt"
-
 	"go.starlark.net/starlark"
+
+	"github.com/thebagchi/lark/v1/runtime/common"
+	"github.com/thebagchi/lark/v1/runtime/scheduler/internal/run"
 )
 
 // ErrNested is returned when an evaluation inside an update, or anything that
 // evaluation started, begins another.
+//
+// Revisions:
+//   - 2026-09-21 10:00: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 20:10: an alias of run.ErrNested (C91w5)
 var (
-	ErrNested = errors.New("an update cannot start another")
+	ErrNested = run.ErrNested
 )
 
+// Release frees the hold h stands for, and does nothing when that hold is
+// already freed.
+//
+// It is safe to call twice, from many goroutines together, and after the
+// evaluation has taken a later hold: a call frees only the hold it came from,
+// so a stale Hold cannot free a newer one and break the lock. On a zero Hold,
+// or one whose Owner the scheduler did not make, it does nothing.
+//
+// Revisions:
+//   - 2026-11-05 22:40: initial creation (C58 fix 2, Q201, Q85, B124)
+//   - 2026-11-07 20:10: a function of common.Hold, since Hold moved to common as data (C91w5,
+//     Q229)
+func Release(h common.Hold) {
+	run.Release(h)
+}
+
 // Lock takes the run's lock for name on behalf of the evaluation on thread, and
-// returns the function that releases it.
+// returns the Hold that releases it.
 //
 // It waits on the evaluation's context as well as the lock, which a
 // sync.Mutex cannot: a run cancelled while a thread waits for a name another
 // thread holds must end, not hang.
+//
+// The Hold frees its own hold only: released again, or after a later Lock, it
+// does nothing.
 //
 // Returns ErrNested when the evaluation, or the evaluation that started it, is
 // already inside an update - so a nested update is refused through a spawn or
@@ -50,42 +73,18 @@ var (
 //     hands back the release the evaluation keeps rather than a new closure
 //   - 2026-10-29 01:05: finds the evaluation through EvaluationOf, and keeps
 //     its body in the Lock of Evaluation
+//   - 2026-11-05 22:05: the release frees its own hold only, so a repeated or stale call does
+//     nothing (C58 fix round 1, Q85)
+//   - 2026-11-05 22:40: returns a Hold, a value with no allocation (C58 fix 2, Q201)
+//   - 2026-11-07 20:10: forwards to run.Lock (C91w5)
 func Lock(
 	thread *starlark.Thread,
 	name string,
-) (func(), error) {
-	evaluation, err := EvaluationOf(thread)
-	if err != nil {
-		return nil, err
-	}
-
-	return evaluation.Lock(name)
-}
-
-// _Slot returns the one-place channel that is the lock for name, making it the
-// first time it is asked for.
-//
-// Revisions:
-//   - 2026-09-21 08:09: initial creation
-//   - 2026-10-29 01:24: makes the lock map on the run's first lock
-func (r *_Run) _Slot(name string) chan struct{} {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	if r.locks == nil {
-		r.locks = make(map[string]chan struct{})
-	}
-
-	slot, found := r.locks[name]
-	if !found {
-		slot = make(
-			chan struct{},
-			1,
-		)
-		r.locks[name] = slot
-	}
-
-	return slot
+) (common.Hold, error) {
+	return run.Lock(
+		thread,
+		name,
+	)
 }
 
 // Updating is the name the evaluation on thread is inside an update of, and
@@ -101,67 +100,7 @@ func (r *_Run) _Slot(name string) chan struct{} {
 //
 // Revisions:
 //   - 2026-09-24 17:12: initial creation
+//   - 2026-11-07 20:10: forwards to run.Updating (C91w5)
 func Updating(thread *starlark.Thread) (string, error) {
-	locals, err := _Of(thread)
-	if err != nil {
-		return "", err
-	}
-
-	return locals.inside, nil
-}
-
-// _Take puts the one token in slot, and waits for room only when the slot is
-// full.
-//
-// A free slot is the common case, and a select with a default costs much less
-// than a select that also watches the context. So a free slot is taken even
-// when the context is already done: the evaluation then stops at its next
-// instruction, and its deferred release gives the slot back.
-//
-// Returns ErrCancelled wrapping the context's error when the wait is
-// cancelled.
-//
-// Revisions:
-//   - 2026-10-28 22:06: initial creation
-func _Take(
-	ctx context.Context,
-	slot chan struct{},
-	name string,
-) error {
-	select {
-	case slot <- struct{}{}:
-		return nil
-	default:
-	}
-
-	select {
-	case slot <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf(
-			"waiting for %q: %w: %w",
-			name,
-			ErrCancelled,
-			ctx.Err(),
-		)
-	}
-}
-
-// _Release gives back the slot the evaluation holds, and clears the mark.
-//
-// It reads the slot from the evaluation rather than from a closure, so one
-// function value serves every lock the evaluation takes. That is safe because
-// an evaluation holds at most one name: a second lock is refused while it
-// holds one.
-//
-// Revisions:
-//   - 2026-10-28 22:06: initial creation
-func (l *_Locals) _Release() {
-	slot := l.slot
-
-	l.inside = ""
-	l.holding = false
-	l.slot = nil
-
-	<-slot
+	return run.Updating(thread)
 }

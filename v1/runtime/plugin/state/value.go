@@ -1,23 +1,13 @@
 package state
 
 import (
-	"errors"
 	"fmt"
 
 	"go.starlark.net/syntax"
 
 	"github.com/thebagchi/lark/v1/runtime/plugin/deep"
-)
-
-// ErrNotData is returned for something a store cannot usefully hold.
-//
-// A store exists so that threads pass data to each other. A function is code,
-// and a frozen one read back by another thread is the same object the script
-// already had; a handle names a thread, and a thread means nothing to whoever
-// did not start it. Storing either is a mistake that reads as if it worked -
-// the value goes in, comes back out, and does nothing.
-var (
-	ErrNotData = errors.New("not data a store can hold")
+	"github.com/thebagchi/lark/v1/runtime/plugin/state/internal/spec"
+	"github.com/thebagchi/lark/v1/runtime/plugin/unpack"
 )
 
 // Check refuses a set of something the source already shows is not data.
@@ -37,22 +27,29 @@ var (
 //   - 2026-09-24 20:10: initial creation
 //   - 2026-09-30 22:41: reads the source through deep.ShowsCode, which event
 //     asks the same question of
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
+//   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
+//   - 2026-11-10 17:15: uses ErrConvert, formerly ErrNotProtoValue (C121, Q349)
 func (s *_State) Check(tree *syntax.File) error {
-	call, named := deep.ShowsCode(
+	call, named, err := deep.ShowsCode(
 		tree,
-		NAME,
-		SET,
+		spec.NAME,
+		spec.SET,
 	)
+	if err != nil {
+		return err
+	}
+
 	if call == nil {
 		return nil
 	}
 
 	return fmt.Errorf(
-		"%s.%s at %s stores %s: %w",
-		NAME,
-		SET,
+		"%s.%s at %s stores %s: not data a store can hold: %w",
+		spec.NAME,
+		spec.SET,
 		call.Lparen,
 		named,
-		ErrNotData,
+		unpack.ErrConvert,
 	)
 }

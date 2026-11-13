@@ -20,6 +20,10 @@
 // function or a thread handle, because the host refuses those before they
 // reach a socket. That is what lets a plugin be written in a language this
 // repository does not speak.
+//
+// Revisions:
+//   - 2026-09-25 22:50: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 package main
 
 import (
@@ -35,7 +39,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	pluginpb "github.com/thebagchi/lark/proto/gen/plugin"
-	"github.com/thebagchi/lark/v1/runtime/plugin/remote"
+	"github.com/thebagchi/lark/v1/runtime/common"
 )
 
 const (
@@ -45,19 +49,35 @@ const (
 	// NAME is what this plugin is called, and NOW and ADD what it supplies.
 	// Dotted, so a script reaches them through a clock module as it does every
 	// other plugin's names.
+	//
+	// Revisions:
+	//   - 2026-09-25 22:50: initial creation
+	//   - 2026-11-06 22:37: revision history added (C90)
 	NAME = "clock"
 	NOW  = "clock.now"
 	ADD  = "clock.add"
 
 	// LAYOUT is how now renders the time: the one format that sorts as text.
+	//
+	// Revisions:
+	//   - 2026-09-25 22:50: initial creation
+	//   - 2026-11-06 22:37: revision history added (C90)
 	LAYOUT = time.RFC3339
 
 	// NO_HOST is the exit code for a plugin nobody started, and FAILED for one
 	// that could not reach the host that did.
+	//
+	// Revisions:
+	//   - 2026-09-25 22:50: initial creation
+	//   - 2026-11-06 22:37: revision history added (C90)
 	NO_HOST = 2
 	FAILED  = 1
 
 	// UNIX is the only network a host listens on.
+	//
+	// Revisions:
+	//   - 2026-09-25 22:50: initial creation
+	//   - 2026-11-06 22:37: revision history added (C90)
 	UNIX = "unix"
 )
 
@@ -65,6 +85,7 @@ const (
 //
 // Revisions:
 //   - 2026-09-25 06:58: initial creation
+//   - 2026-11-07 19:54: reads SOCKET_ENV and TOKEN_ENV from common (C91w8c)
 func main() {
 	name := flag.String(
 		NAME_FLAG,
@@ -75,15 +96,15 @@ func main() {
 	flag.Parse()
 
 	var (
-		socket = os.Getenv(remote.SOCKET_ENV)
-		token  = os.Getenv(remote.TOKEN_ENV)
+		socket = os.Getenv(common.SOCKET_ENV)
+		token  = os.Getenv(common.TOKEN_ENV)
 	)
 
 	if socket == "" {
 		fmt.Fprintf(
 			os.Stderr,
 			"clock: %s is not set, so nothing started this. A host does.\n",
-			remote.SOCKET_ENV,
+			common.SOCKET_ENV,
 		)
 		os.Exit(NO_HOST)
 	}

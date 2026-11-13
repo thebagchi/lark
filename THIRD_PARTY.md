@@ -46,10 +46,14 @@ becomes part of `bin/lark.bin` or `bin/lark-clock.bin`.
 
 | Tool | Licence | What it does here |
 | --- | --- | --- |
-| [`golangci-lint`](https://github.com/golangci/golangci-lint) | **GPL-3.0** | `make lint-go` |
-| [`buf`](https://github.com/bufbuild/buf) | Apache-2.0 | `make generate`, `make lint-proto` |
+| [`golangci-lint`](https://github.com/golangci/golangci-lint) | **GPL-3.0** | `make lint`, `make lint-new` |
+| [`buf`](https://github.com/bufbuild/buf) | Apache-2.0 | `./build.sh generate`, `./build.sh lint-proto` |
 | [`protoc-gen-go`](https://github.com/protocolbuffers/protobuf-go) | BSD-3-Clause | the messages in `proto/gen/` |
 | [`protoc-gen-go-grpc`](https://github.com/grpc/grpc-go) | Apache-2.0 | the client and server for `proto/plugin.proto` |
+| [`benchstat`](https://github.com/golang/perf) (`golang.org/x/perf`) | BSD-3-Clause | `./build.sh bench-ab`, and the summary of `./build.sh bench` |
+| [`deadcode`](https://github.com/golang/tools) (`golang.org/x/tools`) | BSD-3-Clause | `./build.sh deadcode` |
+| [`govulncheck`](https://github.com/golang/vuln) (`golang.org/x/vuln`) | BSD-3-Clause | `make vuln` |
+| [`staticcheck`](https://github.com/dominikh/go-tools) (`honnef.co/go/tools`) | MIT | `make staticcheck` |
 
 **`golangci-lint` is GPL-3.0, and that is named here deliberately.** It is reciprocal, so it is
 worth an explicit statement.

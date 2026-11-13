@@ -14,6 +14,7 @@ import (
 //   - 2026-10-29 01:08: initial creation
 //   - 2026-10-29 23:58: checks the call with Positional, so no local goes to
 //     the heap
+//   - 2026-11-04 23:50: names a nil builtin ANONYMOUS (C86 fix round 3)
 func DataView(
 	fn *starlark.Builtin,
 	args starlark.Tuple,
@@ -30,7 +31,7 @@ func DataView(
 	}
 
 	return View(
-		fn.Name(),
+		_NameOf(fn),
 		args[0],
 	)
 }

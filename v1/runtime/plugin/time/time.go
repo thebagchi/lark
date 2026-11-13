@@ -1,4 +1,8 @@
 // Package time gives a script the time module. Importing it is what enables it.
+//
+// Revisions:
+//   - 2026-09-20 00:24: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 package time
 
 import (
@@ -6,11 +10,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/thebagchi/lark/v1/runtime/plugin"
-)
-
-// NAME is the module.
-const (
-	NAME = "time"
+	"github.com/thebagchi/lark/v1/runtime/plugin/time/internal/spec"
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -24,14 +24,19 @@ func init() {
 
 // _Module is the plugin. Empty: what it contributes is a value the library
 // already builds, so there is nothing to hold.
+//
+// Revisions:
+//   - 2026-09-20 00:24: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 type _Module struct{}
 
 // Name is what this plugin is called when a conflict has to name it.
 //
 // Revisions:
 //   - 2026-09-20 00:28: initial creation
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
 func (m *_Module) Name() string {
-	return NAME
+	return spec.NAME
 }
 
 // Values returns the one name this plugin supplies.
@@ -42,8 +47,9 @@ func (m *_Module) Name() string {
 //
 // Revisions:
 //   - 2026-09-20 00:28: initial creation
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
 func (m *_Module) Values() starlark.StringDict {
 	return starlark.StringDict{
-		NAME: starlarktime.Module,
+		spec.NAME: starlarktime.Module,
 	}
 }

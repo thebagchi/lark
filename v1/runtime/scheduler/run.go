@@ -2,127 +2,38 @@ package scheduler
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log/slog"
-	"sync"
 
 	"go.starlark.net/starlark"
 
-	"github.com/thebagchi/lark/v1/runtime/guard"
-	"github.com/thebagchi/lark/v1/runtime/spelling"
+	"github.com/thebagchi/lark/v1/runtime/common"
+	"github.com/thebagchi/lark/v1/runtime/scheduler/internal/run"
 )
 
+// ErrRun is returned when a builtin is called on a thread no run set up, and
+// when a call is handed a nil object it needs: a nil callee, handle, walk or
+// receiver. The wrap names what is missing.
+//
+// Revisions:
+//   - 2026-09-19 23:36: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 20:10: an alias of run.ErrNoRun (C91w5)
+//   - 2026-11-08 13:25: merges duplicate sentinels (C98, Q249-Q252)
+//   - 2026-11-10 17:15: renamed from ErrNoRun (C121, Q349)
 var (
-	// ErrNoRun is returned when a builtin is called on a thread no run set up.
-	ErrNoRun = errors.New("no run on this thread")
-
-	// ErrNotLocal is returned when two plugins claim one key for values of
-	// different types.
-	ErrNotLocal = errors.New("a run local holds another type")
+	ErrRun = run.ErrRun
 )
 
-// LOCALS_KEY names the one thing a run leaves on an interpreter thread. A
-// Starlark builtin is handed only a thread, so this is how every builtin
-// here finds the evaluation it belongs to.
+// ErrLocal is returned when two plugins claim one key for values of
+// different types.
 //
-// One local rather than several, so a child inherits everything by copying
-// a struct and nothing is inherited by accident or dropped by omission.
-const (
-	LOCALS_KEY = "scheduler.locals"
-
-	// SPINE is the entry point's thread id, THREAD prefixes every id, and
-	// FIRST_SPAWN is the ordinal the first child of any thread takes.
-	//
-	// An id names its parent: the spine's children are thread_1 and thread_2,
-	// and thread_1's own first child is thread_1_1. The spine contributes no
-	// prefix, because a prefix every id carries says nothing.
-	SPINE       = spelling.SPINE
-	THREAD      = spelling.THREAD
-	FIRST_SPAWN = 1
-
-	// NO_ATTEMPT is what an evaluation outside a repeat or a retry reports.
-	NO_ATTEMPT = 0
-
-	// REPORTER and LOGGER name what failed when a host's own reporter or
-	// logger raises, so the error says whose bug it is rather than reading as
-	// the script's.
-	REPORTER = "reporter"
-	LOGGER   = "logger"
+// Revisions:
+//   - 2026-09-20 00:24: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
+//   - 2026-11-07 20:10: an alias of run.ErrNotLocal (C91w5)
+//   - 2026-11-10 17:15: renamed from ErrNotLocal (C121, Q349)
+var (
+	ErrLocal = run.ErrLocal
 )
-
-// _Run is one entry point's execution.
-//
-// The context lives here rather than being passed, because a Starlark builtin
-// is handed only a thread and a builtin is where spawn runs. go.md forbids a
-// context on a struct that outlives the call it was scoped to; a _Run is
-// created by a call into an artifact and discarded when that call returns, so
-// it does not.
-//
-// There is no list of live handles. Every evaluation's context descends from
-// ctx, so cancelling ctx is what cancels everything, and a list of what to
-// cancel would be a second copy of that fact - one that a spawn made during
-// teardown was measured not to be on.
-//
-// ordinal, shared and locks are nil until the first spawn, the first shared
-// value and the first lock, each made under mutex by what first writes it: a
-// run that does none of the three, which is most of them, makes no map.
-type _Run struct {
-	mutex   sync.Mutex
-	ctx     context.Context
-	stop    context.CancelFunc
-	group   sync.WaitGroup
-	into    Reporter
-	logger  *slog.Logger
-	budget  *Budget
-	outcome error
-	ordinal map[string]int32
-	shared  map[string]any
-	locks   map[string]chan struct{}
-}
-
-// _Locals is everything one evaluation carries: which run it belongs to,
-// which lane it reports on, the context that cancels it, the attempt it is
-// counted as, how deeply it is inside something catching assertions, and the
-// name it is inside an update of.
-//
-// A child evaluation starts as a copy of its parent's, which is what makes
-// "inside" mean the same thing whether the child is a spawn, an attempt or a
-// bounded call. inside is one name, not a list: a second update is refused,
-// so an evaluation is never inside two.
-//
-// holding says whether this evaluation is the one that took the name, rather
-// than one that inherited the fact from whoever did. Both are refused a lock,
-// and they are refused for different reasons - one is already updating, the
-// other was merely started while somebody else was - so the refusal can say
-// which. A child never holds: the lock belongs to the evaluation that took it.
-//
-// label and binding are what a spawn tells the reporter about the thread it
-// starts: the function it runs, which a lambda cannot say for itself, and the
-// name the script bound the spawn to. Set by Labelled, and never inherited.
-//
-// failed is the first failure Fail was handed on this evaluation, which the
-// evaluation ends with however it returns. Never inherited: it belongs to the
-// evaluation whose work failed.
-//
-// slot is the lock this evaluation holds, and nil when it holds none. release
-// is the function Lock hands back, made on the first lock and kept, so a lock
-// after the first allocates nothing. Neither is inherited, for the reason
-// holding is not.
-type _Locals struct {
-	run      *_Run
-	thread   string
-	ctx      context.Context
-	attempt  int32
-	catching int
-	inside   string
-	holding  bool
-	slot     chan struct{}
-	release  func()
-	label    string
-	binding  string
-	failed   error
-}
 
 // Begin attaches a new run to thread, with settings, and returns the function
 // that ends it.
@@ -132,7 +43,7 @@ type _Locals struct {
 // and hands what it returns the evaluation's error. settings says what watches
 // the run, where it prints and what it may hold; nil is a zero Settings.
 //
-// That error is how the spine's own line ends, by the rule Evaluate returns:
+// That error is how the spine's own line ends, by the rule Eval returns:
 // the run's outcome when it has one, and otherwise the error, cancelled when
 // the run was stopped. Without it a spine whose entry point raised would end
 // as succeeded, since raising is not an outcome - nothing else ends the run.
@@ -166,308 +77,28 @@ type _Locals struct {
 //     logger and a ceiling off ctx
 //   - 2026-10-03 20:53: the function it returns answers with what the run produced, so
 //     the rule is applied once and its caller is handed the result
+//   - 2026-11-01 13:00: settings carry no ceiling
+//   - 2026-11-02 22:32: starts the memory watch when settings ask for one, and
+//     stops it in the function it returns, after the wait (C27)
+//   - 2026-11-04 06:55: changes the thread through _Seated, so two callers that share a thread
+//     do not race, and a panic in it leaves the gate free (C54 fix rounds 1 and 2, B094)
+//   - 2026-11-04 23:50: takes a nil context as Background and a nil thread as a new one, since a
+//     function that returns only a finisher cannot refuse them (C86 fix round 3)
+//   - 2026-11-07 19:16: uses the names moved to common or unexported (C91w4)
+//   - 2026-11-07 20:10: forwards to run.Begin (C91w5)
+//   - 2026-11-10 22:40: uses Eval, formerly Evaluate (C121, Q350)
 func Begin(
 	ctx context.Context,
 	thread *starlark.Thread,
 	name string,
-	settings *Settings,
+	settings *common.Settings,
 ) func(err error) error {
-	inner, stop := context.WithCancel(ctx)
-
-	if settings == nil {
-		settings = new(Settings)
-	}
-
-	run := _Begun(
-		inner,
-		stop,
+	return run.Begin(
+		ctx,
+		thread,
+		name,
 		settings,
 	)
-
-	thread.SetLocal(
-		LOCALS_KEY,
-		&_Locals{
-			run:    run,
-			thread: SPINE,
-			ctx:    inner,
-		},
-	)
-	thread.Print = run._Print()
-
-	watching := _CancelOn(
-		inner,
-		thread,
-	)
-
-	run._Tell(func() {
-		run.into.Started(
-			SPINE,
-			&Line{
-				Name: name,
-			},
-		)
-	})
-
-	return _Ended(
-		ctx,
-		&_Done{
-			stop:     stop,
-			run:      run,
-			watching: watching,
-			name:     name,
-		},
-	)
-}
-
-// _Begun is the run a thread is about to carry.
-//
-// It makes none of the run's maps, which _Run tells why.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-//   - 2026-10-29 01:24: leaves the ordinal, shared and lock maps nil, for
-//     whatever first writes each to make
-func _Begun(
-	inner context.Context,
-	stop context.CancelFunc,
-	settings *Settings,
-) *_Run {
-	return &_Run{
-		ctx:    inner,
-		stop:   stop,
-		into:   settings.Reporter,
-		logger: settings._Logging(),
-		budget: NewBudget(settings._Chosen()),
-	}
-}
-
-// _Done is what the function Begin returns needs in order to finish the run.
-type _Done struct {
-	stop     context.CancelFunc
-	run      *_Run
-	watching *_Watch
-	name     string
-}
-
-// _Ended is the function Begin returns. It waits, then reports the outcome.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _Ended(
-	ctx context.Context,
-	done *_Done,
-) func(err error) error {
-	return func(err error) error {
-		done.watching._Release()
-		done.stop()
-		done.run.group.Wait()
-
-		produced := _Produced(
-			ctx,
-			done.run._Outcome(),
-			err,
-		)
-
-		done.run._Tell(func() {
-			done.run.into.Ended(
-				SPINE,
-				done.name,
-				produced,
-			)
-		})
-
-		return produced
-	}
-}
-
-// _Print is what a thread of this run hands the interpreter for print: a record
-// of the run's logger, with the lane and the function that printed it.
-//
-// Guarded as a report is, because the logger is a host's, running on a thread
-// of this runtime's: a handler that panics ends the run, rather than the
-// process.
-//
-// Revisions:
-//   - 2026-09-21 08:09: initial creation
-//   - 2026-09-21 09:46: tells the reporter, on the printing thread's lane
-//   - 2026-10-02 13:12: writes the run's transcript, with the function that
-//     printed, rather than telling the reporter
-//   - 2026-10-02 16:21: logs a record, whose handler writes the time and the
-//     layout
-func (r *_Run) _Print() func(
-	*starlark.Thread,
-	string,
-) {
-	return func(
-		thread *starlark.Thread,
-		msg string,
-	) {
-		blown := guard.Contained(func() {
-			r.logger.LogAttrs(
-				r.ctx,
-				slog.LevelInfo,
-				msg,
-				slog.String(
-					ATTR_THREAD,
-					_Lane(thread),
-				),
-				slog.String(
-					ATTR_FUNCTION,
-					_Caller(thread),
-				),
-			)
-		})
-		if blown != nil {
-			r._End(fmt.Errorf(
-				"%s: %w",
-				LOGGER,
-				blown,
-			))
-		}
-	}
-}
-
-// _Tell runs one report, and ends the run if the reporter raises.
-//
-// A reporter is a host's code running on a thread of this runtime's. Left
-// unguarded here it leaves the run by a path the run does not recover, and for
-// a caller that runs an artifact directly it takes the process down.
-//
-// It ends the run rather than being absorbed. A run whose report was never made
-// has not been observed, and reporting success for it tells a host that
-// everything worked including the part that did not.
-//
-// Revisions:
-//   - 2026-09-20 12:00: initial creation
-func (r *_Run) _Tell(report func()) {
-	if r.into == nil {
-		return
-	}
-
-	blown := guard.Contained(report)
-	if blown != nil {
-		r._End(fmt.Errorf(
-			"%s: %w",
-			REPORTER,
-			blown,
-		))
-	}
-}
-
-// _End records the run's outcome and stops everything it started.
-//
-// A run has one outcome, and it is whatever was recorded first. Everything that
-// happens afterwards - a spinning sibling cancelled, a thread told to stop
-// between instructions, an evaluation unwinding - is the shutdown, not the
-// reason for it.
-//
-// Revisions:
-//   - 2026-09-20 00:07: initial creation, as _Fail
-//   - 2026-09-20 00:12: named for what it records rather than what it does, and
-//     documented as the run's one authoritative answer
-func (r *_Run) _End(outcome error) {
-	r.mutex.Lock()
-
-	if r.outcome == nil {
-		r.outcome = outcome
-	}
-
-	r.mutex.Unlock()
-
-	r.stop()
-}
-
-// _Outcome returns what ended this run, or nil if nothing did.
-//
-// Revisions:
-//   - 2026-09-20 00:12: initial creation
-func (r *_Run) _Outcome() error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	return r.outcome
-}
-
-// _Number gives the next child of parent its id, under the lock that keeps
-// two racing spawns from sharing one.
-//
-// The ordinal is per parent rather than per run. One counter shared by every
-// thread numbers in the order spawns happen, which is a fact about time; an id
-// that names its parent is a fact about structure, and the two disagree
-// whenever a spawned function spawns before its siblings start.
-//
-// Revisions:
-//   - 2026-09-19 20:36: initial creation, as _Track
-//   - 2026-09-21 00:59: assigns an id naming its parent, counted per parent
-//     rather than per run
-//   - 2026-09-21 08:09: numbers only; nothing records the handle, since the
-//     run's context is what cancels it
-//   - 2026-10-29 01:24: makes the ordinal map on the run's first spawn
-func (r *_Run) _Number(parent string) string {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	if r.ordinal == nil {
-		r.ordinal = make(map[string]int32)
-	}
-
-	r.ordinal[parent]++
-
-	return _Child(
-		parent,
-		r.ordinal[parent],
-	)
-}
-
-// _Child is the id of a thread's nth child.
-//
-// The spine is the one special case: it contributes no prefix, so its children
-// are thread_1 and thread_2 rather than thread_0_1.
-//
-// Revisions:
-//   - 2026-09-21 00:59: initial creation
-func _Child(
-	parent string,
-	ordinal int32,
-) string {
-	return spelling.Child(
-		parent,
-		int(ordinal),
-	)
-}
-
-// _Of returns the evaluation a thread belongs to.
-//
-// Revisions:
-//   - 2026-09-19 20:36: initial creation
-//   - 2026-09-21 08:09: returns the evaluation rather than the run, which it
-//     carries
-func _Of(thread *starlark.Thread) (*_Locals, error) {
-	locals, ok := thread.Local(LOCALS_KEY).(*_Locals)
-	if !ok {
-		return nil, ErrNoRun
-	}
-
-	return locals, nil
-}
-
-// Outcome returns what ended the run on thread, or nil if nothing did.
-//
-// A caller asks this **after** ending the run, never before: ending waits for
-// every thread the run started, and a thread still running is a thread that can
-// still fail. Asked too early, this reports nothing and a run that had already
-// been stopped looks like a success.
-//
-// Revisions:
-//   - 2026-09-20 00:08: initial creation, as Cause
-//   - 2026-09-20 00:12: renamed, and documented as something to ask last
-func Outcome(thread *starlark.Thread) error {
-	locals, err := _Of(thread)
-	if err != nil {
-		return nil
-	}
-
-	return locals.run._Outcome()
 }
 
 // Context returns the context of the evaluation on thread.
@@ -482,13 +113,23 @@ func Outcome(thread *starlark.Thread) error {
 // Revisions:
 //   - 2026-09-20 00:57: initial creation
 //   - 2026-09-21 08:09: read from the one local
+//   - 2026-11-07 20:10: forwards to run.Context (C91w5)
 func Context(thread *starlark.Thread) (context.Context, error) {
-	locals, err := _Of(thread)
-	if err != nil {
-		return nil, err
-	}
+	return run.Context(thread)
+}
 
-	return locals.ctx, nil
+// Ambient returns the context of the evaluation on thread, or
+// context.Background() when thread runs outside a run.
+//
+// For a walk that only has to stop when the run is cancelled: it has no error
+// to give a thread that no run owns, and a Background context is one nothing
+// cancels. A builtin that waits uses Context, which says when there is none.
+//
+// Revisions:
+//   - 2026-11-02 12:28: initial creation (C26)
+//   - 2026-11-07 20:10: forwards to run.Ambient (C91w5)
+func Ambient(thread *starlark.Thread) context.Context {
+	return run.Ambient(thread)
 }
 
 // Fail records cause as why the run on thread ended and stops the run - unless
@@ -514,48 +155,33 @@ func Context(thread *starlark.Thread) (context.Context, error) {
 //     end a run without the catching question being asked
 //   - 2026-10-03 23:52: keeps cause on the evaluation as well, which then ends with
 //     it, for a caller with nowhere to raise it
+//   - 2026-11-02 12:28: ends the run through _Fail, which the end of a thread
+//     shares (C26)
+//   - 2026-11-03 21:57: a nil thread carries no run, so cause is returned and nothing
+//     stops (C52, B059)
+//   - 2026-11-07 20:10: forwards to run.Fail (C91w5)
 func Fail(
 	thread *starlark.Thread,
 	cause error,
 ) error {
-	locals, err := _Of(thread)
-	if err != nil {
-		return cause
-	}
-
-	// Kept whether or not anything catches, for a caller with nowhere to raise
-	// cause: a loop over a file ends quietly, Starlark's iterator having no
-	// error to return. The evaluation ends with it all the same, so the
-	// function whose work failed reads as failed, and an attempt that failed
-	// this way fails rather than passing.
-	if locals.failed == nil {
-		locals.failed = cause
-	}
-
-	if locals.catching > 0 {
-		return cause
-	}
-
-	locals.run._End(cause)
-
-	return cause
+	return run.Fail(
+		thread,
+		cause,
+	)
 }
 
 // AttemptOf is the attempt the evaluation on thread is counted as, or
-// NO_ATTEMPT outside a repeat or a retry.
+// common.NO_ATTEMPT outside a repeat or a retry.
 //
 // Inherited: a thread spawned inside an attempt is inside that attempt, so an
 // attempt's work can spawn and still ask which attempt it is.
 //
 // Revisions:
 //   - 2026-09-21 08:09: initial creation
+//   - 2026-11-07 19:16: uses the names moved to common or unexported (C91w4)
+//   - 2026-11-07 20:10: forwards to run.AttemptOf (C91w5)
 func AttemptOf(thread *starlark.Thread) int32 {
-	locals, err := _Of(thread)
-	if err != nil {
-		return NO_ATTEMPT
-	}
-
-	return locals.attempt
+	return run.AttemptOf(thread)
 }
 
 // Shared returns this run's value for key, building it the first time it is
@@ -566,14 +192,17 @@ func AttemptOf(thread *starlark.Thread) int32 {
 // runs of one artifact get two values; the threads within a run get the same
 // one, because they carry the same run.
 //
-// build is called at most once per run per key, under the lock, so two threads
-// racing to be first still see one value.
+// build is called at most once per run per key, so two threads racing to be
+// first still see one value. It runs with the run's mutex released, under one
+// mutex for that key: build may call Shared for another key or start a thread,
+// and only another caller of the same key waits for it. A build that asks for
+// its own key, directly or through others, waits for itself.
 //
 // The map is keyed to any because what a plugin stores is its own business and
 // no two plugins store the same shape. The type parameter is what keeps that
 // contained: a caller names the type it expects and never sees the assertion.
 //
-// Returns ErrNoRun when the thread has no run, and ErrNotLocal when key already
+// Returns ErrRun when the thread has no run, and ErrLocal when key already
 // holds something of another type - which means two plugins chose one key.
 //
 // Revisions:
@@ -582,20 +211,16 @@ func AttemptOf(thread *starlark.Thread) int32 {
 //     carries, and both were called locals
 //   - 2026-10-29 01:05: finds the evaluation through EvaluationOf, and keeps
 //     its body in SharedIn
+//   - 2026-11-07 20:10: forwards to run.Shared (C91w5)
+//   - 2026-11-10 11:52: build runs outside the run mutex, once for each key (C116, B238, Q296)
+//   - 2026-11-10 17:15: uses ErrRun and ErrLocal, formerly ErrNoRun and ErrNotLocal (C121, Q349)
 func Shared[T any](
 	thread *starlark.Thread,
 	key string,
 	build func() T,
 ) (T, error) {
-	evaluation, err := EvaluationOf(thread)
-	if err != nil {
-		var empty T
-
-		return empty, err
-	}
-
-	return SharedIn(
-		evaluation,
+	return run.Shared(
+		thread,
 		key,
 		build,
 	)

@@ -30,6 +30,13 @@ const (
 // the spelling a script wrote, so without this map a unit cannot be wired to
 // its dependencies.
 //
+// source is the text the code was compiled from. A compile merges every load
+// into the script, so a bundle holds one unit and its source is the merged
+// script, which no file on disk holds. It is carried for a reader who wants to
+// see what runs; the code is what runs. A string, so proto3 refuses to write
+// text that is not valid UTF-8 rather than carry it. Empty in a bundle written
+// before the field existed.
+//
 // The syntax tree is not carried. Compiled code does not include it, so a unit
 // restored from here has none, and the entry-point rule cannot be applied a
 // second time.
@@ -38,6 +45,7 @@ type Unit struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Code          []byte                 `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
 	Loads         map[string]string      `protobuf:"bytes,3,rep,name=loads,proto3" json:"loads,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Source        string                 `protobuf:"bytes,4,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -93,17 +101,33 @@ func (x *Unit) GetLoads() map[string]string {
 	return nil
 }
 
+func (x *Unit) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
 // Artifact is a script and every module it loads, compiled together. entry
 // names the unit a run starts in; units holds every unit, dependencies first.
 //
 // A bundle is the compiled units and nothing else. It carries no flow: a host
 // that wants the picture derives one from the source, and a host that wants
 // progress watches the graph a run reports. Field 3 was the graph a user
-// interface drew, and is gone with it.
+// interface drew, and is gone with it, so no new field takes the number.
+//
+// plugins names the plugins whose names the script uses, sorted and without
+// repeats: the runtime's own and the host's. A load refuses a bundle when a
+// plugin named here was not given, since the run would otherwise fail at the
+// first use of one of its names. A plugin that is given and not named is fine.
+// Empty in a bundle written before the field existed, and such a bundle is
+// loaded with no check. The names are text read from a file, so a reader
+// quotes and bounds them.
 type Artifact struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Entry         string                 `protobuf:"bytes,1,opt,name=entry,proto3" json:"entry,omitempty"`
 	Units         []*Unit                `protobuf:"bytes,2,rep,name=units,proto3" json:"units,omitempty"`
+	Plugins       []string               `protobuf:"bytes,4,rep,name=plugins,proto3" json:"plugins,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -152,22 +176,31 @@ func (x *Artifact) GetUnits() []*Unit {
 	return nil
 }
 
+func (x *Artifact) GetPlugins() []string {
+	if x != nil {
+		return x.Plugins
+	}
+	return nil
+}
+
 var File_artifact_proto protoreflect.FileDescriptor
 
 const file_artifact_proto_rawDesc = "" +
 	"\n" +
-	"\x0eartifact.proto\x12\bartifact\"\x99\x01\n" +
+	"\x0eartifact.proto\x12\bartifact\"\xb1\x01\n" +
 	"\x04Unit\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\fR\x04code\x12/\n" +
-	"\x05loads\x18\x03 \x03(\v2\x19.artifact.Unit.LoadsEntryR\x05loads\x1a8\n" +
+	"\x05loads\x18\x03 \x03(\v2\x19.artifact.Unit.LoadsEntryR\x05loads\x12\x16\n" +
+	"\x06source\x18\x04 \x01(\tR\x06source\x1a8\n" +
 	"\n" +
 	"LoadsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"F\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"f\n" +
 	"\bArtifact\x12\x14\n" +
 	"\x05entry\x18\x01 \x01(\tR\x05entry\x12$\n" +
-	"\x05units\x18\x02 \x03(\v2\x0e.artifact.UnitR\x05unitsB7Z5github.com/thebagchi/lark/proto/gen/artifact;artifactb\x06proto3"
+	"\x05units\x18\x02 \x03(\v2\x0e.artifact.UnitR\x05units\x12\x18\n" +
+	"\aplugins\x18\x04 \x03(\tR\apluginsJ\x04\b\x03\x10\x04B7Z5github.com/thebagchi/lark/proto/gen/artifact;artifactb\x06proto3"
 
 var (
 	file_artifact_proto_rawDescOnce sync.Once

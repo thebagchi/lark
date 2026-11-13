@@ -1,27 +1,27 @@
 package dialect
 
 import (
-	"go.starlark.net/resolve"
+	"fmt"
+
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
-	"github.com/thebagchi/lark/v1/runtime/spelling"
+	"github.com/thebagchi/lark/v1/runtime/dialect/internal/rewrite"
+	"github.com/thebagchi/lark/v1/runtime/guard"
 )
 
-// SPAWN is the builtin whose lambda this dialect compiles differently.
-const (
-	SPAWN = spelling.SPAWN
-)
-
-// _At is where a lambda begins, as a line and a column.
+// Compile compiles a script as this dialect reads it. It works at the level of
+// the syntax tree: it takes the script twice, written, which the caller has
+// parsed and resolved, and compiled, a copy of it made by Copied before the
+// first was resolved, and it returns the program. It parses nothing, merges
+// nothing and reads no module.
 //
-// Not a syntax.Position, which carries its file as a pointer: two parses of one
-// source hold two pointers, so the same lambda would be two keys. Both trees
-// are of one file, which is why the file can be left out.
-type _At [2]int32
-
-// Compile parses, resolves and compiles src as this dialect reads it, and
-// returns the tree as it was written, resolved, beside the program.
+// There is one way to compile a script in this runtime (plan Q36): the library
+// reads the script and every module it loads, merges them into one tree
+// (package merge), and hands that tree here. This function is the last step
+// of that path, and is exported only because artifact, a package beside this
+// one, takes it; a host compiles through the library's Compile, which merges.
+// Calling this with a tree of one file compiles that file with no merge.
 //
 // Two rules reach past OPTIONS. The first: a lambda written as spawn's
 // argument takes, at the spawn, every variable it reads. spawn(lambda: f(x)) is compiled as
@@ -51,15 +51,16 @@ type _At [2]int32
 // environment must predeclare CALL, as the artifact compiler does.
 //
 // Two trees, because resolving a tree mutates it and go.starlark.net will not
-// resolve one twice: the first is resolved to learn what each lambda reads, the
-// second is rewritten and compiled. The second is a copy of the first, made
-// before the first is resolved, rather than a second parse: the parse was most
-// of a compile, and the copy is a fraction of it. The first is what is
-// returned, because whatever reads the tree afterwards should read what was
-// written.
+// resolve one twice: written is resolved to learn what each lambda reads,
+// compiled is rewritten and compiled, and is resolved here by the interpreter.
+// compiled is a copy of written made by Copied before written was resolved,
+// rather than a second parse: the parse was most of a compile, and the copy is a
+// fraction of it. The trees may hold the statements of many files, as a merge
+// does: every node keeps the position it was written at, so a failure names the
+// file and line its author wrote.
 //
-// Returns the interpreter's own parse or resolve error, unwrapped: it opens with
-// the file, line and column already.
+// Returns the interpreter's own resolve error for compiled, unwrapped: it opens
+// with the file, line and column already.
 //
 // Revisions:
 //   - 2026-09-29 23:30: initial creation
@@ -67,211 +68,45 @@ type _At [2]int32
 //     CALL, and passes the hidden keywords a branch, a spawn and a wrapper read
 //   - 2026-10-28 22:49: compiles a copy of the parsed tree in place of a second
 //     parse, and refuses a tree with a node it cannot copy
+//   - 2026-11-02 22:58: takes the two trees already made, so the caller parses, merges and
+//     resolves, and this is the one way to compile (C44a)
+//   - 2026-11-02 22:58: says what it takes and why it is the one compile (plan Q36)
+//   - 2026-11-04 19:30: a nil tree, a nil predeclared or a tree that panics
+//     the compile is ErrUncopied, not a panic (C87)
+//   - 2026-11-10 11:32: uses rewrite.Marked, which moved to internal/rewrite (C120b, Q315)
+//   - 2026-11-13 17:40: names package merge, formerly amalgam (C134, Q446)
 func Compile(
-	path string,
-	src []byte,
-	predeclared func(string) bool,
-) (*syntax.File, *starlark.Program, error) {
-	written, err := OPTIONS.Parse(
-		path,
-		src,
-		0,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	compiled, err := _Copied(written)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	err = resolve.File(
-		written,
-		predeclared,
-		starlark.Universe.Has,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	_Marked(
-		compiled,
-		written,
-	)
-
-	program, err := starlark.FileProgram(
-		compiled,
-		predeclared,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return written, program, nil
-}
-
-// _Marked copies the marks off the written tree, which is resolved, onto the
-// compiled tree, which is not.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-//   - 2026-10-28 22:49: marks the copy Compile made rather than parsing the
-//     source a second time
-func _Marked(
-	compiled *syntax.File,
 	written *syntax.File,
-) {
-	_Take(
-		compiled,
-		_Taken(written),
-	)
-	_Apply(
-		compiled,
-		_Marks(written),
-	)
-}
-
-// _Taken is every lambda written as spawn's argument, with the variables each
-// one reads, in the order the resolver met them.
-//
-// A lambda taking *args or **kwargs is left out: nothing may follow either in
-// a parameter list, and spawn refuses a function taking them anyway.
-//
-// Revisions:
-//   - 2026-09-29 23:30: initial creation
-func _Taken(written *syntax.File) map[_At][]string {
-	taken := make(map[_At][]string)
-
-	syntax.Walk(
-		written,
-		func(node syntax.Node) bool {
-			lambda := _Spawned(node)
-			if lambda == nil {
-				return true
-			}
-
-			fn, ok := lambda.Function.(*resolve.Function)
-			if !ok || fn.HasVarargs || fn.HasKwargs {
-				return true
-			}
-
-			at := _Where(lambda.Lambda)
-
-			for _, bind := range fn.FreeVars {
-				taken[at] = append(
-					taken[at],
-					bind.First.Name,
-				)
-			}
-
-			return true
-		},
-	)
-
-	return taken
-}
-
-// _Spawned is the lambda a node hands the builtin spawn as its one argument, or
-// nil when the node is anything else.
-//
-// Revisions:
-//   - 2026-09-29 23:30: initial creation
-func _Spawned(node syntax.Node) *syntax.LambdaExpr {
-	call, ok := node.(*syntax.CallExpr)
-	if !ok || len(call.Args) != 1 {
-		return nil
-	}
-
-	name, ok := call.Fn.(*syntax.Ident)
-	if !ok || name.Name != SPAWN || !_Predeclared(name) {
-		return nil
-	}
-
-	lambda, ok := call.Args[0].(*syntax.LambdaExpr)
-	if !ok {
-		return nil
-	}
-
-	return lambda
-}
-
-// _Predeclared reports whether a resolved name is the environment's rather
-// than one the script bound.
-//
-// Revisions:
-//   - 2026-09-29 23:30: initial creation
-func _Predeclared(name *syntax.Ident) bool {
-	bind, ok := name.Binding.(*resolve.Binding)
-
-	return ok && bind.Scope == resolve.Predeclared
-}
-
-// _Take gives each lambda in taken a parameter per variable it reads,
-// defaulting to that variable.
-//
-// Revisions:
-//   - 2026-09-29 23:30: initial creation
-func _Take(
 	compiled *syntax.File,
-	taken map[_At][]string,
-) {
-	if len(taken) == 0 {
-		return
+	predeclared func(string) bool,
+) (*starlark.Program, error) {
+	if written == nil || compiled == nil {
+		return nil, ErrUncopied
 	}
 
-	syntax.Walk(
-		compiled,
-		func(node syntax.Node) bool {
-			lambda, ok := node.(*syntax.LambdaExpr)
-			if !ok {
-				return true
-			}
-
-			for _, name := range taken[_Where(lambda.Lambda)] {
-				lambda.Params = append(
-					lambda.Params,
-					_Default(
-						name,
-						lambda.Lambda,
-					),
-				)
-			}
-
-			return true
-		},
+	var (
+		program *starlark.Program
+		err     error
 	)
-}
 
-// _Default is the parameter name=name.
-//
-// Placed where the lambda begins, so an error about the default - a variable
-// read before it was assigned - points at the lambda that read it.
-//
-// Revisions:
-//   - 2026-09-29 23:30: initial creation
-func _Default(
-	name string,
-	at syntax.Position,
-) syntax.Expr {
-	return &syntax.BinaryExpr{
-		X: &syntax.Ident{
-			NamePos: at,
-			Name:    name,
-		},
-		OpPos: at,
-		Op:    syntax.EQ,
-		Y: &syntax.Ident{
-			NamePos: at,
-			Name:    name,
-		},
+	raised := guard.Contained(func() {
+		rewrite.Marked(
+			compiled,
+			written,
+		)
+
+		program, err = starlark.FileProgram(
+			compiled,
+			predeclared,
+		)
+	})
+	if raised != nil {
+		return nil, fmt.Errorf(
+			"%w: %w",
+			ErrUncopied,
+			raised,
+		)
 	}
-}
 
-// _Where is where a lambda begins, without its file.
-//
-// Revisions:
-//   - 2026-09-29 23:30: initial creation
-func _Where(pos syntax.Position) _At {
-	return _At{pos.Line, pos.Col}
+	return program, err
 }

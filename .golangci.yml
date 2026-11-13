@@ -68,7 +68,7 @@ linters:
     # Four rules, listed under settings: boolean flag parameters, the parameter count,
     # context first, and a doc comment on every exported declaration.
     - revive
-    # Tests live in package foo_test.
+    # Tests live in package foo_test, or in package tests under tests/ (Q313).
     - testpackage
     # A helper that calls t.Fatal calls t.Helper() first.
     - thelper
@@ -95,7 +95,8 @@ linters:
         - go\.starlark\.net/starlark\.Iterable
         - go\.starlark\.net/syntax\.Expr
         - go\.starlark\.net/syntax\.Stmt
-        - github\.com/thebagchi/lark/v1/runtime/script\.Loader
+        - github\.com/thebagchi/lark/v1/runtime/common\..*
+        - github\.com/thebagchi/lark/v1/runtime/internal/observe\._Book
     grouper:
       # Naming: constants and package-level vars are grouped in one block.
       const-require-grouping: true
@@ -117,6 +118,11 @@ linters:
         # or var block rather than one per constant - measured, and compatible with the
         # grouping rule above, which already requires one block.
         - name: exported
+    testpackage:
+      # Every tests/ directory is package tests (Q313), which imports the package it tests.
+      allow-packages:
+        - main
+        - tests
     funlen:
       lines: 64
       statements: 48
@@ -195,7 +201,7 @@ linters:
           - mnd
       # The run stores its own cancel context. Q-context decided to keep
       # the fields and exempt these two lines.
-      - path: v1/runtime/scheduler/run\.go
+      - path: v1/runtime/scheduler/internal/run/run\.go
         linters:
           - containedctx
 

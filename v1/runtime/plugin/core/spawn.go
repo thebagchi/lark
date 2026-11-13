@@ -6,12 +6,14 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/thebagchi/lark/v1/runtime/common"
+	"github.com/thebagchi/lark/v1/runtime/internal/script"
+	"github.com/thebagchi/lark/v1/runtime/plugin/core/internal/builtin"
 	"github.com/thebagchi/lark/v1/runtime/scheduler"
-	"github.com/thebagchi/lark/v1/runtime/spelling"
 )
 
 var (
-	// ErrNotAName is every refusal spawn makes of what it was handed: nothing,
+	// ErrFunction is every refusal spawn makes of what it was handed: nothing,
 	// something that is not a function, or a function taking an argument
 	// spawn cannot supply.
 	//
@@ -20,19 +22,25 @@ var (
 	// arguments to pass on. What a handle lost by accepting it is its name, and
 	// what reports a run is the graph, which knows what runs on the lane a fork
 	// named.
-	ErrNotAName = errors.New("spawn wants a function")
-
-	// ErrCaptures is returned when something reaching a new thread captures a
-	// local variable: a nested function spawned by name, a lambda made earlier
-	// and stored, a closure handed over through a lambda.
 	//
-	// Such a function reads the variable when it runs rather than when it was
-	// spawned, from a cell the thread that made it can go on writing - which
-	// two goroutines did with nothing between them until 2026-09-29, when a
-	// thread per item in a loop was found reading whichever item the loop had
-	// reached. A lambda written inside spawn takes its variables at the spawn
-	// instead, and is how a thread is handed what it needs.
-	ErrCaptures = errors.New("captures a local variable")
+	// Revisions:
+	//   - 2026-09-19 23:36: initial creation
+	//   - 2026-11-06 22:37: revision history added (C90)
+	//   - 2026-11-10 17:15: renamed from ErrNotAName (C121, Q348)
+	ErrFunction = errors.New("wants a function")
+
+	// ErrClosure is builtin.ErrClosure.
+	//
+	// Revisions:
+	//   - 2026-11-10 01:37: initial creation (C120b, Q319)
+	//   - 2026-11-10 17:15: renamed from ErrCaptures (C121, Q348)
+	ErrClosure = builtin.ErrClosure
+
+	// ErrInit is script.ErrInit.
+	//
+	// Revisions:
+	//   - 2026-11-11 22:50: initial creation (C127, B274, Q383, Q388)
+	ErrInit = script.ErrInit
 )
 
 // _Spawn starts fn on a lane of its own and hands the script back a handle to
@@ -54,9 +62,9 @@ var (
 // lambda calls. Both are taken out before the arguments are read, and handed on
 // as the label the spawn is reported with.
 //
-// Returns ErrNotAName when fn is missing, is not a function, or takes an
-// argument spawn cannot supply, and ErrCaptures naming the first captured
-// variable found.
+// Returns ErrFunction when fn is missing, is not a function, or takes an
+// argument spawn cannot supply, ErrClosure naming the first captured
+// variable found, and ErrInit when a module's top level is running.
 //
 // Revisions:
 //   - 2026-09-19 20:38: initial creation
@@ -66,6 +74,11 @@ var (
 //     local variable, and freezes what the thread is handed
 //   - 2026-10-02 00:48: takes the binding and the callee the dialect passes,
 //     and labels the thread it starts with them
+//   - 2026-11-08 01:03: reads the moved names from common (Q244, C91w12d)
+//   - 2026-11-10 11:32: uses builtin.Started, which moved to internal/builtin (C120b, Q315)
+//   - 2026-11-10 17:15: uses ErrClosure and ErrFunction, formerly ErrCaptures and ErrNotAName
+//     (C121, Q348)
+//   - 2026-11-11 22:50: returns ErrInit while a module's top level runs (C127, B274, Q383)
 func _Spawn(
 	thread *starlark.Thread,
 	fn *starlark.Builtin,
@@ -80,12 +93,12 @@ func _Spawn(
 
 	binding, kwargs := scheduler.Hidden(
 		kwargs,
-		spelling.BINDING,
+		common.BINDING,
 	)
 
 	callee, kwargs = scheduler.Hidden(
 		kwargs,
-		spelling.CALLEE,
+		common.CALLEE,
 	)
 
 	target, err = _Named(
@@ -96,45 +109,11 @@ func _Spawn(
 		return nil, err
 	}
 
-	return _Started(
+	return builtin.Started(
 		thread,
 		target,
 		callee,
 		binding,
-	)
-}
-
-// _Started freezes target and runs it beside the caller.
-//
-// Revisions:
-//   - 2026-10-24 18:29: initial creation
-func _Started(
-	thread *starlark.Thread,
-	target *starlark.Function,
-	callee string,
-	binding string,
-) (starlark.Value, error) {
-	err := _Walk(
-		target,
-		_Uncaptured,
-	)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%s: %w",
-			SPAWN,
-			err,
-		)
-	}
-
-	target.Freeze()
-
-	return scheduler.Beside(
-		thread,
-		target,
-		scheduler.Labelled(
-			callee,
-			binding,
-		),
 	)
 }
 
@@ -144,6 +123,10 @@ func _Started(
 //   - 2026-09-19 20:39: initial creation
 //   - 2026-09-29 23:30: a parameter with a default is one spawn need not
 //     supply, so a function whose parameters all have one is accepted
+//   - 2026-11-08 00:26: read the names from internal/spec (C91w12b)
+//   - 2026-11-08 01:03: reads the moved names from common (Q244, C91w12d)
+//   - 2026-11-10 11:32: uses builtin.Defaulted, which moved to internal/builtin (C120b, Q315)
+//   - 2026-11-10 17:15: uses ErrFunction, formerly ErrNotAName (C121, Q348)
 func _Named(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
@@ -151,8 +134,8 @@ func _Named(
 	if len(args) != 1 || len(kwargs) > 0 {
 		return nil, fmt.Errorf(
 			"%s takes one function: %w",
-			SPAWN,
-			ErrNotAName,
+			common.SPAWN,
+			ErrFunction,
 		)
 	}
 
@@ -160,78 +143,20 @@ func _Named(
 	if !ok {
 		return nil, fmt.Errorf(
 			"%s got %s: %w",
-			SPAWN,
+			common.SPAWN,
 			args[0].Type(),
-			ErrNotAName,
+			ErrFunction,
 		)
 	}
 
-	if !_Defaulted(target) {
+	if !builtin.Defaulted(target) {
 		return nil, fmt.Errorf(
 			"%s got %s, which takes arguments: %w",
-			SPAWN,
+			common.SPAWN,
 			target.Name(),
-			ErrNotAName,
+			ErrFunction,
 		)
 	}
 
 	return target, nil
-}
-
-// _Defaulted reports whether every parameter fn takes has a default.
-//
-// *args and **kwargs have none, so a function taking either is not.
-//
-// Revisions:
-//   - 2026-09-29 23:30: initial creation
-func _Defaulted(fn *starlark.Function) bool {
-	for idx := range fn.NumParams() {
-		if fn.ParamDefault(idx) == nil {
-			return false
-		}
-	}
-
-	return true
-}
-
-// _Uncaptured refuses a function that captures a variable, unless it is one of
-// its module's globals.
-//
-// A top-level function captures nothing but what its file loaded: a load binds
-// a name local to the file, which a function reaches the way a closure reaches
-// a local. A load is bound once, before anything runs, to a value its own
-// module froze, so a global is exempt. Anything else that captures reads the
-// variables of the function that made it, when it runs.
-//
-// Revisions:
-//   - 2026-09-29 23:30: initial creation
-func _Uncaptured(fn *starlark.Function) error {
-	if fn.NumFreeVars() == 0 || _Global(fn) {
-		return nil
-	}
-
-	bind, _ := fn.FreeVar(0)
-
-	return fmt.Errorf(
-		"%s captures %s, bound at %s: %w",
-		fn.Name(),
-		bind.Name,
-		bind.Pos,
-		ErrCaptures,
-	)
-}
-
-// _Global reports whether fn is one of its module's globals: a top-level def,
-// or a function a top-level name was bound to.
-//
-// Revisions:
-//   - 2026-09-29 23:30: initial creation
-func _Global(fn *starlark.Function) bool {
-	for _, value := range fn.Globals() {
-		if value == fn {
-			return true
-		}
-	}
-
-	return false
 }

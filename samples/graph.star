@@ -30,9 +30,11 @@
 #
 # A call's arguments are values under args when every one is a literal, and
 # operands when any is a name: h2 greets GREETING, a constant the flow
-# declares, and passes the name rather than its value - greet(GREETING). The
-# six kinds of value keep their JSON kinds: a string, a number, a bool, a list,
-# an object and null become "ada", 36, True, ["x", 1.5], {"k": 1} and None.
+# declares, and passes the name rather than its value - greet(GREETING). A value
+# is an object named for its kind: a string, an int, a bool, a list, a map and a
+# null become "ada", 36, True, ["x", 1.5], {"k": 1} and None. An int is decimal
+# text, and a float is a float. The kind that is not here is bytes:
+# {"bytes": "ZA=="} is b"d", the base64 text of its bytes.
 #
 # Things worth matching back to the JSON:
 #
@@ -52,8 +54,8 @@
 #   sleep(20)            a script and the schema both count milliseconds, so
 #                        durationMs 20 is sleep(20) and nothing converts.
 #
-#   36, not 36.0         a whole number is an integer, and // and % treat the
-#                        two differently.
+#   36, not 36.0         {"int": "36"} is an integer and {"float": 36} is 36.0,
+#                        and // and % treat the two differently.
 #
 #   _match = kind()      a match evaluates its expression once, into a local.
 #                        Calling it per case would be a different program.
@@ -69,7 +71,9 @@
 #   {
 #     "constants": {
 #       "GREETING": {
-#         "value": "bob"
+#         "value": {
+#           "string": "bob"
+#         }
 #       }
 #     },
 #     "functions": [
@@ -148,7 +152,9 @@
 #             "binding": "h1",
 #             "call": {
 #               "args": [
-#                 "alice"
+#                 {
+#                   "string": "alice"
+#                 }
 #               ],
 #               "function": "greet"
 #             }
@@ -178,17 +184,39 @@
 #         {
 #           "call": {
 #             "args": [
-#               "ada",
-#               36,
-#               true,
-#               [
-#                 "x",
-#                 1.5
-#               ],
 #               {
-#                 "k": 1
+#                 "string": "ada"
 #               },
-#               null
+#               {
+#                 "int": "36"
+#               },
+#               {
+#                 "bool": true
+#               },
+#               {
+#                 "list": {
+#                   "items": [
+#                     {
+#                       "string": "x"
+#                     },
+#                     {
+#                       "float": 1.5
+#                     }
+#                   ]
+#                 }
+#               },
+#               {
+#                 "map": {
+#                   "entries": {
+#                     "k": {
+#                       "int": "1"
+#                     }
+#                   }
+#                 }
+#               },
+#               {
+#                 "null": null
+#               }
 #             ],
 #             "function": "record"
 #           }
@@ -218,7 +246,9 @@
 #               }
 #             },
 #             "times": {
-#               "literal": 2
+#               "literal": {
+#                 "int": "2"
+#               }
 #             }
 #           }
 #         },

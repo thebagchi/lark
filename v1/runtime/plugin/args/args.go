@@ -10,52 +10,43 @@
 // by WithArgs, an option of the run - is bound by whoever initialises the
 // module, which is why this reads the thread rather than holding anything
 // itself.
+//
+// Revisions:
+//   - 2026-09-22 23:59: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 package args
 
 import (
-	"errors"
-	"fmt"
-
 	"go.starlark.net/starlark"
-	"google.golang.org/protobuf/types/known/structpb"
+	"go.starlark.net/syntax"
 
-	"github.com/thebagchi/lark/v1/runtime/artifact"
-	"github.com/thebagchi/lark/v1/runtime/graph"
+	"github.com/thebagchi/lark/v1/runtime/internal/graph"
 	"github.com/thebagchi/lark/v1/runtime/plugin"
-	"github.com/thebagchi/lark/v1/runtime/scheduler"
+	"github.com/thebagchi/lark/v1/runtime/plugin/args/internal/declare"
+	"github.com/thebagchi/lark/v1/runtime/plugin/args/internal/spec"
 )
 
 var (
-	// ErrNotSupplied is returned for an argument a script declared with no
-	// default and the run did not supply.
-	ErrNotSupplied = errors.New("argument not supplied and has no default")
-
-	// ErrNotDeclaring is returned for an arg() call somewhere a declaration
-	// cannot be: inside a function body rather than at module level.
+	// ErrRequired is declare.ErrRequired.
 	//
-	// Without it such a call is the worst of the outcomes available. It takes
-	// its default in silence, because the thread running a body is not the
-	// thread a run bound its arguments on, and deriving a graph does not carry
-	// it either - so a script that looks like it reads an argument reads
-	// nothing, twice over, invisibly.
-	ErrNotDeclaring = errors.New("arg declares a module-level name")
+	// Revisions:
+	//   - 2026-11-10 01:37: initial creation (C120b, Q319)
+	//   - 2026-11-10 17:15: renamed from ErrNotSupplied (C121, Q349)
+	ErrRequired = declare.ErrRequired
 
-	// ErrNotValue is returned for a supplied value this cannot hand a script,
-	// which is a google.protobuf.Value nobody filled in.
-	ErrNotValue = errors.New("argument is not a value")
-)
+	// ErrDeclare is declare.ErrDeclare.
+	//
+	// Revisions:
+	//   - 2026-11-10 01:37: initial creation (C120b, Q319)
+	//   - 2026-11-10 17:15: renamed from ErrNotDeclaring (C121, Q349)
+	ErrDeclare = declare.ErrDeclare
 
-const (
-	// NAME is what this plugin is called when a conflict has to name it.
-	NAME = "args"
-
-	// DEFAULT is the second parameter, so a script may pass it either way
-	// round.
-	DEFAULT = "default"
-
-	// SUPPLIED is the first, which is the name a run supplies it under rather
-	// than the name the script binds.
-	SUPPLIED = "name"
+	// ErrValue is declare.ErrValue.
+	//
+	// Revisions:
+	//   - 2026-11-10 01:37: initial creation (C120b, Q319)
+	//   - 2026-11-10 17:15: renamed from ErrNotValue (C121, Q349)
+	ErrValue = declare.ErrValue
 )
 
 // init registers this plugin, so that a host importing this package for its
@@ -69,14 +60,19 @@ func init() {
 
 // _Args is the plugin. Empty: what a run supplied belongs to that run and is
 // found on the thread, so there is nothing here to hold.
+//
+// Revisions:
+//   - 2026-09-22 23:59: initial creation
+//   - 2026-11-06 22:37: revision history added (C90)
 type _Args struct{}
 
 // Name is what this plugin is called when a conflict has to name it.
 //
 // Revisions:
 //   - 2026-09-22 22:24: initial creation
+//   - 2026-11-08 00:27: names read from internal/spec (C91w12a)
 func (a *_Args) Name() string {
-	return NAME
+	return spec.NAME
 }
 
 // Values returns the declaration builtin.
@@ -87,183 +83,28 @@ func (a *_Args) Name() string {
 //
 // Revisions:
 //   - 2026-09-22 22:24: initial creation
+//   - 2026-11-10 11:32: uses declare.Declare, which moved to internal/declare (C120b, Q315)
 func (a *_Args) Values() starlark.StringDict {
 	return starlark.StringDict{
 		graph.ARG: starlark.NewBuiltin(
 			graph.ARG,
-			_Declare,
+			declare.Declare,
 		),
 	}
 }
 
-// _Declare is the builtin: the value the run supplied under name, or the
-// default the script stated.
+// Check refuses a use of arg that is not a call of it, such as b = arg. A
+// declaration is then always an arg() call at its place, which is what a run
+// and the lark command read to check -args keys (Q301).
 //
-// Returns ErrNotSupplied when neither exists, so a script declaring an
-// argument it cannot do without fails at the line that declares it rather than
-// somewhere later with None in its hands. Returns ErrNotDeclaring when it is
-// called anywhere but a module's top level.
+// This is a Checking, which the compiler asks every plugin for. It does not
+// ask about a file that has taken the name arg for itself.
 //
-// An attempt of a repeat or a retry is a body, though it runs on its caller's
-// thread. At module level that thread is bound, so the attempt is refused by
-// its count rather than by the thread.
+// Returns ErrDeclare.
 //
 // Revisions:
-//   - 2026-09-22 22:24: initial creation
-//   - 2026-10-29 06:26: refuses a call inside an attempt
-func _Declare(
-	thread *starlark.Thread,
-	fn *starlark.Builtin,
-	args starlark.Tuple,
-	kwargs []starlark.Tuple,
-) (starlark.Value, error) {
-	var (
-		name     string
-		fallback starlark.Value
-	)
-
-	err := starlark.UnpackArgs(
-		fn.Name(),
-		args,
-		kwargs,
-		SUPPLIED,
-		&name,
-		DEFAULT+"?",
-		&fallback,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	var (
-		supplied, bound = artifact.Supplied(thread)
-		attempt         = scheduler.AttemptOf(thread)
-		declaring       = bound && attempt == scheduler.NO_ATTEMPT
-	)
-	if !declaring {
-		return nil, fmt.Errorf(
-			"%s: %w",
-			name,
-			ErrNotDeclaring,
-		)
-	}
-
-	value, found := supplied[name]
-	if found {
-		return _Starlark(value)
-	}
-
-	if fallback == nil {
-		return nil, fmt.Errorf(
-			"%s: %w",
-			name,
-			ErrNotSupplied,
-		)
-	}
-
-	return fallback, nil
-}
-
-// _Starlark is a supplied value as a script sees it.
-//
-// Revisions:
-//   - 2026-09-22 22:24: initial creation
-func _Starlark(value *structpb.Value) (starlark.Value, error) {
-	switch held := value.GetKind().(type) {
-	case *structpb.Value_NullValue:
-		return starlark.None, nil
-
-	case *structpb.Value_NumberValue:
-		return _Number(held.NumberValue), nil
-
-	case *structpb.Value_StringValue:
-		return starlark.String(held.StringValue), nil
-
-	case *structpb.Value_BoolValue:
-		return starlark.Bool(held.BoolValue), nil
-
-	case *structpb.Value_ListValue:
-		return _List(held.ListValue)
-
-	case *structpb.Value_StructValue:
-		return _Dict(held.StructValue)
-	}
-
-	return nil, fmt.Errorf(
-		"%T: %w",
-		value.GetKind(),
-		ErrNotValue,
-	)
-}
-
-// _Number is a supplied number as a script sees it.
-//
-// A whole number arrives as an int, because JSON has one number type and
-// Starlark has two: a script indexing a list or counting a repeat with a float
-// gets an error from Starlark rather than the count its caller passed.
-//
-// Revisions:
-//   - 2026-09-22 22:24: initial creation
-func _Number(number float64) starlark.Value {
-	whole := int64(number)
-	if float64(whole) != number {
-		return starlark.Float(number)
-	}
-
-	return starlark.MakeInt64(whole)
-}
-
-// _List is a supplied array as a script sees it.
-//
-// Revisions:
-//   - 2026-09-22 22:24: initial creation
-func _List(values *structpb.ListValue) (starlark.Value, error) {
-	held := make(
-		[]starlark.Value,
-		0,
-		len(values.GetValues()),
-	)
-
-	for _, value := range values.GetValues() {
-		converted, err := _Starlark(value)
-		if err != nil {
-			return nil, err
-		}
-
-		held = append(
-			held,
-			converted,
-		)
-	}
-
-	return starlark.NewList(held), nil
-}
-
-// _Dict is a supplied object as a script sees it.
-//
-// Revisions:
-//   - 2026-09-22 22:24: initial creation
-func _Dict(fields *structpb.Struct) (starlark.Value, error) {
-	held := starlark.NewDict(len(fields.GetFields()))
-
-	for key, value := range fields.GetFields() {
-		converted, err := _Starlark(value)
-		if err != nil {
-			return nil, err
-		}
-
-		err = held.SetKey(
-			starlark.String(key),
-			converted,
-		)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"%s: %w",
-				key,
-				err,
-			)
-		}
-	}
-
-	return held, nil
+//   - 2026-11-10 11:52: initial creation (C118, B251, Q301)
+//   - 2026-11-10 17:15: uses ErrDeclare, formerly ErrNotDeclaring (C121, Q349)
+func (a *_Args) Check(tree *syntax.File) error {
+	return declare.Aliased(tree)
 }

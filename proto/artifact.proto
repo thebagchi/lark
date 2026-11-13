@@ -13,6 +13,13 @@ option go_package = "github.com/thebagchi/lark/proto/gen/artifact;artifact";
 // the spelling a script wrote, so without this map a unit cannot be wired to
 // its dependencies.
 //
+// source is the text the code was compiled from. A compile merges every load
+// into the script, so a bundle holds one unit and its source is the merged
+// script, which no file on disk holds. It is carried for a reader who wants to
+// see what runs; the code is what runs. A string, so proto3 refuses to write
+// text that is not valid UTF-8 rather than carry it. Empty in a bundle written
+// before the field existed.
+//
 // The syntax tree is not carried. Compiled code does not include it, so a unit
 // restored from here has none, and the entry-point rule cannot be applied a
 // second time.
@@ -20,6 +27,7 @@ message Unit {
   string name               = 1;
   bytes code                = 2;
   map<string, string> loads = 3;
+  string source             = 4;
 }
 
 // Artifact is a script and every module it loads, compiled together. entry
@@ -28,8 +36,19 @@ message Unit {
 // A bundle is the compiled units and nothing else. It carries no flow: a host
 // that wants the picture derives one from the source, and a host that wants
 // progress watches the graph a run reports. Field 3 was the graph a user
-// interface drew, and is gone with it.
+// interface drew, and is gone with it, so no new field takes the number.
+//
+// plugins names the plugins whose names the script uses, sorted and without
+// repeats: the runtime's own and the host's. A load refuses a bundle when a
+// plugin named here was not given, since the run would otherwise fail at the
+// first use of one of its names. A plugin that is given and not named is fine.
+// Empty in a bundle written before the field existed, and such a bundle is
+// loaded with no check. The names are text read from a file, so a reader
+// quotes and bounds them.
 message Artifact {
-  string entry        = 1;
-  repeated Unit units = 2;
+  reserved 3;
+
+  string entry            = 1;
+  repeated Unit units     = 2;
+  repeated string plugins = 4;
 }
